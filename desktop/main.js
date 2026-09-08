@@ -343,16 +343,18 @@ function showWindow() {
 // 壳层注入 CSS：隐藏上游面板侧栏顶部的"假红绿灯"装饰（Sidebar.js 的 Traffic lights）。
 // macOS 窗口自带真标题栏，页面里再画一组显得重复；且这是纯装饰，隐藏无功能影响。
 // 选择器取 aside 内第一个 pt-5 的 flex 行（上游该块唯一），不依赖 Tailwind 色值类名。
-// 壘层隐藏的上游 UI 装饰（均为纯装饰/入口，无功能影响；上游零改动，见 ADR-0002）：
+// 壳层隐藏的上游 UI 装饰（均为纯装饰/入口，无功能影响；上游零改动，见 ADR-0002）：
 // 1. 侧栏顶部仿 macOS 红绿灯装饰 —— 与窗口真标题栏重复
 // 2. 9Remote / 9English 入口 —— 产品化时不想暴露的入口；9Remote 无 href，
 //    用相邻兄弟选择器（它正好在 9English 链接前面）；上游小改结构时
 //    选择器失效仅是“恢复显示”，优雅降级
+// 3. 顶部栏捐赠入口 —— 纯赞助入口，壳层予以隐藏
 const SHELL_HIDE_CSS = `
   aside > div.flex.items-center.gap-2.px-6.pt-5 { display: none !important; }
   aside > div.px-6.py-4 { padding-top: 18px !important; }
   aside > nav a[href="https://9english.net/"],
   aside > nav button:has(+ a[href="https://9english.net/"]) { display: none !important; }
+  header button[aria-label="Donate"] { display: none !important; }
 `;
 
 function applyShellCss(win) {
@@ -627,12 +629,13 @@ async function runSmoke() {
       });
       results.push("窗口 did-finish-load ✓");
 
-      // 壳层 CSS 应已隐藏的三个上游 UI 元素（假红绿灯 / 9Remote / 9English），不许回归
+      // 壳层 CSS 应已隐藏的上游 UI 元素（假红绿灯 / 9Remote / 9English / 捐赠按钮），不许回归
       const win = mainWindow;
       const checks = {
         假红绿灯: "aside > div.flex.items-center.gap-2.px-6.pt-5",
         九Remote: "aside > nav button:has(+ a[href='https://9english.net/'])",
         九English: "aside > nav a[href='https://9english.net/']",
+        捐赠按钮: "header button[aria-label='Donate']",
       };
       const hiddenState = await win.webContents.executeJavaScript(
         `(() => { const q = ${JSON.stringify(checks)};
