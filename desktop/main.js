@@ -28,6 +28,7 @@ let tray = null;
 let gateway = null;
 let gatewayPort = 0;
 let quitting = false;
+let smokeStarted = false;
 
 // 应用名必须在任何 getPath 调用前固定：userData 目录名取自它（spec: 数据目录隔离）
 app.setName("iRouter");
@@ -342,14 +343,21 @@ function showWindow() {
 // 壳层注入 CSS：隐藏上游面板侧栏顶部的"假红绿灯"装饰（Sidebar.js 的 Traffic lights）。
 // macOS 窗口自带真标题栏，页面里再画一组显得重复；且这是纯装饰，隐藏无功能影响。
 // 选择器取 aside 内第一个 pt-5 的 flex 行（上游该块唯一），不依赖 Tailwind 色值类名。
-const HIDE_FAKE_TRAFFIC_LIGHTS_CSS = `
+// 壘层隐藏的上游 UI 装饰（均为纯装饰/入口，无功能影响；上游零改动，见 ADR-0002）：
+// 1. 侧栏顶部仿 macOS 红绿灯装饰 —— 与窗口真标题栏重复
+// 2. 9Remote / 9English 入口 —— 产品化时不想暴露的入口；9Remote 无 href，
+//    用相邻兄弟选择器（它正好在 9English 链接前面）；上游小改结构时
+//    选择器失效仅是“恢复显示”，优雅降级
+const SHELL_HIDE_CSS = `
   aside > div.flex.items-center.gap-2.px-6.pt-5 { display: none !important; }
   aside > div.px-6.py-4 { padding-top: 18px !important; }
+  aside > nav a[href="https://9english.net/"],
+  aside > nav button:has(+ a[href="https://9english.net/"]) { display: none !important; }
 `;
 
 function applyShellCss(win) {
   win.webContents.on("did-finish-load", () => {
-    win.webContents.insertCSS(HIDE_FAKE_TRAFFIC_LIGHTS_CSS).catch(() => {});
+    win.webContents.insertCSS(SHELL_HIDE_CSS).catch(() => {});
   });
 }
 
@@ -395,7 +403,7 @@ function createWindow() {
   });
 
   win.webContents.on("did-finish-load", () => {
-    if (SMOKE) runSmoke();
+    if (SMOKE && !smokeStarted) runSmoke();
   });
   applyShellCss(win);
 
@@ -559,6 +567,8 @@ function httpProbe(pathname) {
 }
 
 async function runSmoke() {
+  if (smokeStarted) return;
+  smokeStarted = true;
   const results = [];
   let ok = true;
   try {
@@ -576,11 +586,29 @@ async function runSmoke() {
       // （aside/假红绿灯只在那边存在）；仅 smoke 路径执行。
       try {
         const crypto = require("node:crypto");
-        const secret = fs.readFileSync(path.join(app.getPath("userData"), "jwt-secret"));
-        const b64u = (buf) => buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        const secret = fs.readFileSync(
+          path.join(app.getPath("userData"), "jwt-secret"),
+        );
+        const b64u = (buf) =>
+          buf
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
         const now = Math.floor(Date.now() / 1000);
-        const payload = b64u(Buffer.from(JSON.stringify({ authenticated: true, iat: now, exp: now + 3600 })));
-        const sig = b64u(crypto.createHmac("sha256", secret).update(`${b64u(Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })))}.${payload}`).digest());
+        const payload = b64u(
+          Buffer.from(
+            JSON.stringify({ authenticated: true, iat: now, exp: now + 3600 }),
+          ),
+        );
+        const sig = b64u(
+          crypto
+            .createHmac("sha256", secret)
+            .update(
+              `${b64u(Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })))}.${payload}`,
+            )
+            .digest(),
+        );
         await mainWindow.webContents.session.cookies.set({
           url: gatewayOrigin(),
           name: "auth_token",
@@ -599,24 +627,32 @@ async function runSmoke() {
       });
       results.push("窗口 did-finish-load ✓");
 
-      // 关窗应隐藏到托盘，且网关继续服务（spec: 关窗最小化到托盘）
+      // 壳层 CSS 应已隐藏的三个上游 UI 元素（假红绿灯 / 9Remote / 9English），不许回归
       const win = mainWindow;
+      const checks = {
+        假红绿灯: "aside > div.flex.items-center.gap-2.px-6.pt-5",
+        九Remote: "aside > nav button:has(+ a[href='https://9english.net/'])",
+        九English: "aside > nav a[href='https://9english.net/']",
+      };
+      const hiddenState = await win.webContents.executeJavaScript(
+        `(() => { const q = ${JSON.stringify(checks)};
+                  return Object.fromEntries(Object.entries(q).map(([k, sel]) => {
+                    const el = document.querySelector(sel);
+                    return [k, el ? getComputedStyle(el).display === "none" : "no-element"];
+                  })); })()`,
+        true,
+      );
+      for (const [k, v] of Object.entries(hiddenState)) {
+        results.push(`${k}已隐藏=${v}`);
+        ok &&= v === true;
+      }
+      // 关窗应隐藏到托盘，且网关继续服务（spec: 关窗最小化到托盘）
       win.close();
       await new Promise((r) => setTimeout(r, 400));
       const hidden = !win.isVisible();
       const alive = await httpProbe("/login");
       results.push(`关窗后隐藏=${hidden} 网关仍响应=${alive}`);
       ok &&= hidden && alive === 200;
-
-      // 壳层 CSS 应已隐藏上游侧栏的假红绿灯装饰（spec 外的壳层外观，但不许回归）
-      const lightsHidden = await win.webContents.executeJavaScript(
-        `(() => { const el = document.querySelector('aside > div.flex.items-center.gap-2.px-6.pt-5');
-                  if (!el) return 'no-element';
-                  return getComputedStyle(el).display === 'none'; })()`,
-        true,
-      );
-      results.push(`假红绿灯已隐藏=${lightsHidden}`);
-      ok &&= lightsHidden === true;
     }
     results.push(`托盘已创建=${!!tray}`);
     ok &&= !!tray;
