@@ -1,7 +1,7 @@
 # iRouter 打包配置（自用分发：不签名、不公证、不自动更新）
 appId: com.irouter.desktop
 productName: iRouter
-copyright: "MIT License — 上游 9Router (decolua/9router)"
+copyright: "跨平台本地 AI 路由网关 · MIT License"
 
 directories:
   # buildResources 与 output 分离：resources/ 是纳入版本控制的源资产，

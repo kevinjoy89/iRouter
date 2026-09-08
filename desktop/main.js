@@ -5,9 +5,11 @@ const {
   BrowserWindow,
   Tray,
   Menu,
+  session,
   dialog,
   shell,
   nativeImage,
+  nativeTheme,
 } = require("electron");
 const { spawn } = require("node:child_process");
 const net = require("node:net");
@@ -83,6 +85,19 @@ function iconPath() {
   return app.isPackaged
     ? path.join(process.resourcesPath, "icon.png")
     : path.join(__dirname, "resources", "icon.png");
+}
+
+let cachedLogoDataUrl = null;
+function getLogoDataUrl() {
+  if (cachedLogoDataUrl) return cachedLogoDataUrl;
+  const p = iconPath();
+  if (fs.existsSync(p)) {
+    const img = nativeImage.createFromPath(p);
+    // 渲染在 36x36 容器中，用 72x72 在 Retina 屏幕下呈现 2x 细腻度
+    cachedLogoDataUrl = img.resize({ width: 72, height: 72 }).toDataURL();
+    return cachedLogoDataUrl;
+  }
+  return "";
 }
 
 // ---------------------------------------------------------------- 端口
@@ -326,8 +341,14 @@ function gatewayOrigin() {
   return `http://127.0.0.1:${gatewayPort}`;
 }
 
+// 窗口标题：空字符串，保持标题栏纯净无多余字样（面板侧栏已有品牌大标题）
 function windowTitle() {
-  return `iRouter — 9Router 网关 :${gatewayPort}`;
+  return "";
+}
+
+function trayTooltip() {
+  const t = getMenuI18n(currentLocale);
+  return `${t.trayTooltip} :${gatewayPort}`;
 }
 
 function showWindow() {
@@ -340,27 +361,124 @@ function showWindow() {
   mainWindow.focus();
 }
 
-// 壳层注入 CSS：隐藏上游面板侧栏顶部的"假红绿灯"装饰（Sidebar.js 的 Traffic lights）。
-// macOS 窗口自带真标题栏，页面里再画一组显得重复；且这是纯装饰，隐藏无功能影响。
-// 选择器取 aside 内第一个 pt-5 的 flex 行（上游该块唯一），不依赖 Tailwind 色值类名。
-// 壳层隐藏的上游 UI 装饰（均为纯装饰/入口，无功能影响；上游零改动，见 ADR-0002）：
+// 壳层隐藏与定制的上游 UI（纯表现层，无功能影响；上游源码零改动，见 ADR-0002）：
 // 1. 侧栏顶部仿 macOS 红绿灯装饰 —— 与窗口真标题栏重复
 // 2. 9Remote / 9English 入口 —— 产品化时不想暴露的入口；9Remote 无 href，
 //    用相邻兄弟选择器（它正好在 9English 链接前面）；上游小改结构时
 //    选择器失效仅是“恢复显示”，优雅降级
 // 3. 顶部栏捐赠入口 —— 纯赞助入口，壳层予以隐藏
-const SHELL_HIDE_CSS = `
+// 4. 侧栏品牌与版本 —— 9Router Proxy 替换为 iRouter Proxy，版本号与桌面端当前版本保持一致
+// 5. 顶部栏右侧工具按钮 —— 主题切换、语言切换、四宫格菜单，壳层予以隐藏
+// 6. 侧栏 Logo —— 原 hub 图标容器替换为 iRouter 官方应用图标
+// 7. 侧栏 Skills 入口 —— 壳层予以隐藏
+function getShellCss() {
+  const version = app.getVersion();
+  const logoUrl = getLogoDataUrl();
+  return `
   aside > div.flex.items-center.gap-2.px-6.pt-5 { display: none !important; }
   aside > div.px-6.py-4 { padding-top: 18px !important; }
   aside > nav a[href="https://9english.net/"],
   aside > nav button:has(+ a[href="https://9english.net/"]) { display: none !important; }
+  aside > nav a[href="/dashboard/skills"] { display: none !important; }
   header button[aria-label="Donate"] { display: none !important; }
+  header button[aria-label*="mode"],
+  header button[title*="mode"],
+  header button[title="Language"],
+  header button[data-i18n-skip="true"],
+  header div.relative:has(> button[title="Menu"]),
+  header button[title="Menu"] { display: none !important; }
+  aside a[href="/dashboard"] > div:first-child {
+    background-image: url("${logoUrl}") !important;
+    background-color: transparent !important;
+    background-size: contain !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    box-shadow: none !important;
+  }
+  aside a[href="/dashboard"] > div:first-child > span { display: none !important; }
+  aside a[href="/dashboard"] h1 { font-size: 0 !important; }
+  aside a[href="/dashboard"] h1::after {
+    content: "iRouter Proxy" !important;
+    font-size: 1.125rem !important;
+    line-height: 1.75rem !important;
+  }
+  aside a[href="/dashboard"] h1 + span { font-size: 0 !important; }
+  aside a[href="/dashboard"] h1 + span::after {
+    content: "v${version}" !important;
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+  }
 `;
+}
 
 function applyShellCss(win) {
-  win.webContents.on("did-finish-load", () => {
-    win.webContents.insertCSS(SHELL_HIDE_CSS).catch(() => {});
+  const inject = () => {
+    win.webContents.insertCSS(getShellCss()).catch(() => {});
+  };
+  win.webContents.on("dom-ready", inject);
+  win.webContents.on("did-finish-load", inject);
+}
+
+// ---------------------------------------------------------------- 深浅色与多语言跟随
+// 监听面板内深浅色模式（<html> class）与语言设定（document.cookie 中的 locale），
+// 通过 console-message 通知主进程，同步切换 macOS 系统标题栏外观与顶部原生菜单语言
+const SHELL_SYNC_SCRIPT = `
+(() => {
+  if (window.__irouter_shell_sync_injected) return;
+  window.__irouter_shell_sync_injected = true;
+
+  function reportTheme() {
+    const isDark = document.documentElement.classList.contains("dark");
+    console.log("__IROUTER_THEME__:" + (isDark ? "dark" : "light"));
+  }
+  reportTheme();
+  const themeObserver = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.attributeName === "class") {
+        reportTheme();
+        break;
+      }
+    }
   });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+
+  function getLocale() {
+    const m = document.cookie.match(/(?:^|;\\s*)locale=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+  let lastLocale = getLocale();
+  if (lastLocale) {
+    console.log("__IROUTER_LOCALE__:" + lastLocale);
+  }
+  setInterval(() => {
+    const current = getLocale();
+    if (current && current !== lastLocale) {
+      lastLocale = current;
+      console.log("__IROUTER_LOCALE__:" + current);
+    }
+  }, 1000);
+})();
+`;
+
+/**
+ * 注入深浅色与多语言监听脚本并同步初始 Cookie 语言
+ * @param {BrowserWindow} win 目标窗口实例
+ */
+function applyShellSync(win) {
+  const inject = () => {
+    win.webContents.executeJavaScript(SHELL_SYNC_SCRIPT).catch(() => {});
+    win.webContents.session.cookies
+      .get({ name: "locale" })
+      .then((cookies) => {
+        const loc = cookies.find((c) => c.name === "locale");
+        if (loc?.value) {
+          setAppLocale(loc.value);
+        }
+      })
+      .catch(() => {});
+  };
+  win.webContents.on("dom-ready", inject);
+  win.webContents.on("did-finish-load", inject);
 }
 
 function createWindow() {
@@ -372,6 +490,7 @@ function createWindow() {
     title: windowTitle(),
     show: false,
     autoHideMenuBar: true,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#18181b" : "#ffffff",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -380,7 +499,27 @@ function createWindow() {
   });
   mainWindow = win;
 
-  // 面板自带 <title>，固定为壳层标题（spec: 窗口标题包含 iRouter）
+  // 接收渲染进程主题与多语言通知，同步更新系统原生外观与菜单文案
+  win.webContents.on("console-message", (event, ...args) => {
+    const message =
+      typeof event?.message === "string"
+        ? event.message
+        : typeof args[1] === "string"
+          ? args[1]
+          : "";
+    if (message.startsWith("__IROUTER_THEME__:")) {
+      const mode = message.slice("__IROUTER_THEME__:".length);
+      if (mode === "dark" || mode === "light") {
+        nativeTheme.themeSource = mode;
+        win.setBackgroundColor(mode === "dark" ? "#18181b" : "#ffffff");
+      }
+    } else if (message.startsWith("__IROUTER_LOCALE__:")) {
+      const loc = message.slice("__IROUTER_LOCALE__:".length);
+      setAppLocale(loc);
+    }
+  });
+
+  // 面板自带 <title>，固定为空白标题（保持标题栏纯净无文字）
   win.on("page-title-updated", (e) => {
     e.preventDefault();
     win.setTitle(windowTitle());
@@ -405,9 +544,11 @@ function createWindow() {
   });
 
   win.webContents.on("did-finish-load", () => {
+    win.setTitle(windowTitle());
     if (SMOKE && !smokeStarted) runSmoke();
   });
   applyShellCss(win);
+  applyShellSync(win);
 
   win.once("ready-to-show", () => win.show());
 
@@ -429,6 +570,434 @@ h1{font-size:18px;margin:0 0 12px;color:#f97316}code{background:#222;padding:2px
   if (mainWindow) {
     mainWindow.show();
     mainWindow.loadURL(html);
+  }
+}
+
+// ---------------------------------------------------------------- 应用多语言与菜单栏
+let currentLocale = "en";
+
+const MENU_TRANSLATIONS = {
+  en: {
+    view: "View",
+    window: "Window",
+    about: "About iRouter",
+    services: "Services",
+    hide: "Hide iRouter",
+    hideOthers: "Hide Others",
+    unhide: "Show All",
+    quit: "Quit iRouter",
+    reload: "Reload",
+    forceReload: "Force Reload",
+    toggleDevTools: "Toggle Developer Tools",
+    actualSize: "Actual Size",
+    zoomIn: "Zoom In",
+    zoomOut: "Zoom Out",
+    toggleFullScreen: "Toggle Full Screen",
+    minimize: "Minimize",
+    zoom: "Zoom",
+    front: "Bring All to Front",
+    close: "Close Window",
+    openDashboard: "Open Dashboard",
+    autostart: "Launch at Login",
+    gatewayAddr: "Gateway Address",
+    quitApp: "Quit iRouter",
+    trayTooltip: "iRouter Gateway",
+  },
+  "zh-CN": {
+    view: "视图",
+    window: "窗口",
+    about: "关于 iRouter",
+    services: "服务",
+    hide: "隐藏 iRouter",
+    hideOthers: "隐藏其他",
+    unhide: "全部显示",
+    quit: "退出 iRouter",
+    reload: "重新加载",
+    forceReload: "强制重新加载",
+    toggleDevTools: "开发者工具",
+    actualSize: "实际大小",
+    zoomIn: "放大",
+    zoomOut: "缩小",
+    toggleFullScreen: "切换全屏",
+    minimize: "最小化",
+    zoom: "缩放",
+    front: "前置全部窗口",
+    close: "关闭窗口",
+    openDashboard: "打开面板",
+    autostart: "开机自启",
+    gatewayAddr: "网关地址",
+    quitApp: "退出 iRouter",
+    trayTooltip: "iRouter 网关",
+  },
+  "zh-TW": {
+    view: "檢視",
+    window: "視窗",
+    about: "關於 iRouter",
+    services: "服務",
+    hide: "隱藏 iRouter",
+    hideOthers: "隱藏其他",
+    unhide: "全部顯示",
+    quit: "結束 iRouter",
+    reload: "重新載入",
+    forceReload: "強制重新載入",
+    toggleDevTools: "開發人員工具",
+    actualSize: "實際大小",
+    zoomIn: "放大",
+    zoomOut: "縮小",
+    toggleFullScreen: "切換全螢幕",
+    minimize: "最小化",
+    zoom: "縮放",
+    front: "將全部視窗移至最前",
+    close: "關閉視窗",
+    openDashboard: "開啟控制台",
+    autostart: "開機自動啟動",
+    gatewayAddr: "閘道位址",
+    quitApp: "結束 iRouter",
+    trayTooltip: "iRouter 閘道",
+  },
+  ja: {
+    view: "表示",
+    window: "ウィンドウ",
+    about: "iRouter について",
+    services: "サービス",
+    hide: "iRouter を隠す",
+    hideOthers: "ほかを隠す",
+    unhide: "すべてを表示",
+    quit: "iRouter を終了",
+    reload: "再読み込み",
+    forceReload: "強制的に再読み込み",
+    toggleDevTools: "デベロッパー ツール",
+    actualSize: "実際のサイズ",
+    zoomIn: "拡大",
+    zoomOut: "縮小",
+    toggleFullScreen: "フルスクリーンにする",
+    minimize: "最小化",
+    zoom: "拡大/縮小",
+    front: "すべてを手前に移動",
+    close: "ウィンドウを閉じる",
+    openDashboard: "ダッシュボードを開く",
+    autostart: "ログイン時に起動",
+    gatewayAddr: "ゲートウェイ アドレス",
+    quitApp: "iRouter を終了",
+    trayTooltip: "iRouter ゲートウェイ",
+  },
+  ko: {
+    view: "보기",
+    window: "윈도우",
+    about: "iRouter 정보",
+    services: "서비스",
+    hide: "iRouter 숨기기",
+    hideOthers: "기타 가리기",
+    unhide: "모두 보기",
+    quit: "iRouter 종료",
+    reload: "새로고침",
+    forceReload: "강제 새로고침",
+    toggleDevTools: "개발자 도구",
+    actualSize: "실제 크기",
+    zoomIn: "확대",
+    zoomOut: "축소",
+    toggleFullScreen: "전체 화면",
+    minimize: "최소화",
+    zoom: "확대/축소",
+    front: "모두 앞으로 가져오기",
+    close: "창 닫기",
+    openDashboard: "대시보드 열기",
+    autostart: "로그인 시 시작",
+    gatewayAddr: "게이트웨이 주소",
+    quitApp: "iRouter 종료",
+    trayTooltip: "iRouter 게이트웨이",
+  },
+  es: {
+    view: "Ver",
+    window: "Ventana",
+    about: "Acerca de iRouter",
+    services: "Servicios",
+    hide: "Ocultar iRouter",
+    hideOthers: "Ocultar otros",
+    unhide: "Mostrar todo",
+    quit: "Salir de iRouter",
+    reload: "Recargar",
+    forceReload: "Forzar recarga",
+    toggleDevTools: "Herramientas de desarrollador",
+    actualSize: "Tamaño real",
+    zoomIn: "Acercar",
+    zoomOut: "Alejar",
+    toggleFullScreen: "Pantalla completa",
+    minimize: "Minimizar",
+    zoom: "Zoom",
+    front: "Traer todo al frente",
+    close: "Cerrar ventana",
+    openDashboard: "Abrir panel",
+    autostart: "Iniciar al arrancar",
+    gatewayAddr: "Dirección de gateway",
+    quitApp: "Salir de iRouter",
+    trayTooltip: "Gateway iRouter",
+  },
+  fr: {
+    view: "Présentation",
+    window: "Fenêtre",
+    about: "À propos de iRouter",
+    services: "Services",
+    hide: "Masquer iRouter",
+    hideOthers: "Masquer les autres",
+    unhide: "Tout afficher",
+    quit: "Quitter iRouter",
+    reload: "Recharger la page",
+    forceReload: "Forcer le rechargement",
+    toggleDevTools: "Outils de développement",
+    actualSize: "Taille réelle",
+    zoomIn: "Zoom avant",
+    zoomOut: "Zoom arrière",
+    toggleFullScreen: "Activer le mode plein écran",
+    minimize: "Réduire",
+    zoom: "Agrandir/réduire",
+    front: "Tout ramener au premier plan",
+    close: "Fermer la fenêtre",
+    openDashboard: "Ouvrir le tableau de bord",
+    autostart: "Lancer au démarrage",
+    gatewayAddr: "Adresse de la passerelle",
+    quitApp: "Quitter iRouter",
+    trayTooltip: "Passerelle iRouter",
+  },
+  de: {
+    view: "Darstellung",
+    window: "Fenster",
+    about: "Über iRouter",
+    services: "Dienste",
+    hide: "iRouter ausblenden",
+    hideOthers: "Andere ausblenden",
+    unhide: "Alle einblenden",
+    quit: "iRouter beenden",
+    reload: "Neu laden",
+    forceReload: "Erneutes Laden erzwingen",
+    toggleDevTools: "Entwicklertools",
+    actualSize: "Originalgröße",
+    zoomIn: "Vergrößern",
+    zoomOut: "Verkleinern",
+    toggleFullScreen: "Vollbildmodus ein-/ausschalten",
+    minimize: "Minimieren",
+    zoom: "Zoom",
+    front: "Alle nach vorne bringen",
+    close: "Fenster schließen",
+    openDashboard: "Dashboard öffnen",
+    autostart: "Beim Systemstart ausführen",
+    gatewayAddr: "Gateway-Adresse",
+    quitApp: "iRouter beenden",
+    trayTooltip: "iRouter Gateway",
+  },
+  ru: {
+    view: "Вид",
+    window: "Окно",
+    about: "О программе iRouter",
+    services: "Службы",
+    hide: "Скрыть iRouter",
+    hideOthers: "Скрыть остальные",
+    unhide: "Показать все",
+    quit: "Завершить iRouter",
+    reload: "Перезагрузить",
+    forceReload: "Перезагрузить с очисткой кэша",
+    toggleDevTools: "Инструменты разработчика",
+    actualSize: "Фактический размер",
+    zoomIn: "Увеличить",
+    zoomOut: "Уменьшить",
+    toggleFullScreen: "Полноэкранный режим",
+    minimize: "Свернуть",
+    zoom: "Масштабирование",
+    front: "Все окна — на передний план",
+    close: "Закрыть окно",
+    openDashboard: "Открыть панель",
+    autostart: "Запуск при входе в систему",
+    gatewayAddr: "Адрес шлюза",
+    quitApp: "Завершить iRouter",
+    trayTooltip: "Шлюз iRouter",
+  },
+  "pt-BR": {
+    view: "Visualizar",
+    window: "Janela",
+    about: "Sobre o iRouter",
+    services: "Serviços",
+    hide: "Ocultar iRouter",
+    hideOthers: "Ocultar outros",
+    unhide: "Mostrar tudo",
+    quit: "Encerrar iRouter",
+    reload: "Recarregar",
+    forceReload: "Forçar recarregamento",
+    toggleDevTools: "Ferramentas do desenvolvedor",
+    actualSize: "Tamanho real",
+    zoomIn: "Mais zoom",
+    zoomOut: "Menos zoom",
+    toggleFullScreen: "Alternar tela cheia",
+    minimize: "Minimizar",
+    zoom: "Zoom",
+    front: "Trazer todas para a frente",
+    close: "Fechar janela",
+    openDashboard: "Abrir painel",
+    autostart: "Iniciar no login",
+    gatewayAddr: "Endereço do gateway",
+    quitApp: "Encerrar iRouter",
+    trayTooltip: "Gateway iRouter",
+  },
+  vi: {
+    view: "Xem",
+    window: "Cửa sổ",
+    about: "Giới thiệu về iRouter",
+    services: "Dịch vụ",
+    hide: "Ẩn iRouter",
+    hideOthers: "Ẩn mục khác",
+    unhide: "Hiển thị tất cả",
+    quit: "Thoát iRouter",
+    reload: "Tải lại",
+    forceReload: "Buộc tải lại",
+    toggleDevTools: "Công cụ cho nhà phát triển",
+    actualSize: "Kích thước thực tế",
+    zoomIn: "Phóng to",
+    zoomOut: "Thu nhỏ",
+    toggleFullScreen: "Toàn màn hình",
+    minimize: "Thu nhỏ",
+    zoom: "Thu phóng",
+    front: "Đưa tất cả lên phía trước",
+    close: "Đóng cửa sổ",
+    openDashboard: "Mở bảng điều khiển",
+    autostart: "Khởi chạy khi đăng nhập",
+    gatewayAddr: "Địa chỉ gateway",
+    quitApp: "Thoát iRouter",
+    trayTooltip: "Gateway iRouter",
+  },
+};
+
+/**
+ * 规范化语言代码
+ * 将任意语言字符串映射至受支持的菜单语言字典键名
+ * @param {string} raw 原始语言字符串
+ * @return {string} 规范化后的语言键名
+ */
+function normalizeMenuLocale(raw) {
+  if (!raw || typeof raw !== "string") return "en";
+  const s = raw.trim().toLowerCase();
+  if (s.startsWith("zh")) {
+    if (s.includes("tw") || s.includes("hk") || s.includes("hant")) {
+      return "zh-TW";
+    }
+    return "zh-CN";
+  }
+  if (s.startsWith("ja")) return "ja";
+  if (s.startsWith("ko")) return "ko";
+  if (s.startsWith("es")) return "es";
+  if (s.startsWith("fr")) return "fr";
+  if (s.startsWith("de")) return "de";
+  if (s.startsWith("ru")) return "ru";
+  if (s.startsWith("pt")) return "pt-BR";
+  if (s.startsWith("vi")) return "vi";
+  return "en";
+}
+
+/**
+ * 获取当前语言对应的菜单国际化文案
+ * @param {string} [locale] 目标语言代码
+ * @return {Object} 国际化文案键值对对象
+ */
+function getMenuI18n(locale = currentLocale) {
+  const norm = normalizeMenuLocale(locale);
+  return MENU_TRANSLATIONS[norm] || MENU_TRANSLATIONS.en;
+}
+
+/**
+ * 构建应用原生菜单栏配置模板
+ * 排除 File 与 Edit 顶栏菜单，保留应用菜单、View 与 Window，并在 macOS 隐藏项中保留快捷键
+ * @param {string} [locale] 目标语言代码
+ * @return {Array<Object>} 菜单项模板列表
+ */
+function buildMenuTemplate(locale = currentLocale) {
+  const isMac = process.platform === "darwin";
+  const t = getMenuI18n(locale);
+  return [
+    ...(isMac
+      ? [
+          {
+            label: "iRouter",
+            submenu: [
+              { role: "about", label: t.about },
+              { type: "separator" },
+              { role: "services", label: t.services },
+              { type: "separator" },
+              { role: "hide", label: t.hide },
+              { role: "hideOthers", label: t.hideOthers },
+              { role: "unhide", label: t.unhide },
+              { type: "separator" },
+              { role: "quit", label: t.quit },
+            ],
+          },
+        ]
+      : []),
+    ...(isMac
+      ? [
+          {
+            label: "Edit",
+            visible: false,
+            submenu: [
+              { role: "undo" },
+              { role: "redo" },
+              { type: "separator" },
+              { role: "cut" },
+              { role: "copy" },
+              { role: "paste" },
+              { role: "selectAll" },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: t.view,
+      submenu: [
+        { role: "reload", label: t.reload },
+        { role: "forceReload", label: t.forceReload },
+        { role: "toggleDevTools", label: t.toggleDevTools },
+        { type: "separator" },
+        { role: "resetZoom", label: t.actualSize },
+        { role: "zoomIn", label: t.zoomIn },
+        { role: "zoomOut", label: t.zoomOut },
+        { type: "separator" },
+        { role: "togglefullscreen", label: t.toggleFullScreen },
+      ],
+    },
+    {
+      label: t.window,
+      submenu: [
+        { role: "minimize", label: t.minimize },
+        { role: "zoom", label: t.zoom },
+        ...(isMac
+          ? [
+              { type: "separator" },
+              { role: "front", label: t.front },
+              { type: "separator" },
+              { role: "close", label: t.close },
+            ]
+          : [{ role: "close", label: t.close }]),
+      ],
+    },
+  ];
+}
+
+/**
+ * 配置并更新应用顶部原生菜单栏
+ * @param {string} [locale] 目标语言代码，缺省时使用 currentLocale
+ */
+function setupApplicationMenu(locale = currentLocale) {
+  const norm = normalizeMenuLocale(locale);
+  currentLocale = norm;
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(norm)));
+}
+
+/**
+ * 应用新的多语言设定并刷新菜单栏与托盘菜单
+ * @param {string} nextLocale 新的语言代码
+ */
+function setAppLocale(nextLocale) {
+  const norm = normalizeMenuLocale(nextLocale);
+  if (norm === currentLocale && Menu.getApplicationMenu()) return;
+  setupApplicationMenu(norm);
+  if (tray) {
+    updateTrayMenu();
   }
 }
 
@@ -461,23 +1030,32 @@ function setAutostart(on) {
   }
 }
 
-function createTray() {
-  tray = new Tray(trayIcon());
-  tray.setToolTip(windowTitle());
+/**
+ * 刷新托盘菜单文案与提示
+ */
+function updateTrayMenu() {
+  if (!tray) return;
+  const t = getMenuI18n(currentLocale);
+  tray.setToolTip(trayTooltip());
   const menu = Menu.buildFromTemplate([
-    { label: `网关地址：${gatewayOrigin()}/v1`, enabled: false },
+    { label: `${t.gatewayAddr}：${gatewayOrigin()}/v1`, enabled: false },
     { type: "separator" },
-    { label: "打开面板", click: showWindow },
+    { label: t.openDashboard, click: showWindow },
     {
-      label: "开机自启",
+      label: t.autostart,
       type: "checkbox",
       checked: autostartEnabled(),
       click: (item) => setAutostart(item.checked),
     },
     { type: "separator" },
-    { label: "退出 iRouter", click: () => quit() },
+    { label: t.quitApp, click: () => quit() },
   ]);
   tray.setContextMenu(menu);
+}
+
+function createTray() {
+  tray = new Tray(trayIcon());
+  updateTrayMenu();
   tray.on("double-click", showWindow);
 }
 
@@ -621,21 +1199,29 @@ async function runSmoke() {
         results.push(`smoke 登录注入失败：${e.message}`);
       }
       await new Promise((resolve) => {
-        if (mainWindow.webContents.isLoadingMainFrame()) {
-          mainWindow.webContents.once("did-finish-load", resolve);
-        } else {
+        if (!mainWindow.webContents.isLoadingMainFrame()) {
           resolve();
+          return;
         }
+        const timer = setTimeout(resolve, 3000);
+        mainWindow.webContents.once("did-finish-load", () => {
+          clearTimeout(timer);
+          resolve();
+        });
       });
       results.push("窗口 did-finish-load ✓");
 
-      // 壳层 CSS 应已隐藏的上游 UI 元素（假红绿灯 / 9Remote / 9English / 捐赠按钮），不许回归
+      // 壳层 CSS 应已隐藏的上游 UI 元素（假红绿灯 / 9Remote / 9English / 捐赠按钮 / 顶部三工具 / Skills 入口），不许回归
       const win = mainWindow;
       const checks = {
         假红绿灯: "aside > div.flex.items-center.gap-2.px-6.pt-5",
         九Remote: "aside > nav button:has(+ a[href='https://9english.net/'])",
         九English: "aside > nav a[href='https://9english.net/']",
+        技能入口: "aside > nav a[href='/dashboard/skills']",
         捐赠按钮: "header button[aria-label='Donate']",
+        主题切换: "header button[aria-label*='mode']",
+        语言切换: "header button[title='Language']",
+        四宫格菜单: "header button[title='Menu']",
       };
       const hiddenState = await win.webContents.executeJavaScript(
         `(() => { const q = ${JSON.stringify(checks)};
@@ -649,6 +1235,90 @@ async function runSmoke() {
         results.push(`${k}已隐藏=${v}`);
         ok &&= v === true;
       }
+
+      // 校验窗口标题已移除所有字样（保持标题栏纯净无文字）
+      const title = win.getTitle();
+      const titleOk = title === "";
+      results.push(`窗口标题无字样=${titleOk} ("${title}")`);
+      ok &&= titleOk;
+
+      // 校验侧栏品牌名与版本号已改为 iRouter Proxy 与桌面端当前版本
+      const brandText = await win.webContents.executeJavaScript(
+        `(() => {
+          const h1 = document.querySelector('aside a[href="/dashboard"] h1');
+          return h1 ? window.getComputedStyle(h1, '::after').content : "";
+        })()`,
+        true,
+      );
+      const versionText = await win.webContents.executeJavaScript(
+        `(() => {
+          const span = document.querySelector('aside a[href="/dashboard"] h1 + span');
+          return span ? window.getComputedStyle(span, '::after').content : "";
+        })()`,
+        true,
+      );
+      const brandOk = brandText === '"iRouter Proxy"';
+      const versionOk = versionText === `"v${app.getVersion()}"`;
+      results.push(`品牌名iRouter Proxy=${brandOk}`);
+      results.push(`版本号v${app.getVersion()}=${versionOk}`);
+      ok &&= brandOk && versionOk;
+
+      // 校验侧栏 Logo 容器已替换为官方应用图标且原 hub 图标已隐藏
+      const logoReplaced = await win.webContents.executeJavaScript(
+        `(() => {
+          const container = document.querySelector('aside a[href="/dashboard"] > div:first-child');
+          const span = container ? container.querySelector('span') : null;
+          const bg = container ? getComputedStyle(container).backgroundImage : "";
+          const spanHidden = span ? getComputedStyle(span).display === "none" : false;
+          return bg.startsWith('url("data:image/png') && spanHidden;
+        })()`,
+        true,
+      );
+      results.push(`侧栏Logo替换为应用图标=${logoReplaced}`);
+      ok &&= logoReplaced;
+
+      // 校验深浅色模式与系统标题栏外观跟随
+      const isDarkInPage = await win.webContents.executeJavaScript(
+        `document.documentElement.classList.contains("dark")`,
+        true,
+      );
+      const expectedMode = isDarkInPage ? "dark" : "light";
+      const themeFollowed = nativeTheme.themeSource === expectedMode;
+      results.push(`暗黑标题栏跟随=${themeFollowed} (页面=${expectedMode})`);
+      ok &&= themeFollowed;
+
+      // 校验顶部原生菜单栏已移除 File 与 Edit 菜单
+      const appMenu = Menu.getApplicationMenu();
+      const visibleMenuLabels = appMenu
+        ? appMenu.items.filter((i) => i.visible).map((i) => i.label || i.role)
+        : [];
+      const hasVisibleFile = appMenu
+        ? appMenu.items.some((i) => i.visible && (i.label === "File" || i.role === "filemenu"))
+        : false;
+      const hasVisibleEdit = appMenu
+        ? appMenu.items.some((i) => i.visible && (i.label === "Edit" || i.role === "editmenu"))
+        : false;
+      const menuOk = !hasVisibleFile && !hasVisibleEdit;
+      results.push(`菜单栏移除File和Edit=${menuOk} (可见项=[${visibleMenuLabels.join(", ")}])`);
+      ok &&= menuOk;
+
+      // 校验顶部原生菜单随软件多语言动态响应
+      const prevLoc = currentLocale;
+      setAppLocale("zh-CN");
+      const zhMenu = Menu.getApplicationMenu();
+      const zhLabels = zhMenu ? zhMenu.items.filter((i) => i.visible).map((i) => i.label) : [];
+      const zhOk = zhLabels[1] === "视图" && zhLabels[2] === "窗口";
+
+      setAppLocale("en");
+      const enMenu = Menu.getApplicationMenu();
+      const enLabels = enMenu ? enMenu.items.filter((i) => i.visible).map((i) => i.label) : [];
+      const enOk = enLabels[1] === "View" && enLabels[2] === "Window";
+
+      setAppLocale(prevLoc);
+      const i18nOk = zhOk && enOk;
+      results.push(`菜单栏多语言动态响应=${i18nOk} (中=[${zhLabels.join(", ")}], 英=[${enLabels.join(", ")}])`);
+      ok &&= i18nOk;
+
       // 关窗应隐藏到托盘，且网关继续服务（spec: 关窗最小化到托盘）
       win.close();
       await new Promise((r) => setTimeout(r, 400));
@@ -676,6 +1346,24 @@ app.whenReady().then(async () => {
     app.exit(0);
     return;
   }
+  if (process.platform === "darwin") {
+    app.setAboutPanelOptions({
+      applicationName: "iRouter",
+      applicationVersion: app.getVersion(),
+      version: app.getVersion(),
+      copyright: "跨平台本地 AI 路由网关 · MIT License",
+    });
+  }
+  // 初始语言设定：优先读取系统语言偏好
+  currentLocale = normalizeMenuLocale(app.getLocale());
+  setupApplicationMenu(currentLocale);
+
+  // 监听 Cookies 变化，当用户在面板切换语言时即时同步菜单
+  session.defaultSession.cookies.on("changed", (_event, cookie, _cause, removed) => {
+    if (!removed && cookie.name === "locale") {
+      setAppLocale(cookie.value);
+    }
+  });
   const dataDir = app.getPath("userData");
   fs.mkdirSync(dataDir, { recursive: true });
   await reapOrphanGateway(dataDir);
