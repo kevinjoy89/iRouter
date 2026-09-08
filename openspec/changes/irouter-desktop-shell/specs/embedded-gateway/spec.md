@@ -11,7 +11,7 @@
 #### Scenario: 无 Node 环境可用
 
 - **WHEN** 在未安装 Node 的机器上安装并启动 iRouter
-- **THEN** 面板可打开且 http://127.0.0.1:<port>/v1 正常响应
+- **THEN** 面板可打开且 <http://127.0.0.1>:<port>/v1 正常响应
 
 #### Scenario: 离线可用
 
@@ -59,6 +59,11 @@
 
 网关数据（配置、数据库、密钥）SHALL 存放在平台标准应用数据目录：macOS `~/Library/Application Support/iRouter`、Windows `%APPDATA%\iRouter`、Linux `~/.config/iRouter`。数据 SHALL NOT 写入 9router/ 或安装目录。
 
+#### Scenario: 首次运行判定
+
+- **WHEN** 数据目录中尚无网关自身数据（db、auth、jwt-secret、machine-id）
+- **THEN** 系统视为首次运行（Electron/Chromium 写入同目录的 profile 文件不算网关数据）
+
 #### Scenario: macOS 数据位置
 
 - **WHEN** 应用在 macOS 运行并产生数据
@@ -71,7 +76,7 @@
 
 ### Requirement: 首次运行导入旧数据
 
-当数据目录为空且检测到旧 CLI 数据目录 ~/.9router 存在时，应用 SHALL 在首次运行询问用户是否导入；导入 SHALL 复制配置、数据库与密钥（auth、db、jwt-secret、machine-id、model-catalog 等，不含 runtime/）；用户选择跳过 SHALL 持久化标记，不再重复询问。
+当数据目录中尚无网关数据、且检测到旧 CLI 数据目录 ~/.9router 存在时，应用 SHALL 在首次运行询问用户是否导入；导入 SHALL 复制配置、数据库与密钥（auth、db、jwt-secret、machine-id、model-catalog 等，不含 runtime/）；用户选择跳过 SHALL 持久化标记，不再重复询问。
 
 #### Scenario: 导入旧数据
 
@@ -88,11 +93,16 @@
 - **WHEN** 首次运行且不存在 ~/.9router
 - **THEN** 不出现导入询问
 
-### Requirement: 纯 WASM 存储回退
+### Requirement: 无原生模块存储
 
-应用分发的网关 SHALL 使用 sql.js（纯 WASM）存储；安装包 SHALL NOT 包含 better-sqlite3 原生模块。数据读写 SHALL 正常持久化。
+应用分发的网关 SHALL 使用不需按 Electron ABI 重编译的存储路径：优先 Node 内建的 `node:sqlite`，不可用时回退 `sql.js`（纯 WASM）；安装包 SHALL NOT 包含 `better-sqlite3` 原生模块。数据读写 SHALL 正常持久化。
 
 #### Scenario: 无原生模块仍可持久化
 
 - **WHEN** 应用运行并写入配置或用量数据，随后重启应用
 - **THEN** 数据仍然存在且面板显示正确
+
+#### Scenario: 包内不含需重编译的原生模块
+
+- **WHEN** 检查安装包内的网关依赖
+- **THEN** 不存在 better-sqlite3，且存储驱动正常初始化

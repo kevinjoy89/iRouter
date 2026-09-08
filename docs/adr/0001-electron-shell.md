@@ -9,4 +9,4 @@ Considered Options:
 - Tauri v2 + Node 运行时 sidecar（同左，另加首次解压 Node 的不优雅体验）
 
 Consequences:
-- 包内不装 better-sqlite3（Electron 的 Node ABI 需重新编译原生模块），存储走 9Router 官方支持的 sql.js 纯 WASM 回退
+- 包内不装 better-sqlite3（Electron 的 Node ABI 需重新编译原生模块）。实测网关优先使用 Electron 内建 Node 24 的 `node:sqlite`，`sql.js`（纯 WASM）作为更深层回退——两者都不需要按 ABI 重编译，原意达成

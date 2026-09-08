@@ -7,7 +7,7 @@
 - 新增 `desktop/` 壳层（Electron）：内嵌 Chromium 窗口直接渲染 9Router 面板，不经系统浏览器；系统托盘常驻；关闭窗口最小化到托盘，托盘"退出"才停止网关
 - 打包管线：对锁版上游执行 `next build` 产出 `.next/standalone` 自包含产物，随应用一起分发；网关服务以 `ELECTRON_RUN_AS_NODE` 子进程运行，不依赖目标机器 Node
 - 数据目录：通过 `DATA_DIR` 环境变量指向平台标准目录（macOS `~/Library/Application Support/iRouter`、Windows `%APPDATA%\iRouter`、Linux `~/.config/iRouter`）；首次运行检测到旧 CLI 数据 `~/.9router` 时提供一键导入
-- 端口策略：默认 20128，被占用时自动顺延到下一个空闲端口，绝不杀掉占用进程；面板窗口指向实际端口
+- 端口策略：默认 20128（与上游 CLI 一致），被占用时自动顺延到下一个空闲端口，绝不杀掉占用进程；面板窗口指向实际端口
 - 存储：包内不携带 `better-sqlite3`（原生模块在 Electron ABI 下需重编译），使用 9Router 官方支持的 `sql.js` 纯 WASM 回退
 - 品牌：应用名 iRouter，应用 ID `com.irouter.desktop`，版本 `0.0.1`；面板内容保持上游原样（iRouter 品牌只体现在壳层：图标、窗口标题、安装器）
 - 安装包：短期只出 macOS `.dmg`（不签名、不公证、不自动更新，自用分发）；Windows NSIS 与 Linux AppImage 的构建配置保留，后续在对应系统构建或接入 CI

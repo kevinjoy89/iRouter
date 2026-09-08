@@ -21,7 +21,7 @@ iRouter 应用窗口内直接渲染的 9Router Web 面板（Electron 窗口指�
 _Avoid_: 浏览器访问（那是 CLI 形态的旧体验）
 
 **网关服务（gateway）**:
-9Router 提供的 OpenAI 兼容本地 API（默认 `http://127.0.0.1:20128/v1`），供 Claude Code、Codex 等外部 CLI 工具调用。它和面板是同一个进程/端口。
+9Router 提供的 OpenAI 兼容本地 API（iRouter 默认 `http://127.0.0.1:20128/v1`，仅绑定回环地址），供 Claude Code、Codex 等外部 CLI 工具调用。它和面板是同一个进程/端口。
 _Avoid_: 服务端、后端（过于泛化）
 
 **数据目录（data dir）**:

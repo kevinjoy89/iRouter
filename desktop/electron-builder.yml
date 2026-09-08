@@ -1,0 +1,59 @@
+# iRouter 打包配置（自用分发：不签名、不公证、不自动更新）
+appId: com.irouter.desktop
+productName: iRouter
+copyright: "MIT License — 上游 9Router (decolua/9router)"
+
+directories:
+  # buildResources 与 output 分离：resources/ 是纳入版本控制的源资产，
+  # build/ 是生成产物（gitignore）。两者都用默认名 build 会被 electron-builder
+  # 当资源目录二次打包，故显式分开。
+  buildResources: resources
+  output: build/dist
+
+# 壳层自身代码；网关产物走 extraResources 放到 resources/server，
+# 绕开 asar（子进程按真实路径读文件，asar 的 fs 兼容面不可赌）
+files:
+  - main.js
+  - package.json
+
+extraResources:
+  # 网关产物必须嵌套一层（gateway/server）：electron-builder 对复制源下相对路径
+  # 恰好为 node_modules 的目录有硬编码排除（app-builder-lib/util/filter.js），
+  # 写成 from: build/server 会让 node_modules 整目录静默丢失，产物跑不起来。
+  - from: build/gateway
+    to: gateway
+    filter:
+      - "**/*"
+  - from: resources/icon.png
+    to: icon.png
+
+asar: true
+npmRebuild: false
+
+mac:
+  target:
+    - dmg
+  category: public.app-category.developer-tools
+  icon: resources/icon.png
+  # 自用不签名：identity:null + gatekeeperAssess:false 跳过签名与公证检查
+  identity: null
+  gatekeeperAssess: false
+
+dmg:
+  artifactName: "${productName}-${version}.${ext}"
+
+win:
+  target:
+    - nsis
+  icon: resources/icon.png
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: "${productName}-${version}-setup.${ext}"
+
+linux:
+  target:
+    - AppImage
+  category: Development
+  icon: resources/icon.png
