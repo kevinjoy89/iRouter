@@ -36,16 +36,20 @@ let smokeStarted = false;
 app.setName("iRouter");
 
 // userData 必须在 app ready 前设置，否则 Chromium 缓存目录已按旧路径创建
-if (process.env.IROUTER_USER_DATA) {
+const MULTI_INSTANCE = process.argv.includes("--multi-instance");
+if (MULTI_INSTANCE && !process.env.IROUTER_USER_DATA) {
+  const baseUserData = app.getPath("userData");
+  app.setPath("userData", path.join(path.dirname(baseUserData), "iRouter-Multi"));
+} else if (process.env.IROUTER_USER_DATA) {
   app.setPath("userData", process.env.IROUTER_USER_DATA);
 }
 
-// 单实例锁：抢不到直接退出，已有实例会收到 second-instance 并聚焦窗口
+// 单实例锁：抢不到锁时暂不在此处静默退出，交由 whenReady 进行系统弹窗引导或独立双开分流
 const gotTheLock = app.requestSingleInstanceLock();
 console.log(
   `[iRouter] singleInstanceLock=${gotTheLock} userData=${app.getPath("userData")}`,
 );
-if (!gotTheLock) {
+if (!gotTheLock && SMOKE) {
   app.quit();
 }
 
@@ -380,13 +384,15 @@ function getShellCss() {
   aside > nav a[href="https://9english.net/"],
   aside > nav button:has(+ a[href="https://9english.net/"]) { display: none !important; }
   aside > nav a[href="/dashboard/skills"] { display: none !important; }
-  header button[aria-label="Donate"] { display: none !important; }
+  header button[aria-label="Donate"],
   header button[aria-label*="mode"],
   header button[title*="mode"],
   header button[title="Language"],
   header button[data-i18n-skip="true"],
   header div.relative:has(> button[title="Menu"]),
-  header button[title="Menu"] { display: none !important; }
+  header button[title="Menu"],
+  header div.flex.items-center.gap-1.shrink-0 > button,
+  header div.flex.items-center.gap-1.shrink-0 > div.relative:not(:has(input)) { display: none !important; }
   aside a[href="/dashboard"] > div:first-child {
     background-image: url("${logoUrl}") !important;
     background-color: transparent !important;
@@ -421,12 +427,14 @@ function applyShellCss(win) {
 
 // ---------------------------------------------------------------- 深浅色与多语言跟随
 // 监听面板内深浅色模式（<html> class）与语言设定（document.cookie 中的 locale），
-// 通过 console-message 通知主进程，同步切换 macOS 系统标题栏外观与顶部原生菜单语言
+// 通过 console-message 通知主进程，同步切换 macOS 系统标题栏外观与顶部原生菜单语言；
+// 同时全面补足上游未处理的 placeholder、title、aria-label 属性、select 下拉选项与 skipped 节点翻译
 const SHELL_SYNC_SCRIPT = `
 (() => {
   if (window.__irouter_shell_sync_injected) return;
   window.__irouter_shell_sync_injected = true;
 
+  // 1. 深浅色模式侦听与同步
   function reportTheme() {
     const isDark = document.documentElement.classList.contains("dark");
     console.log("__IROUTER_THEME__:" + (isDark ? "dark" : "light"));
@@ -442,21 +450,426 @@ const SHELL_SYNC_SCRIPT = `
   });
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
+  // 2. 多语言字典与 DOM 补全翻译
   function getLocale() {
     const m = document.cookie.match(/(?:^|;\\s*)locale=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : "";
   }
+
+  let currentLocale = getLocale() || "zh-CN";
+  let currentDict = {};
+
+  async function loadDict(loc) {
+    if (!loc || loc === "en") {
+      currentDict = {};
+      return;
+    }
+    try {
+      const res = await fetch("/i18n/literals/" + encodeURIComponent(loc) + ".json");
+      if (res.ok) {
+        currentDict = await res.json();
+      }
+    } catch (e) {
+      // 忽略字典加载异常
+    }
+  }
+
+  // 翻译 input / textarea placeholder 属性
+  function translatePlaceholders() {
+    const inputs = document.querySelectorAll("input[placeholder], textarea[placeholder]");
+    for (const el of inputs) {
+      if (el._i18nOrigPlaceholder === undefined) {
+        el._i18nOrigPlaceholder = el.placeholder;
+      }
+      const orig = el._i18nOrigPlaceholder;
+      if (!orig) continue;
+      if (currentLocale === "en" || !currentDict) {
+        if (el.placeholder !== orig) el.placeholder = orig;
+      } else if (currentDict[orig]) {
+        const target = currentDict[orig];
+        if (el.placeholder !== target) el.placeholder = target;
+      }
+    }
+  }
+
+  // 仅精准处理设置页中被 data-i18n-skip 阻断的显示语言文案与图标
+  function translateSkippedElements() {
+    const skippedButtons = document.querySelectorAll("button[data-i18n-skip='true']");
+    for (const btn of skippedButtons) {
+      const spans = btn.querySelectorAll("span");
+      for (const s of spans) {
+        if (s._i18nOrigText === undefined) {
+          s._i18nOrigText = s.textContent.trim();
+        }
+        const orig = s._i18nOrigText;
+        if (orig === "Display language") {
+          if (currentLocale === "en" || !currentDict) {
+            if (s.textContent !== orig) s.textContent = orig;
+          } else if (currentDict[orig]) {
+            const target = currentDict[orig];
+            if (s.textContent !== target) s.textContent = target;
+          }
+        } else if (s.textContent === "🇹🇼") {
+          // 替换设置页按钮上的繁体国旗，防止渲染为方框缺失字符
+          s.textContent = "🇭🇰";
+        }
+      }
+    }
+  }
+
+  // 动态模式匹配翻译器（处理分页组件与配额计数的动态数字拼接文本）
+  function translateDynamicPatterns() {
+    const isZh = currentLocale === "zh-CN";
+    const isTw = currentLocale === "zh-TW";
+    if (!isZh && !isTw) return;
+
+    const targets = document.querySelectorAll(".text-sm, .text-xs, span, p, h1, h2, h3, h4");
+    for (const el of targets) {
+      if (el.children.length > 0) continue;
+      const txt = el.textContent.trim();
+      if (!txt) continue;
+
+      // 1. 分页 "Showing 0-0 of 0" / "Showing 1-20 of 35"
+      const showingMatch = txt.match(/^Showing\\s+(\\d+-\\d+)\\s+of\\s+(\\d+)(?:\\s+results)?$/i);
+      if (showingMatch) {
+        el.textContent = isTw
+          ? "顯示 " + showingMatch[1] + " / 共 " + showingMatch[2] + " 條"
+          : "显示 " + showingMatch[1] + " / 共 " + showingMatch[2] + " 条";
+        continue;
+      }
+
+      // 2. 每页条数 "20 / page"
+      const perPageMatch = txt.match(/^(\\d+)\\s*[/]\\s*page$/i);
+      if (perPageMatch) {
+        el.textContent = isTw
+          ? perPageMatch[1] + " 條 / 頁"
+          : perPageMatch[1] + " 条 / 页";
+        continue;
+      }
+
+      // 3. 页码 "Page 1 / 1"
+      const pageMatch = txt.match(/^Page\\s+(\\d+)\\s*[/]\\s*(\\d+)$/i);
+      if (pageMatch) {
+        el.textContent = isTw
+          ? "第 " + pageMatch[1] + " / " + pageMatch[2] + " 頁"
+          : "第 " + pageMatch[1] + " / " + pageMatch[2] + " 页";
+        continue;
+      }
+
+      // 4. 配额计数 "1 quota", "2 quotas"
+      const quotaMatch = txt.match(/^(\\d+)\\s+quotas?$/i);
+      if (quotaMatch) {
+        el.textContent = isTw
+          ? quotaMatch[1] + " 個配額"
+          : quotaMatch[1] + " 个配额";
+        continue;
+      }
+
+      // 5. 供应商凭据弹窗标题 "Add <provider> API Key" 等
+      const addKeyMatch = txt.match(/^Add\\s+(.+?)\\s+API\\s+Key$/i);
+      if (addKeyMatch) {
+        el.textContent = isTw
+          ? "新增 " + addKeyMatch[1] + " API 金鑰"
+          : "添加 " + addKeyMatch[1] + " API 密钥";
+        continue;
+      }
+      const addCookieMatch = txt.match(/^Add\\s+(.+?)\\s+Cookie\\s+Value$/i);
+      if (addCookieMatch) {
+        el.textContent = isTw
+          ? "新增 " + addCookieMatch[1] + " Cookie 值"
+          : "添加 " + addCookieMatch[1] + " Cookie 值";
+        continue;
+      }
+      const addPatMatch = txt.match(/^Add\\s+(.+?)\\s+Personal\\s+Access\\s+Token\\s*\\(PAT\\)$/i);
+      if (addPatMatch) {
+        el.textContent = isTw
+          ? "新增 " + addPatMatch[1] + " 個人存取權杖 (PAT)"
+          : "添加 " + addPatMatch[1] + " 个人访问令牌 (PAT)";
+        continue;
+      }
+
+      // 6. 代理绑定数量 "Apply Proxy (1 connection)" / "Apply Proxy (3 connections)"
+      const applyProxyMatch = txt.match(/^Apply\\s+Proxy\\s*\\(\\s*(\\d+)\\s+connections?\\s*\\)$/i);
+      if (applyProxyMatch) {
+        el.textContent = isTw
+          ? "套用代理（" + applyProxyMatch[1] + " 個連線）"
+          : "应用代理（" + applyProxyMatch[1] + " 个连接）";
+        continue;
+      }
+
+      // 7. 社交登录连接 "Connect Kiro via <provider>"
+      const kiroViaMatch = txt.match(/^Connect\\s+Kiro\\s+via\\s+(.+)$/i);
+      if (kiroViaMatch) {
+        el.textContent = isTw
+          ? "透過 " + kiroViaMatch[1] + " 連線 Kiro"
+          : "通过 " + kiroViaMatch[1] + " 连接 Kiro";
+        continue;
+      }
+
+      // 8. 兼容节点编辑 "Edit Anthropic Compatible Node" / "Edit OpenAI Compatible Node"
+      const editCompatMatch = txt.match(/^Edit\\s+(Anthropic|OpenAI)\\s+Compatible\\s+Node$/i);
+      if (editCompatMatch) {
+        el.textContent = isTw
+          ? "編輯 " + editCompatMatch[1] + " 相容節點"
+          : "编辑 " + editCompatMatch[1] + " 兼容节点";
+        continue;
+      }
+
+      // 9. 代理池轮换动态提示
+      const rotatePoolsMatch = txt.match(/^Rotating\\s+through\\s+all\\s+(\\d+)\\s+active\\s+pools\\s+in\\s+order\\.\\s+State\\s+is\\s+in-memory\\s*\\(resets\\s+on\\s+restart\\)\\.$/i);
+      if (rotatePoolsMatch) {
+        el.textContent = isTw
+          ? "按順序在全部 " + rotatePoolsMatch[1] + " 個活躍代理池間輪換。狀態儲存在記憶體中（重啟後重設）。"
+          : "按顺序在全部 " + rotatePoolsMatch[1] + " 个活跃代理池间轮换。状态保存在内存中（重启后重置）。";
+        continue;
+      }
+      const randomPoolMatch = txt.match(/^Picking\\s+a\\s+random\\s+pool\\s+from\\s+(\\d+)\\s+active\\s+pools\\s+each\\s+request\\.$/i);
+      if (randomPoolMatch) {
+        el.textContent = isTw
+          ? "每次請求從 " + randomPoolMatch[1] + " 個活躍代理池中隨機選取一個。"
+          : "每次请求从 " + randomPoolMatch[1] + " 个活跃代理池中随机选择一个。";
+        continue;
+      }
+
+      // 10. 媒体类型配置卡片标题 "类别 Config"
+      const mediaConfigMatch = txt.match(/^(.+?)\\s+Config$/i);
+      if (mediaConfigMatch) {
+        const rawKind = mediaConfigMatch[1];
+        const kindDict = {
+          "Text To Speech": isTw ? "文字轉語音設定" : "文本转语音配置",
+          "Speech To Text": isTw ? "語音轉文字設定" : "语音转文本配置",
+          "Text to Image": isTw ? "文字轉影像設定" : "文本转图像配置",
+          "Image to Text": isTw ? "影像轉文字設定" : "图像转文本配置",
+          "Embedding": isTw ? "嵌入設定" : "嵌入配置",
+          "Web Search": isTw ? "Web 搜尋設定" : "Web 搜索配置",
+          "Web Fetch": isTw ? "Web 擷取設定" : "Web 抓取配置",
+          "Video": isTw ? "影片設定" : "视频配置",
+          "Music": isTw ? "音樂設定" : "音乐配置"
+        };
+        if (kindDict[rawKind]) {
+          el.textContent = kindDict[rawKind];
+          continue;
+        }
+      }
+
+      // 11. 媒体提供商卡片连接统计状态 "1 Connected" / "2 Error" / "3 Added"
+      const connStatMatch = txt.match(/^(\\d+)\\s+(Connected|Error|Added)$/i);
+      if (connStatMatch) {
+        const count = connStatMatch[1];
+        const statType = connStatMatch[2].toLowerCase();
+        if (statType === "connected") {
+          el.textContent = isTw ? count + " 個已連線" : count + " 个已连接";
+        } else if (statType === "error") {
+          el.textContent = isTw ? count + " 個錯誤" : count + " 个错误";
+        } else if (statType === "added") {
+          el.textContent = isTw ? count + " 個已新增" : count + " 个已添加";
+        }
+        continue;
+      }
+
+      // 12. 媒体提供商统计摘要 "(X providers · Y combos)"
+      const comboSummaryMatch = txt.match(/^\\((\\d+)\\s+providers\\s+·\\s+(\\d+)\\s+combos\\)$/i);
+      if (comboSummaryMatch) {
+        el.textContent = isTw
+          ? "（" + comboSummaryMatch[1] + " 個供應商 · " + comboSummaryMatch[2] + " 個組合）"
+          : "（" + comboSummaryMatch[1] + " 个供应商 · " + comboSummaryMatch[2] + " 个组合）";
+        continue;
+      }
+
+      // 13. 添加模型模态框标题 "Add <kind> Model" / "Add <kind> Model to Combo"
+      const addModelMatch = txt.match(/^Add\\s+(.+?)\\s+Model(\\s+to\\s+Combo)?$/i);
+      if (addModelMatch) {
+        const targetKind = addModelMatch[1];
+        const isToCombo = !!addModelMatch[2];
+        el.textContent = isTw
+          ? (isToCombo ? "新增 " + targetKind + " 模型至組合" : "新增 " + targetKind + " 模型")
+          : (isToCombo ? "添加 " + targetKind + " 模型到组合" : "添加 " + targetKind + " 模型");
+        continue;
+      }
+    }
+  }
+
+  // 常用操作按钮与开关的 title 悬停提示翻译
+  function translateActionTitles() {
+    const isZh = currentLocale === "zh-CN";
+    const isTw = currentLocale === "zh-TW";
+    if (!isZh && !isTw) return;
+    const titleDict = {
+      "Enable provider": isTw ? "啟用供應商" : "启用供应商",
+      "Disable provider": isTw ? "禁用供應商" : "禁用供应商",
+      "Move up": isTw ? "上移" : "上移",
+      "Move down": isTw ? "下移" : "下移",
+      "Remove": isTw ? "移除" : "移除",
+      "Click to edit": isTw ? "點擊編輯" : "点击编辑"
+    };
+    const titledElements = document.querySelectorAll("[title]");
+    for (const el of titledElements) {
+      const orig = el.getAttribute("title");
+      if (orig && titleDict[orig]) {
+        el.setAttribute("title", titleDict[orig]);
+      }
+    }
+  }
+
+  // 动态节点与异步状态翻译（处理表格表头与动态状态 Chip）
+  function translateDynamicNodes() {
+    const isZh = currentLocale === "zh-CN";
+    const isTw = currentLocale === "zh-TW";
+    if (!isZh && !isTw || !currentDict) return;
+
+    // 1. 使用统计表格表头 <th> 翻译
+    const ths = document.querySelectorAll("table thead th");
+    for (const th of ths) {
+      for (const node of th.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const raw = node.nodeValue;
+          const trimmed = raw.trim();
+          if (trimmed && currentDict[trimmed]) {
+            const translated = currentDict[trimmed];
+            const space = raw.endsWith(" ") ? " " : "";
+            if (node.nodeValue !== translated + space) {
+              node.nodeValue = translated + space;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. 异步状态与弹窗动态状态（Token 节省器卡片与 Headroom/PXPIPE 弹窗等）
+    const stateElements = document.querySelectorAll("span, p");
+    const stateDict = {
+      "Not installed": isTw ? "未安裝" : "未安装",
+      "Checking…": isTw ? "正在檢查…" : "正在检查…",
+      "Checking...": isTw ? "正在檢查…" : "正在检查…",
+      "Installing…": isTw ? "正在安裝…" : "正在安装…",
+      "Installing...": isTw ? "正在安裝…" : "正在安装…",
+      "Uninstalling…": isTw ? "正在卸載…" : "正在卸载…",
+      "Uninstalling...": isTw ? "正在卸載…" : "正在卸载…",
+      "Stopping…": isTw ? "正在停止…" : "正在停止…",
+      "Stopping...": isTw ? "正在停止…" : "正在停止…",
+      "Running": isTw ? "運行中" : "运行中",
+      "Stopped": isTw ? "已停止" : "已停止",
+      "External": isTw ? "外部服務" : "外部服务",
+      "Healthy": isTw ? "健康" : "健康",
+      "PXPIPE is not installed.": isTw ? "未安裝 PXPIPE。" : "未安装 PXPIPE。"
+    };
+    for (const el of stateElements) {
+      if (el.children.length > 0) continue;
+      const txt = el.textContent.trim();
+      if (stateDict[txt] && el.textContent !== stateDict[txt]) {
+        el.textContent = stateDict[txt];
+      }
+    }
+
+    // 3. 动态描述文本与模态框标题（Caveman / Ponytail 压缩模式说明、供应商提示横幅、弹窗标题等）
+    const descElements = document.querySelectorAll("h1, h2, h3, h4, p.text-xs.text-primary, p.text-xs, p.text-sm, span.text-sm, span.text-xs");
+    for (const el of descElements) {
+      if (el.children.length > 0) continue;
+      const txt = el.textContent.trim();
+      if (currentDict && currentDict[txt] && el.textContent !== currentDict[txt]) {
+        el.textContent = currentDict[txt];
+      }
+    }
+  }
+
+  // 选择语言面板专项补丁（标题、国旗、交互优化）
+  function patchLanguageModal() {
+    const isZh = currentLocale === "zh-CN";
+    const isTw = currentLocale === "zh-TW";
+
+    // 1. 选择语言模态框弹窗
+    const modalOverlay = document.querySelector(".fixed.inset-0.z-50[data-i18n-skip='true']");
+    if (modalOverlay) {
+      // 标题本地化
+      const titleEl = modalOverlay.querySelector("h2");
+      if (titleEl && titleEl.textContent.trim() === "Select Language") {
+        if (isZh) titleEl.textContent = "选择语言";
+        else if (isTw) titleEl.textContent = "選擇語言";
+      }
+
+      // 关闭按钮无障碍标签与悬停提示
+      const closeBtn = modalOverlay.querySelector("button[aria-label='Close']");
+      if (closeBtn) {
+        const closeText = isTw ? "關閉" : "关闭";
+        if (closeBtn.getAttribute("aria-label") !== closeText) {
+          closeBtn.setAttribute("aria-label", closeText);
+          closeBtn.setAttribute("title", closeText);
+        }
+      }
+
+      // 交互优化：点击已激活选中的语言卡片时自动关闭弹窗
+      const activeLangBtn = modalOverlay.querySelector("button.ring-primary");
+      if (activeLangBtn && !activeLangBtn._irouterCloseBound) {
+        activeLangBtn._irouterCloseBound = true;
+        activeLangBtn.addEventListener("click", () => {
+          if (closeBtn) closeBtn.click();
+        });
+      }
+    }
+
+    // 2. 全局将繁体中文旗帜 🇹🇼 安全替换为 🇭🇰，消灭在 macOS 上的方框缺失乱码
+    const flagSpans = document.querySelectorAll("span");
+    for (const sp of flagSpans) {
+      if (sp.children.length === 0 && sp.textContent === "🇹🇼") {
+        sp.textContent = "🇭🇰";
+      }
+    }
+  }
+
+  let updateTimer = null;
+  function triggerDomTranslate() {
+    if (updateTimer) return;
+    updateTimer = setTimeout(() => {
+      updateTimer = null;
+      translatePlaceholders();
+      translateSkippedElements();
+      translateDynamicPatterns();
+      translateDynamicNodes();
+      patchLanguageModal();
+      translateActionTitles();
+    }, 50);
+  }
+
+  async function updateLocale(newLocale) {
+    currentLocale = newLocale;
+    await loadDict(newLocale);
+    triggerDomTranslate();
+  }
+
   let lastLocale = getLocale();
   if (lastLocale) {
     console.log("__IROUTER_LOCALE__:" + lastLocale);
+    updateLocale(lastLocale);
   }
+
   setInterval(() => {
     const current = getLocale();
     if (current && current !== lastLocale) {
       lastLocale = current;
       console.log("__IROUTER_LOCALE__:" + current);
+      updateLocale(current);
     }
-  }, 1000);
+  }, 500);
+
+  const domObserver = new MutationObserver(() => {
+    triggerDomTranslate();
+  });
+  const observeConfig = {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ["placeholder"]
+  };
+  if (document.body) {
+    domObserver.observe(document.body, observeConfig);
+  } else {
+    document.addEventListener("DOMContentLoaded", () => {
+      domObserver.observe(document.body, observeConfig);
+      triggerDomTranslate();
+    });
+  }
+  triggerDomTranslate();
 })();
 `;
 
@@ -1069,16 +1482,35 @@ function dataDirHasGatewayData(dataDir) {
 }
 
 function askImport(legacy) {
-  // 测试接缝：自动化验证无法点击模态框。默认（未设置）仍弹框询问用户。
+  // 测试接缝：自动化验证无法点击模态框。默认（未设置）仍弹框询问用户
   const preset = process.env.IROUTER_IMPORT_DECISION;
   if (preset === "import") return 0;
   if (preset === "skip") return 1;
+
+  const isEn = currentLocale === "en";
+  const isTw = currentLocale === "zh-TW";
+  const message = isEn
+    ? "Legacy 9Router CLI data detected"
+    : isTw
+    ? "檢測到舊版 9Router CLI 資料"
+    : "检测到旧版 9Router CLI 数据";
+  const detail = isEn
+    ? `Location: ${legacy}\nDo you want to import configurations, database and keys? (Original files are untouched, only copied)`
+    : isTw
+    ? `位置：${legacy}\n是否匯入其中的設定、資料庫與金鑰？（原資料保留不動，僅複製）`
+    : `位置：${legacy}\n是否导入其中的配置、数据库与密钥？（原数据保留不动，仅复制）`;
+  const buttons = isEn
+    ? ["Import", "Skip", "Cancel"]
+    : isTw
+    ? ["匯入", "略過", "取消"]
+    : ["导入", "跳过", "取消"];
+
   return dialog.showMessageBoxSync({
     type: "question",
     title: "iRouter",
-    message: "检测到旧版 9Router CLI 数据",
-    detail: `位置：${legacy}\n是否导入其中的配置、数据库与密钥？（原数据保留不动，仅复制）`,
-    buttons: ["导入", "跳过", "取消"],
+    message,
+    detail,
+    buttons,
     defaultId: 0,
     cancelId: 2,
     noLink: true,
@@ -1341,8 +1773,44 @@ async function runSmoke() {
 }
 
 app.whenReady().then(async () => {
-  // 抢锁失败时 quit 已发出；此处再显式守卫一次，避免 whenReady 仍 resolve 而起第二个网关
+  // 单实例锁被占用时：若为冒烟测试则直接退出；若为桌面用户操作则弹出原生对话框引导
   if (!gotTheLock) {
+    if (SMOKE) {
+      console.error("[iRouter] 获取单实例锁失败，已有实例运行中");
+      app.exit(1);
+      return;
+    }
+    // 弹出原生提示框，提供明确操作指引并支持一键双开体验
+    const choice = dialog.showMessageBoxSync({
+      type: "warning",
+      title: "iRouter 已在运行",
+      message: "检测到已有 iRouter 实例正在后台运行",
+      detail:
+        "系统已有一个正在运行的 iRouter 实例并占用默认数据目录与端口。\n\n" +
+        "• 若要正常使用此新版本：请先在顶部菜单栏/托盘中退出旧版 iRouter，再重新打开本应用\n" +
+        "• 若要保留旧版本同时测试新版本：请点击「以独立实例双开运行」",
+      buttons: ["退出", "以独立实例双开运行"],
+      defaultId: 1,
+      cancelId: 0,
+    });
+    if (choice === 1) {
+      // 启动独立实例：分配隔离的 userData 目录，端口自动顺延至 20129
+      const baseUserData = app.getPath("userData");
+      const altDir = path.join(path.dirname(baseUserData), "iRouter-Multi");
+      const child = spawn(
+        process.execPath,
+        [...process.argv.slice(1), "--multi-instance"],
+        {
+          detached: true,
+          stdio: "ignore",
+          env: {
+            ...process.env,
+            IROUTER_USER_DATA: altDir,
+          },
+        },
+      );
+      child.unref();
+    }
     app.exit(0);
     return;
   }
