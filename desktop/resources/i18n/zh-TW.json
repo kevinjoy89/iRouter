@@ -1,4 +1,7 @@
 {
+  "~/.9router/db/data.sqlite": "~/.irouter/db/data.sqlite",
+  "9Router Proxy v0.5.69": "iRouter Proxy v0.0.1",
+  "9Router Proxy": "iRouter Proxy",
   "Local Mode": "本地模式",
   "Running on your machine": "運行在您的本機設備",
   "Light": "淺色",

@@ -85,6 +85,21 @@ function legacyDir() {
   return process.env.IROUTER_LEGACY_DIR || path.join(os.homedir(), ".9router");
 }
 
+// 获取服务端网关数据目录（优先环境变量，默认持久化至 ~/.irouter）
+function getGatewayDataDir() {
+  if (process.env.IROUTER_DATA_DIR) {
+    return process.env.IROUTER_DATA_DIR;
+  }
+  // 若显式指定了 IROUTER_USER_DATA（如 smoke 自动化测试隔离），则以其为主
+  if (process.env.IROUTER_USER_DATA) {
+    return process.env.IROUTER_USER_DATA;
+  }
+  if (MULTI_INSTANCE) {
+    return path.join(os.homedir(), ".irouter-multi");
+  }
+  return path.join(os.homedir(), ".irouter");
+}
+
 function iconPath() {
   return app.isPackaged
     ? path.join(process.resourcesPath, "icon.png")
@@ -393,6 +408,9 @@ function getShellCss() {
   header button[title="Menu"],
   header div.flex.items-center.gap-1.shrink-0 > button,
   header div.flex.items-center.gap-1.shrink-0 > div.relative:not(:has(input)) { display: none !important; }
+  div.fixed.inset-0.z-50[data-i18n-skip="true"],
+  button[data-irouter-legacy-lang-btn="true"],
+  div[data-irouter-lang-card="true"] > button:not([data-irouter-lang-switcher="true"] button) { display: none !important; }
   aside a[href="/dashboard"] > div:first-child {
     background-image: url("${logoUrl}") !important;
     background-color: transparent !important;
@@ -414,6 +432,16 @@ function getShellCss() {
     font-size: 0.75rem !important;
     line-height: 1rem !important;
   }
+  div.text-center.py-4 > p:first-child,
+  div.text-center.text-text-muted.py-4 > p:first-child {
+    font-size: 0 !important;
+  }
+  div.text-center.py-4 > p:first-child::after,
+  div.text-center.text-text-muted.py-4 > p:first-child::after {
+    content: "iRouter Proxy v${version}" !important;
+    font-size: 0.875rem !important;
+    line-height: 1.25rem !important;
+  }
 `;
 }
 
@@ -433,6 +461,44 @@ const SHELL_SYNC_SCRIPT = `
 (() => {
   if (window.__irouter_shell_sync_injected) return;
   window.__irouter_shell_sync_injected = true;
+  const DESKTOP_VERSION = "${app.getVersion()}";
+
+  // 拦截下载文件名，将 9router 前缀自动转换为 irouter 前缀
+  try {
+    const desc = Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, "download");
+    if (desc && desc.set) {
+      const origSet = desc.set;
+      Object.defineProperty(HTMLAnchorElement.prototype, "download", {
+        get: desc.get,
+        set: function(val) {
+          if (typeof val === "string" && /^9router-(.+)$/i.test(val)) {
+            val = val.replace(/^9router-/i, "irouter-");
+          }
+          return origSet.call(this, val);
+        },
+        configurable: true,
+        enumerable: desc.enumerable,
+      });
+    }
+
+    const origSetAttribute = HTMLAnchorElement.prototype.setAttribute;
+    HTMLAnchorElement.prototype.setAttribute = function(name, val) {
+      if (name === "download" && typeof val === "string" && /^9router-(.+)$/i.test(val)) {
+        val = val.replace(/^9router-/i, "irouter-");
+      }
+      return origSetAttribute.call(this, name, val);
+    };
+
+    const origClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function() {
+      if (typeof this.download === "string" && /^9router-(.+)$/i.test(this.download)) {
+        this.download = this.download.replace(/^9router-/i, "irouter-");
+      }
+      return origClick.call(this);
+    };
+  } catch (e) {
+    /* 忽略拦截异常 */
+  }
 
   // 1. 深浅色模式侦听与同步
   function reportTheme() {
@@ -528,6 +594,21 @@ const SHELL_SYNC_SCRIPT = `
       if (el.children.length > 0) continue;
       const txt = el.textContent.trim();
       if (!txt) continue;
+
+      // 0. 替换旧品牌名称与版本号
+      if (/^9Router\\s+Proxy(?:\\s+v[\\d.]+)?/i.test(txt)) {
+        el.textContent = "iRouter Proxy v" + DESKTOP_VERSION;
+        continue;
+      }
+      if (txt === "9Router Proxy") {
+        el.textContent = "iRouter Proxy";
+        continue;
+      }
+      // 替换个人设置页数据库实际持久化路径
+      if (txt === "~/.9router/db/data.sqlite") {
+        el.textContent = "~/.irouter/db/data.sqlite";
+        continue;
+      }
 
       // 1. 分页 "Showing 0-0 of 0" / "Showing 1-20 of 35"
       const showingMatch = txt.match(/^Showing\\s+(\\d+-\\d+)\\s+of\\s+(\\d+)(?:\\s+results)?$/i);
@@ -772,46 +853,209 @@ const SHELL_SYNC_SCRIPT = `
     }
   }
 
-  // 选择语言面板专项补丁（标题、国旗、交互优化）
-  function patchLanguageModal() {
-    const isZh = currentLocale === "zh-CN";
-    const isTw = currentLocale === "zh-TW";
-
-    // 1. 选择语言模态框弹窗
-    const modalOverlay = document.querySelector(".fixed.inset-0.z-50[data-i18n-skip='true']");
-    if (modalOverlay) {
-      // 标题本地化
-      const titleEl = modalOverlay.querySelector("h2");
-      if (titleEl && titleEl.textContent.trim() === "Select Language") {
-        if (isZh) titleEl.textContent = "选择语言";
-        else if (isTw) titleEl.textContent = "選擇語言";
-      }
-
-      // 关闭按钮无障碍标签与悬停提示
-      const closeBtn = modalOverlay.querySelector("button[aria-label='Close']");
-      if (closeBtn) {
-        const closeText = isTw ? "關閉" : "关闭";
-        if (closeBtn.getAttribute("aria-label") !== closeText) {
-          closeBtn.setAttribute("aria-label", closeText);
-          closeBtn.setAttribute("title", closeText);
+  // 检查跟随系统偏好，自动对齐系统语言
+  function checkSystemLocaleSync() {
+    try {
+      const pref = localStorage.getItem("irouter_locale_preference");
+      if (pref === "system") {
+        const navLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+        let expected = "en";
+        if (navLang.includes("tw") || navLang.includes("hk") || navLang.includes("hant")) {
+          expected = "zh-TW";
+        } else if (navLang.startsWith("zh")) {
+          expected = "zh-CN";
+        }
+        const cur = getLocale();
+        if (cur && cur !== expected) {
+          document.cookie = "locale=" + encodeURIComponent(expected) + "; path=/; max-age=31536000";
+          fetch("/api/locale", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ locale: expected }),
+          }).catch(() => {});
+          window.location.reload();
         }
       }
-
-      // 交互优化：点击已激活选中的语言卡片时自动关闭弹窗
-      const activeLangBtn = modalOverlay.querySelector("button.ring-primary");
-      if (activeLangBtn && !activeLangBtn._irouterCloseBound) {
-        activeLangBtn._irouterCloseBound = true;
-        activeLangBtn.addEventListener("click", () => {
-          if (closeBtn) closeBtn.click();
-        });
-      }
+    } catch (e) {
+      /* 忽略异常 */
     }
+  }
+  checkSystemLocaleSync();
 
-    // 2. 全局将繁体中文旗帜 🇹🇼 安全替换为 🇭🇰，消灭在 macOS 上的方框缺失乱码
+  // 重构个人设置页多语言卡片：移除弹出面板，内嵌跟随系统、英文、简体中文、繁体中文切换项
+  function renderLanguageSettingsSwitcher() {
+    // 1. 全局将繁体中文旗帜 🇹🇼 安全替换为 🇭🇰，消灭在 macOS 上的方框缺失乱码
     const flagSpans = document.querySelectorAll("span");
     for (const sp of flagSpans) {
       if (sp.children.length === 0 && sp.textContent === "🇹🇼") {
         sp.textContent = "🇭🇰";
+      }
+    }
+
+    // 2. 彻底隐藏并移除上游全量模态弹窗（若意外挂载）
+    const legacyModals = document.querySelectorAll(".fixed.inset-0.z-50[data-i18n-skip='true']");
+    for (const m of legacyModals) {
+      m.style.setProperty("display", "none", "important");
+      try { m.remove(); } catch (e) {}
+    }
+
+    // 3. 寻找个人设置页包含地球图标与语言标题的卡片容器
+    const icons = document.querySelectorAll("span.material-symbols-outlined");
+    let targetHeader = null;
+    let targetCard = null;
+    for (const icon of icons) {
+      if (icon.textContent.trim() === "language") {
+        const iconBox = icon.parentElement;
+        const candidateHeader = iconBox ? iconBox.parentElement : null;
+        if (!candidateHeader) continue;
+        const h3 = candidateHeader.querySelector("h3");
+        if (h3 && /^(?:Language|语言|語言)$/i.test(h3.textContent.trim())) {
+          targetHeader = candidateHeader;
+          targetCard = candidateHeader.parentElement || candidateHeader.closest(".rounded-xl, .bg-surface, div");
+          break;
+        }
+      }
+    }
+    if (!targetHeader || !targetCard) return;
+
+    targetCard.setAttribute("data-irouter-lang-card", "true");
+
+    // 4. 彻底隐藏并拦截卡片内原有的显示语言单行按钮
+    const legacyBtn = targetCard.querySelector("button[data-i18n-skip='true']");
+    if (legacyBtn) {
+      legacyBtn.setAttribute("data-irouter-legacy-lang-btn", "true");
+      legacyBtn.style.setProperty("display", "none", "important");
+      legacyBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+    }
+
+    // 5. 彻底清理任何已存在的多余 switcher，保证全局唯一
+    const existingSwitchers = targetCard.querySelectorAll("[data-irouter-lang-switcher='true']");
+    for (let i = 1; i < existingSwitchers.length; i++) {
+      existingSwitchers[i].remove();
+    }
+
+    // 6. 调整头部容器样式：保持横向并允许自适应
+    targetHeader.className = "flex items-center gap-3 mb-4 flex-wrap sm:flex-nowrap";
+
+    // 7. 注入或复用 Segmented Control 分段切换容器（靠右对齐且不缩小）
+    let switcher = targetHeader.querySelector("[data-irouter-lang-switcher='true']");
+    if (!switcher) {
+      switcher = document.createElement("div");
+      switcher.setAttribute("data-irouter-lang-switcher", "true");
+      targetHeader.appendChild(switcher);
+    }
+    switcher.className = "inline-flex items-center p-1 rounded-lg bg-black/5 dark:bg-white/5 ml-auto shrink-0";
+    switcher.style.whiteSpace = "nowrap";
+
+    // 8. 获取当前用户偏好设置（默认为跟随系统）
+    let pref = localStorage.getItem("irouter_locale_preference");
+    if (!pref) {
+      pref = "system";
+      localStorage.setItem("irouter_locale_preference", "system");
+    }
+
+    // 9. 依据当前生效语言渲染选项文本
+    const isTw = currentLocale === "zh-TW";
+    const isZh = currentLocale === "zh-CN";
+    const options = [
+      { id: "system", label: isTw ? "跟隨系統" : isZh ? "跟随系统" : "System" },
+      { id: "en", label: isTw ? "英文" : isZh ? "英文" : "English" },
+      { id: "zh-CN", label: isTw ? "簡體中文" : isZh ? "简体中文" : "Simplified Chinese" },
+      { id: "zh-TW", label: isTw ? "繁體中文" : isZh ? "繁体中文" : "Traditional Chinese" },
+    ];
+
+    // 解析宿主系统当前语言
+    function resolveSystemLocale() {
+      const navLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+      if (navLang.includes("tw") || navLang.includes("hk") || navLang.includes("hant")) {
+        return "zh-TW";
+      }
+      if (navLang.startsWith("zh")) {
+        return "zh-CN";
+      }
+      return "en";
+    }
+
+    // 执行多语言切换与生效
+    async function applyLocaleSelection(selectedId) {
+      localStorage.setItem("irouter_locale_preference", selectedId);
+      const targetLocale = selectedId === "system" ? resolveSystemLocale() : selectedId;
+      try {
+        await fetch("/api/locale", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ locale: targetLocale }),
+        });
+      } catch (err) {
+        /* 忽略网络异常 */
+      }
+      document.cookie = "locale=" + encodeURIComponent(targetLocale) + "; path=/; max-age=31536000";
+      window.location.reload();
+    }
+
+    // 10. 渲染并更新切换项状态（强制横向不换行）
+    options.forEach((opt) => {
+      let btn = switcher.querySelector("button[data-lang='" + opt.id + "']");
+      if (!btn) {
+        btn = document.createElement("button");
+        btn.type = "button";
+        btn.setAttribute("data-lang", opt.id);
+        btn.addEventListener("click", () => {
+          if (pref === opt.id) return;
+          applyLocaleSelection(opt.id);
+        });
+        switcher.appendChild(btn);
+      }
+      btn.textContent = opt.label;
+      btn.style.whiteSpace = "nowrap";
+      const isSelected = pref === opt.id;
+      btn.className = isSelected
+        ? "flex items-center justify-center px-3 py-1.5 rounded-md font-medium text-xs sm:text-sm whitespace-nowrap shrink-0 bg-white dark:bg-white/10 text-text-main shadow-sm transition-all cursor-pointer"
+        : "flex items-center justify-center px-3 py-1.5 rounded-md font-medium text-xs sm:text-sm whitespace-nowrap shrink-0 text-text-muted hover:text-text-main transition-all cursor-pointer";
+    });
+  }
+
+  // 替换设置页底部及各处遗留的产品名称与版本号为桌面端真实名称与版本
+  function replaceAppBrandAndVersion() {
+    const sideVer = document.querySelector("aside a[href='/dashboard'] h1 + span");
+    if (sideVer && sideVer.textContent.trim() !== "v" + DESKTOP_VERSION) {
+      sideVer.textContent = "v" + DESKTOP_VERSION;
+    }
+
+    const profileAppInfoP = document.querySelector("div.text-center.py-4 > p:first-child, div.text-center.text-text-muted.py-4 > p:first-child");
+    if (profileAppInfoP && profileAppInfoP.textContent.trim() !== "iRouter Proxy v" + DESKTOP_VERSION) {
+      profileAppInfoP.textContent = "iRouter Proxy v" + DESKTOP_VERSION;
+    }
+
+    const targets = document.querySelectorAll("p, span, h1");
+    for (const el of targets) {
+      if (el.children.length > 0) continue;
+      const txt = el.textContent.trim();
+      if (!txt) continue;
+      if (/^9Router\\s+Proxy(?:\\s+v[\\d.]+)?/i.test(txt)) {
+        if (el.textContent !== "iRouter Proxy v" + DESKTOP_VERSION) {
+          el.textContent = "iRouter Proxy v" + DESKTOP_VERSION;
+        }
+      } else if (txt === "9Router Proxy") {
+        if (el.textContent !== "iRouter Proxy") {
+          el.textContent = "iRouter Proxy";
+        }
+      } else if (txt === "~/.9router/db/data.sqlite") {
+        if (el.textContent !== "~/.irouter/db/data.sqlite") {
+          el.textContent = "~/.irouter/db/data.sqlite";
+        }
+      }
+    }
+
+    // 修正已有下载链接的文件名前缀
+    const downloadAnchors = document.querySelectorAll("a[download]");
+    for (const a of downloadAnchors) {
+      const dl = a.getAttribute("download");
+      if (dl && /^9router-/i.test(dl)) {
+        a.setAttribute("download", dl.replace(/^9router-/i, "irouter-"));
       }
     }
   }
@@ -821,11 +1065,12 @@ const SHELL_SYNC_SCRIPT = `
     if (updateTimer) return;
     updateTimer = setTimeout(() => {
       updateTimer = null;
+      replaceAppBrandAndVersion();
       translatePlaceholders();
       translateSkippedElements();
       translateDynamicPatterns();
       translateDynamicNodes();
-      patchLanguageModal();
+      renderLanguageSettingsSwitcher();
       translateActionTitles();
     }, 50);
   }
@@ -954,6 +1199,18 @@ function createWindow() {
       shell.openExternal(url); // 站外链接交给系统浏览器
     }
     return { action: "deny" };
+  });
+
+  // 拦截下载事件，若文件名仍带有 9router 前缀则兜底重命名为 irouter 前缀
+  win.webContents.session.on("will-download", (_event, item) => {
+    const filename = item.getFilename();
+    if (/^9router-/i.test(filename)) {
+      const newFilename = filename.replace(/^9router-/i, "irouter-");
+      const currentSavePath = item.getSavePath();
+      if (currentSavePath) {
+        item.setSavePath(path.join(path.dirname(currentSavePath), newFilename));
+      }
+    }
   });
 
   win.webContents.on("did-finish-load", () => {
@@ -1543,6 +1800,45 @@ function maybeImportLegacyData(dataDir) {
   return true;
 }
 
+// 从历史 Application Support 目录平滑迁移现有数据至 ~/.irouter
+function migrateFromLegacyApplicationSupport(targetDir) {
+  try {
+    const targetDb = path.join(targetDir, "db", "data.sqlite");
+    if (fs.existsSync(targetDb)) return;
+
+    const oldSupportDir = app.getPath("userData");
+    if (path.resolve(oldSupportDir) === path.resolve(targetDir)) return;
+    const oldDb = path.join(oldSupportDir, "db", "data.sqlite");
+    if (!fs.existsSync(oldDb)) return;
+
+    console.log(`[iRouter] 检测到旧应用支持目录数据，正在平滑迁移至 ${targetDir}...`);
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    // 需要迁移的核心条目
+    const itemsToMigrate = [
+      "db",
+      "auth",
+      "headroom",
+      "jwt-secret",
+      "machine-id",
+      "model-catalog.json",
+      "model-catalog-raw.json",
+      ".irouter-import-decided",
+    ];
+
+    for (const item of itemsToMigrate) {
+      const src = path.join(oldSupportDir, item);
+      const dest = path.join(targetDir, item);
+      if (fs.existsSync(src) && !fs.existsSync(dest)) {
+        fs.cpSync(src, dest, { recursive: true, force: false });
+      }
+    }
+    console.log(`[iRouter] 旧应用支持目录数据已成功平滑迁移至 ${targetDir}`);
+  } catch (e) {
+    console.error(`[iRouter] 平滑迁移旧数据异常: ${e.message}`);
+  }
+}
+
 // ---------------------------------------------------------------- 生命周期
 function quit() {
   quitting = true;
@@ -1554,10 +1850,13 @@ async function stopGateway() {
     await killTree(gateway);
     gateway = null;
   }
-  try {
-    fs.unlinkSync(path.join(app.getPath("userData"), PIDFILE));
-  } catch {
-    /* 不存在则忽略 */
+  const pidDirs = [getGatewayDataDir(), app.getPath("userData")];
+  for (const dir of pidDirs) {
+    try {
+      fs.unlinkSync(path.join(dir, PIDFILE));
+    } catch {
+      /* 不存在则忽略 */
+    }
   }
 }
 
@@ -1598,9 +1897,10 @@ async function runSmoke() {
       // （aside/假红绿灯只在那边存在）；仅 smoke 路径执行。
       try {
         const crypto = require("node:crypto");
-        const secret = fs.readFileSync(
-          path.join(app.getPath("userData"), "jwt-secret"),
-        );
+        const secretPath = fs.existsSync(path.join(getGatewayDataDir(), "jwt-secret"))
+          ? path.join(getGatewayDataDir(), "jwt-secret")
+          : path.join(app.getPath("userData"), "jwt-secret");
+        const secret = fs.readFileSync(secretPath);
         const b64u = (buf) =>
           buf
             .toString("base64")
@@ -1794,9 +2094,10 @@ app.whenReady().then(async () => {
       cancelId: 0,
     });
     if (choice === 1) {
-      // 启动独立实例：分配隔离的 userData 目录，端口自动顺延至 20129
+      // 启动独立实例：分配隔离的 userData 目录与数据目录，端口自动顺延至 20129
       const baseUserData = app.getPath("userData");
       const altDir = path.join(path.dirname(baseUserData), "iRouter-Multi");
+      const altDataDir = path.join(os.homedir(), ".irouter-multi");
       const child = spawn(
         process.execPath,
         [...process.argv.slice(1), "--multi-instance"],
@@ -1806,6 +2107,7 @@ app.whenReady().then(async () => {
           env: {
             ...process.env,
             IROUTER_USER_DATA: altDir,
+            IROUTER_DATA_DIR: altDataDir,
           },
         },
       );
@@ -1832,8 +2134,9 @@ app.whenReady().then(async () => {
       setAppLocale(cookie.value);
     }
   });
-  const dataDir = app.getPath("userData");
+  const dataDir = getGatewayDataDir();
   fs.mkdirSync(dataDir, { recursive: true });
+  migrateFromLegacyApplicationSupport(dataDir);
   await reapOrphanGateway(dataDir);
 
   if (!maybeImportLegacyData(dataDir)) {
