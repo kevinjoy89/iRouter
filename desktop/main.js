@@ -339,6 +339,20 @@ function showWindow() {
   mainWindow.focus();
 }
 
+// 壳层注入 CSS：隐藏上游面板侧栏顶部的"假红绿灯"装饰（Sidebar.js 的 Traffic lights）。
+// macOS 窗口自带真标题栏，页面里再画一组显得重复；且这是纯装饰，隐藏无功能影响。
+// 选择器取 aside 内第一个 pt-5 的 flex 行（上游该块唯一），不依赖 Tailwind 色值类名。
+const HIDE_FAKE_TRAFFIC_LIGHTS_CSS = `
+  aside > div.flex.items-center.gap-2.px-6.pt-5 { display: none !important; }
+  aside > div.px-6.py-4 { padding-top: 18px !important; }
+`;
+
+function applyShellCss(win) {
+  win.webContents.on("did-finish-load", () => {
+    win.webContents.insertCSS(HIDE_FAKE_TRAFFIC_LIGHTS_CSS).catch(() => {});
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1360,
@@ -383,6 +397,7 @@ function createWindow() {
   win.webContents.on("did-finish-load", () => {
     if (SMOKE) runSmoke();
   });
+  applyShellCss(win);
 
   win.once("ready-to-show", () => win.show());
 
@@ -557,6 +572,24 @@ async function runSmoke() {
     results.push(`GET /callback -> ${cb}`);
     ok &&= cb > 0;
     if (mainWindow) {
+      // 用 jwt-secret 自签一个合法 token 写进窗口 cookie，让 smoke 能进仪表盘页
+      // （aside/假红绿灯只在那边存在）；仅 smoke 路径执行。
+      try {
+        const crypto = require("node:crypto");
+        const secret = fs.readFileSync(path.join(app.getPath("userData"), "jwt-secret"));
+        const b64u = (buf) => buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        const now = Math.floor(Date.now() / 1000);
+        const payload = b64u(Buffer.from(JSON.stringify({ authenticated: true, iat: now, exp: now + 3600 })));
+        const sig = b64u(crypto.createHmac("sha256", secret).update(`${b64u(Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })))}.${payload}`).digest());
+        await mainWindow.webContents.session.cookies.set({
+          url: gatewayOrigin(),
+          name: "auth_token",
+          value: `${b64u(Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })))}.${payload}.${sig}`,
+        });
+        await mainWindow.webContents.loadURL(`${gatewayOrigin()}/dashboard`);
+      } catch (e) {
+        results.push(`smoke 登录注入失败：${e.message}`);
+      }
       await new Promise((resolve) => {
         if (mainWindow.webContents.isLoadingMainFrame()) {
           mainWindow.webContents.once("did-finish-load", resolve);
@@ -574,6 +607,16 @@ async function runSmoke() {
       const alive = await httpProbe("/login");
       results.push(`关窗后隐藏=${hidden} 网关仍响应=${alive}`);
       ok &&= hidden && alive === 200;
+
+      // 壳层 CSS 应已隐藏上游侧栏的假红绿灯装饰（spec 外的壳层外观，但不许回归）
+      const lightsHidden = await win.webContents.executeJavaScript(
+        `(() => { const el = document.querySelector('aside > div.flex.items-center.gap-2.px-6.pt-5');
+                  if (!el) return 'no-element';
+                  return getComputedStyle(el).display === 'none'; })()`,
+        true,
+      );
+      results.push(`假红绿灯已隐藏=${lightsHidden}`);
+      ok &&= lightsHidden === true;
     }
     results.push(`托盘已创建=${!!tray}`);
     ok &&= !!tray;
