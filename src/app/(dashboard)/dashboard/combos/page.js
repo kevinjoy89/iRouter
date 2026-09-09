@@ -23,6 +23,9 @@ const CAPACITY_ADAPTER_CAPS = [
 ];
 const DEFAULT_FALLBACK_MODEL = "oc/mimo-v2.5-free";
 const EMPTY_CAP_ENTRY = { enabled: true, roundRobin: false, models: [] };
+// 思考强度上限（自维护特性，ADR 0003）：UI 只提供连续的 low..max 区间，
+// 稀疏集合（如只支持 high）请直接编辑 settings 的 effortCaps JSON。
+const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 const EMPTY_CAPACITY_ADAPTER = {
   vision: { ...EMPTY_CAP_ENTRY },
   pdf: { ...EMPTY_CAP_ENTRY },
@@ -52,6 +55,7 @@ export default function CombosPage() {
   const [activeProviders, setActiveProviders] = useState([]);
   const [comboStrategies, setComboStrategies] = useState({});
   const [capacityAdapter, setCapacityAdapter] = useState(EMPTY_CAPACITY_ADAPTER);
+  const [effortCaps, setEffortCaps] = useState({});
   const { getCaps } = useModelCaps();
   const [confirmState, setConfirmState] = useState(null);
   const { copied, copy } = useCopyToClipboard();
@@ -77,6 +81,7 @@ export default function CombosPage() {
         setActiveProviders(providersData.connections || []);
       }
       setComboStrategies(settingsData.comboStrategies || {});
+      setEffortCaps(settingsData.effortCaps || {});
       const rawAdapter = settingsData.capacityAdapter || {};
       const normalized = {};
       for (const cap of CAPACITY_ADAPTER_CAPS) {
@@ -166,7 +171,8 @@ export default function CombosPage() {
       const updated = { ...comboStrategies };
       const next = { ...(updated[comboName] || {}), ...patch };
       // Prune to keep settings clean: default fallback with no extras = no entry.
-      if (!next.fallbackStrategy || next.fallbackStrategy === "fallback") {
+      // effortAwareRoute 是显式配置，单独保留。
+      if ((!next.fallbackStrategy || next.fallbackStrategy === "fallback") && typeof next.effortAwareRoute !== "boolean") {
         delete updated[comboName];
       } else {
         updated[comboName] = next;
@@ -181,6 +187,23 @@ export default function CombosPage() {
       setComboStrategies(updated);
     } catch (error) {
       console.log("Error updating combo strategy:", error);
+    }
+  };
+
+  // 思考强度上限：maxLevel 为空 → 撤销声明；否则声明为 low..maxLevel 的连续区间。
+  const handleSetEffortCap = async (model, maxLevel) => {
+    try {
+      const updated = { ...effortCaps };
+      if (!maxLevel) delete updated[model];
+      else updated[model] = EFFORT_LEVELS.slice(0, EFFORT_LEVELS.indexOf(maxLevel) + 1);
+      await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ effortCaps: updated }),
+      });
+      setEffortCaps(updated);
+    } catch (error) {
+      console.log("Error updating effort cap:", error);
     }
   };
 
@@ -261,6 +284,8 @@ export default function CombosPage() {
           onClose={() => setShowCreateModal(false)}
           onSave={handleCreate}
           activeProviders={activeProviders}
+          effortCaps={effortCaps}
+          onSetEffortCap={handleSetEffortCap}
         />
       )}
 
@@ -272,6 +297,8 @@ export default function CombosPage() {
           onClose={() => setEditingCombo(null)}
           onSave={(data) => handleUpdate(editingCombo.id, data)}
           activeProviders={activeProviders}
+          effortCaps={effortCaps}
+          onSetEffortCap={handleSetEffortCap}
         />
       )}
 
@@ -352,6 +379,19 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
 
         {/* Actions */}
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3 sm:shrink-0">
+          {/* Effort-aware routing toggle（自维护特性，ADR 0003） */}
+          <label
+            className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer select-none"
+            title="排路由时优先支持请求思考强度的成员（成员上限在编辑弹窗里声明）"
+          >
+            <Toggle
+              checked={strategy.effortAwareRoute !== false}
+              onChange={(v) => onSetStrategy({ effortAwareRoute: v })}
+              aria-label="Effort-aware routing"
+            />
+            <span>Effort-aware</span>
+          </label>
+
           {/* Strategy selector — always visible */}
           <div className="w-full sm:w-[200px]">
             <Select
@@ -552,7 +592,7 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
   );
 }
 
-function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown, onRemove }) {
+function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown, onRemove, effortCap = "", onSetEffortCap }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -638,6 +678,20 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
         </button>
       </div>
 
+      {/* 思考强度上限（声明后请求超过上限会自动降级） */}
+      <select
+        value={effortCap}
+        onChange={(e) => onSetEffortCap?.(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        className="shrink-0 rounded border border-black/10 bg-white px-1 py-0.5 font-mono text-[11px] text-text-muted outline-none dark:border-white/10 dark:bg-black/20"
+        title="Max reasoning effort this provider accepts (empty = undeclared)"
+      >
+        <option value="">effort?</option>
+        {EFFORT_LEVELS.map((l) => (
+          <option key={l} value={l}>{l}</option>
+        ))}
+      </select>
+
       {/* Remove */}
       <button
         onClick={onRemove}
@@ -650,7 +704,7 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
   );
 }
 
-function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindFilter = null }) {
+function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindFilter = null, effortCaps = {}, onSetEffortCap }) {
   // Initialize state with combo values - key prop on parent handles reset on remount
   const [name, setName] = useState(combo?.name || "");
   const [models, setModels] = useState(combo?.models || []);
@@ -801,6 +855,8 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
                       onMoveUp={() => handleMoveUp(index)}
                       onMoveDown={() => handleMoveDown(index)}
                       onRemove={() => handleRemoveModel(index)}
+                      effortCap={Array.isArray(effortCaps[model]) ? effortCaps[model][effortCaps[model].length - 1] : ""}
+                      onSetEffortCap={(v) => onSetEffortCap(model, v)}
                     />
                   ))}
                 </div>

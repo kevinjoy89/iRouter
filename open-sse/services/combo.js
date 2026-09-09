@@ -6,6 +6,16 @@ import { checkFallbackError, formatRetryAfter } from "./accountFallback.js";
 import { unavailableResponse } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
+import {
+  EFFORT_LADDER_DESC,
+  getDeclaredLevels,
+  clampLevel,
+  resolveRequestedEffort,
+  applyEffortToBody,
+  nextLowerLevel,
+  isInvalidEffortError,
+} from "./effortCaps.js";
+import { isRetryable, waitBeforeRetry, parseRetryAfterHeader } from "./autoRetry.js";
 
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
 // stripped). Must be prioritized. Soft (e.g. search) only degrades a feature.
@@ -78,6 +88,20 @@ export function reorderByCapabilities(models, required) {
   return models
     .map((m, i) => ({ m, i, t: tierOf(m) }))
     .sort((a, b) => a.t - b.t || a.i - b.i)
+    .map((x) => x.m);
+}
+
+// Effort-aware reorder（自维护特性，ADR 0003）：请求携带思考强度时，把"声明上限
+// 不足"的成员稳定沉底；未声明视为可支持、保持原序。开关见 effortAwareRoute。
+export function reorderByEffortCap(models, effortCaps, requestedLevel) {
+  if (!Array.isArray(models) || models.length <= 1) return models;
+  const lacks = (m) => {
+    const declared = getDeclaredLevels({ effortCaps }, m);
+    return !!declared && clampLevel(requestedLevel, declared) !== requestedLevel;
+  };
+  return models
+    .map((m, i) => ({ m, i, l: lacks(m) }))
+    .sort((a, b) => (a.l ? 1 : 0) - (b.l ? 1 : 0) || a.i - b.i)
     .map((x) => x.m);
 }
 
@@ -277,7 +301,7 @@ export function getComboModelsFromData(modelStr, combosData) {
  * @param {number|string} [options.comboStickyLimit=1] - Requests per combo model before switching
  * @returns {Promise<Response>}
  */
-export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true }) {
+export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, effortCaps = null, effortAwareRoute = false, autoRetry = null, retryState = null, signal = null }) {
   // Apply rotation strategy if enabled
   let rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
 
@@ -292,6 +316,19 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       rotatedModels = reordered;
     }
   }
+
+  // Effort-aware routing（自维护特性，ADR 0003）：高档位请求优先命中原生支持的成员。
+  // 排序在 auto-switch 之后（硬能力优先）。开关默认开，可全局/每 combo 关闭。
+  if (effortAwareRoute) {
+    const effortReq = resolveRequestedEffort(body);
+    if (effortReq) {
+      const reordered = reorderByEffortCap(rotatedModels, effortCaps, effortReq.level);
+      if (reordered[0] !== rotatedModels[0]) {
+        log.info("COMBO", `effort-aware reorder (${effortReq.level}) → ${reordered[0]}`);
+      }
+      rotatedModels = reordered;
+    }
+  }
   
   let lastError = null;
   let earliestRetryAfter = null;
@@ -302,8 +339,8 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
     log.info("COMBO", `Trying model ${i + 1}/${rotatedModels.length}: ${modelStr}`);
 
     try {
-      const result = await handleSingleModel(body, modelStr);
-      
+      let result = await handleSingleModel(body, modelStr);
+
       // Success (2xx) - return response
       if (result.ok) {
         log.info("COMBO", `Model ${modelStr} succeeded`);
@@ -313,12 +350,17 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       // Extract error info from response
       let errorText = result.statusText || "";
       let retryAfter = null;
+      let retryAfterMs = parseRetryAfterHeader(result.headers?.get?.("retry-after"));
       try {
         const errorBody = await result.clone().json();
         errorText = errorBody?.error?.message || errorBody?.error || errorBody?.message || errorText;
         retryAfter = errorBody?.retryAfter || null;
       } catch {
         // Ignore JSON parse errors
+      }
+      // Retry-After 优先在响应头（unavailableResponse 只放 header 不放 body 字段）
+      if (retryAfterMs != null && !retryAfter) {
+        retryAfter = new Date(Date.now() + retryAfterMs).toISOString();
       }
 
       // Track earliest retryAfter across all combo models
@@ -329,6 +371,41 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       // Normalize error text to string (Worker-safe)
       if (typeof errorText !== "string") {
         try { errorText = JSON.stringify(errorText); } catch { errorText = String(errorText); }
+      }
+
+      // 反应式降档重试（自维护特性，ADR 0003）：invalid-effort 类 400（配置缺失或
+      // 已变化）→ 同成员逐档下降重发。上游在该阶段拒收必在流开始前，可安全重放；
+      // 降到底仍失败则交回主流程（换下个成员，用原始请求）。
+      if (isInvalidEffortError(result.status, errorText)) {
+        const degraded = await degradeRetry(body, modelStr, handleSingleModel, effortCaps, log);
+        if (degraded) return degraded;
+      }
+
+      // 成员级等待重试（自维护特性 ADR 0003，autoRetry.memberRetries > 0 时启用）：
+      // 可重试错误（限流/过载）→ 原地等待后重试同一成员；次数用尽、预算耗尽或客户端
+      // 断开才落入下方原有换下家逻辑。等待与请求级重试共享 retryState 等待预算。
+      if (autoRetry?.memberRetries > 0 && isRetryable(result.status, errorText, autoRetry)) {
+        for (let m = 0; m < autoRetry.memberRetries; m++) {
+          const proceed = await waitBeforeRetry({ cfg: autoRetry, attempt: m, retryAfterMs, retryState, signal, log, label: "RETRY" });
+          if (!proceed) {
+            // 客户端已断开 → 终止整条回退（继续换成员只会白烧上游配额）；
+            // 预算耗尽 → 按原语义换下个成员。
+            if (signal?.aborted) return result;
+            break;
+          }
+          const retried = await handleSingleModel(body, modelStr);
+          if (retried.ok) {
+            log.info("COMBO", `Model ${modelStr} succeeded on member retry ${m + 1}/${autoRetry.memberRetries}`);
+            return retried;
+          }
+          let retryText = retried.statusText || "";
+          try {
+            const eb = await retried.clone().json();
+            retryText = eb?.error?.message || eb?.error || eb?.message || retryText;
+          } catch { /* ignore */ }
+          if (!isRetryable(retried.status, retryText, autoRetry)) break;
+          retryAfterMs = parseRetryAfterHeader(retried.headers?.get?.("retry-after"));
+        }
       }
 
       // Check if should fallback to next model
@@ -519,6 +596,35 @@ function collectPanel(calls, { minPanel, stragglerGraceMs, panelHardTimeoutMs })
         });
     });
   });
+}
+
+/**
+ * 同成员内逐档降级重发（effort degrade retry）。
+ * 返回成功 Response；无法降级或降到底仍失败 → null（交回主流程继续 fallback）。
+ * 每次尝试都从原请求克隆，避免上游翻译管线的就地修改污染重试。
+ */
+async function degradeRetry(body, modelStr, handleSingleModel, effortCaps, log) {
+  const req = resolveRequestedEffort(body);
+  // 模型后缀携带的档位已被漏斗钳制覆盖，这里无需处理
+  if (!req || req.viaSuffix) return null;
+  const declared = getDeclaredLevels({ effortCaps }, modelStr);
+  let current = req.level;
+  for (let steps = 0; steps < EFFORT_LADDER_DESC.length; steps++) {
+    const next = nextLowerLevel(current, declared);
+    if (!next) break;
+    const attemptBody = applyEffortToBody(structuredClone(body), req.shape, next);
+    log.info("COMBO", `effort degrade ${modelStr}: ${current} → ${next}`);
+    const r = await handleSingleModel(attemptBody, modelStr);
+    if (r.ok) return r;
+    let errText = r.statusText || "";
+    try {
+      const eb = await r.clone().json();
+      errText = eb?.error?.message || eb?.error || eb?.message || errText;
+    } catch { /* 忽略 JSON 解析失败 */ }
+    if (!isInvalidEffortError(r.status, errText)) return null;
+    current = next;
+  }
+  return null;
 }
 
 /**

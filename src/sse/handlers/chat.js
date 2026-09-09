@@ -16,6 +16,9 @@ import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
 import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { handleComboChat, handleFusionChat, detectRequiredCapabilities } from "open-sse/services/combo.js";
+import { getDeclaredLevels, clampLevel, resolveRequestedEffort, applyEffortToBody } from "open-sse/services/effortCaps.js";
+import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
+import { resolveAutoRetry, withAutoRetry } from "open-sse/services/autoRetry.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -25,12 +28,38 @@ import { updateProviderCredentials, checkAndRefreshToken } from "../services/tok
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
 
+// effort-aware 路由开关（自维护特性，ADR 0003）：每 combo 配置覆盖全局默认。
+// 全局默认开（settings.effortAwareRoute !== false）。
+function effortAwareRouteFor(settings, comboName) {
+  const specific = (settings.comboStrategies || {})[comboName]?.effortAwareRoute;
+  if (typeof specific === "boolean") return specific;
+  return settings.effortAwareRoute !== false;
+}
+
 /**
- * Handle chat completion request
+ * Handle chat completion request（自维护特性 ADR 0003：外层包自动重试）
  * Supports: OpenAI, Claude, Gemini, OpenAI Responses API formats
  * Format detection and translation handled by translator
+ *
+ * 请求级自动重试：整条回退链（账号 → combo 成员）穷尽且错误可重试（429/5xx/限流
+ * 文本）时，按 settings.autoRetry 等待后整组重来，防止 Agent 因临时限流停摆。
+ * 重试只发生在首字节之前；客户端断开（request.signal）立即停止等待。
+ * 耗尽后原样返回最后一个错误（429 + Retry-After），由客户端自行兜底。
  */
 export async function handleChat(request, clientRawRequest = null) {
+  const settings = await getSettings();
+  const cfg = resolveAutoRetry(settings);
+  if (!cfg.enabled) return handleChatOnce(request, clientRawRequest, settings, null);
+  const retryState = { waitedMs: 0 };
+  return withAutoRetry(
+    () => handleChatOnce(request, clientRawRequest, settings, retryState),
+    cfg,
+    { signal: request?.signal, retryState, log, label: "RETRY" }
+  );
+}
+
+async function handleChatOnce(request, clientRawRequest = null, settings = null, retryState = null) {
+  if (!settings) settings = await getSettings();
   let body;
   try {
     body = await request.json();
@@ -67,7 +96,6 @@ export async function handleChat(request, clientRawRequest = null) {
   }
 
   // Enforce API key if enabled in settings
-  const settings = await getSettings();
   if (settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
@@ -91,6 +119,7 @@ export async function handleChat(request, clientRawRequest = null) {
   if (bypassResponse) return bypassResponse.response || bypassResponse;
 
   const requiredCapabilities = detectRequiredCapabilities(body);
+  const autoRetryCfg = resolveAutoRetry(settings);
 
   // Check if model is a combo (has multiple models with fallback)
   const comboModels = await getComboModels(modelStr);
@@ -134,7 +163,12 @@ export async function handleChat(request, clientRawRequest = null) {
       log,
       comboName: modelStr,
       comboStrategy,
-      comboStickyLimit
+      comboStickyLimit,
+      effortCaps: settings.effortCaps,
+      effortAwareRoute: effortAwareRouteFor(settings, modelStr),
+      autoRetry: autoRetryCfg,
+      retryState,
+      signal: request?.signal
     });
   }
 
@@ -153,7 +187,12 @@ export async function handleChat(request, clientRawRequest = null) {
       ),
       log,
       comboName: modelStr,
-      comboStrategy: getActiveAdapterStrategy(requiredCapabilities, settings)
+      comboStrategy: getActiveAdapterStrategy(requiredCapabilities, settings),
+      effortCaps: settings.effortCaps,
+      effortAwareRoute: effortAwareRouteFor(settings, modelStr),
+      autoRetry: autoRetryCfg,
+      retryState,
+      signal: request?.signal
     });
   }
 
@@ -164,19 +203,39 @@ export async function handleChat(request, clientRawRequest = null) {
  * Handle single model chat request
  */
 async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null) {
+  const settings = await getSettings();
   const modelInfo = await getModelInfo(modelStr);
+
+  // 思考强度上限（自维护特性，ADR 0003）：声明集合用于
+  // ① 漏斗钳制（模型后缀/body 档位字段）② 传入翻译层钳制线上产出档位——
+  // 客户端思考意图可能是 budget 形状（如 Claude Code），且各格式映射非单调
+  // （deepseek 把 xhigh 升为 max），必须在翻译输出处兜底。
+  const declared = getDeclaredLevels(settings, modelStr);
+  if (declared) {
+    const req = resolveRequestedEffort(body, modelStr);
+    if (req?.level) {
+      const clamped = clampLevel(req.level, declared);
+      if (clamped !== req.level) {
+        log.info("EFFORT", `clamp ${modelStr}: ${req.level} → ${clamped}`);
+        if (req.viaSuffix) {
+          modelStr = `${stripThinkingSuffix(modelStr)}(${clamped})`;
+        } else if (req.shape) {
+          applyEffortToBody(body, req.shape, clamped);
+        }
+      }
+    }
+  }
 
   // If provider is null, this might be a combo name - check and handle
   if (!modelInfo.provider) {
     const comboModels = await getComboModels(modelStr);
     if (comboModels) {
-      const chatSettings = await getSettings();
       // Check for combo-specific strategy first, fallback to global
-      const comboStrategies = chatSettings.comboStrategies || {};
+      const comboStrategies = settings.comboStrategies || {};
       const comboSpecificStrategy = comboStrategies[modelStr]?.fallbackStrategy;
-      const comboStrategy = comboSpecificStrategy || chatSettings.comboStrategy || "fallback";
+      const comboStrategy = comboSpecificStrategy || settings.comboStrategy || "fallback";
       const requiredCapabilities = detectRequiredCapabilities(body);
-      const augmentedModels = augmentModelsWithCapacityAdapter(comboModels, requiredCapabilities, chatSettings);
+      const augmentedModels = augmentModelsWithCapacityAdapter(comboModels, requiredCapabilities, settings);
       const adapterAdded = augmentedModels.filter((m) => !comboModels.includes(m));
 
       if (comboStrategy === "fusion") {
@@ -199,7 +258,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         });
       }
 
-      const comboStickyLimit = chatSettings.comboStickyRoundRobinLimit;
+      const comboStickyLimit = settings.comboStickyRoundRobinLimit;
       log.info("CHAT", `Combo "${modelStr}" with ${augmentedModels.length} models (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
       return handleComboChat({
         body,
@@ -211,7 +270,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         log,
         comboName: modelStr,
         comboStrategy,
-        comboStickyLimit
+        comboStickyLimit,
+        effortCaps: settings.effortCaps,
+        effortAwareRoute: effortAwareRouteFor(settings, modelStr)
       });
     }
     log.warn("CHAT", "Invalid model format", { model: modelStr });
@@ -291,6 +352,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       pxpipeTransform: chatSettings.pxpipeEnabled ? await getPxpipeTransform() : null,
       onPxpipeEvent: appendPxpipeEvent,
       providerThinking,
+      effortCap: declared,
       // Detect source format by endpoint + body
       sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
       onCredentialsRefreshed: async (newCreds) => {

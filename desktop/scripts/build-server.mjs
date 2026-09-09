@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// 构建内嵌网关：在锁版上游 9router/ 产出 Next standalone，复制进 desktop/build/server。
-// 上游源码零改动——只读取，产物全部落在 desktop/build/（见 docs/adr/0002-pinned-upstream.md）。
+// 构建内嵌网关：9router 源码已并入仓库根目录（原 submodule 已废弃），
+// 在根目录产出 Next standalone，复制进 desktop/build/server。
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 
 const DESKTOP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(DESKTOP_ROOT, "..");
-const UPSTREAM = join(REPO_ROOT, "9router");
+// 网关源码 = 仓库根目录（根 package.json 的 build/postbuild 即 9router 构建脚本）
+const UPSTREAM = REPO_ROOT;
 const STANDALONE = join(UPSTREAM, ".next", "standalone");
 const OUT = join(DESKTOP_ROOT, "build", "gateway", "server");
 

@@ -6,6 +6,7 @@ import { getCapabilitiesForModel } from "../../providers/capabilities.js";
 import { getThinkingLevels } from "../../providers/thinkingLevels.js";
 import { PROVIDERS } from "../../providers/index.js";
 import { LEVEL_TO_BUDGET, budgetToLevel, effortToBudget, effortToThinkingLevel } from "./thinking.js";
+import { clampLevel } from "../../services/effortCaps.js";
 
 // Map a target wire-format to its native thinking format (when capability has none).
 const FORMAT_TO_NATIVE = {
@@ -226,17 +227,21 @@ function stripAll(body) {
 }
 
 // Apply unified thinking config to body in the resolved provider-native format.
-function applyFormat(fmt, body, cfg, caps, supportedLevels) {
+// `declared`（思考强度上限，自维护特性 ADR 0003）：该供应商声明的可接受档位集合。
+// 钳制必须落在产出档位上而非输入意图上——各格式映射是非单调的（如 deepseek 把
+// xhigh 升为 max），只钳输入会被映射再次越界。
+function applyFormat(fmt, body, cfg, caps, supportedLevels, declared = null) {
   const none = cfg.mode === "none";
   const canDisable = caps.thinkingCanDisable !== false;
   // Model cannot disable thinking → clamp "none" to minimal effort instead.
   const eff = none && !canDisable ? { mode: "level", level: "minimal" } : cfg;
+  const capped = (l) => clampLevel(l, declared);
 
   switch (fmt) {
     case "openai": {
       if (none && canDisable) { body.reasoning_effort = "none"; break; }
       const level = toLevel(eff);
-      if (level) body.reasoning_effort = normalizeOpenAILevel(level, supportedLevels);
+      if (level) body.reasoning_effort = capped(normalizeOpenAILevel(level, supportedLevels));
       break;
     }
     case "claude-adaptive": {
@@ -246,7 +251,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
       if (canDisable) body.thinking = { type: "adaptive" };
       else delete body.thinking;
       const level = toLevel(eff);
-      body.output_config = { effort: level === "xhigh" || level === "auto" ? "high" : level };
+      body.output_config = { effort: capped(level === "xhigh" || level === "auto" ? "high" : level) };
       break;
     }
     case "claude-budget": {
@@ -256,7 +261,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
       break;
     }
     case "gemini-level": {
-      const level = none ? "minimal" : toGeminiThinkingLevel(eff);
+      const level = capped(none ? "minimal" : toGeminiThinkingLevel(eff));
       setGeminiThinking(body, { thinkingLevel: level, includeThoughts: level !== "minimal" });
       ensureGeminiOutputFloor(body, geminiLevelOutputFloor(level), caps);
       break;
@@ -280,9 +285,9 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
         // GLM-5.3 only accepts exactly low|high|max (anything else errors); GLM-5.2 accepts
         // a wider set but z.ai maps low/medium->high and xhigh->max server-side anyway, so
         // this 3-value mapping matches both.
-        body.reasoning_effort = (zaiLvl === "low" || zaiLvl === "minimal") ? "low"
+        body.reasoning_effort = capped((zaiLvl === "low" || zaiLvl === "minimal") ? "low"
           : (zaiLvl === "high" || zaiLvl === "medium") ? "high"
-          : "max";
+          : "max");
       }
       break;
     }
@@ -298,13 +303,13 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
       body.thinking = { type: "enabled" };
       // DeepSeek: low/medium→high, xhigh/max→max.
       const level = toLevel(eff);
-      body.reasoning_effort = level === "xhigh" || level === "max" ? "max" : "high";
+      body.reasoning_effort = capped(level === "xhigh" || level === "max" ? "max" : "high");
       break;
     }
     case "kimi": {
       if (none && canDisable) { body.thinking = { type: "disabled" }; break; }
       const effort = toKimiReasoningEffort(eff);
-      if (effort) body.reasoning_effort = effort;
+      if (effort) body.reasoning_effort = capped(effort);
       break;
     }
     case "minimax": {
@@ -321,7 +326,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
     case "step": {
       if (none && canDisable) break;
       const level = toLevel(eff);
-      if (level) body.reasoning_effort = level === "xhigh" || level === "max" ? "high" : level;
+      if (level) body.reasoning_effort = capped(level === "xhigh" || level === "max" ? "high" : level);
       break;
     }
     case "tokenrouter": {
@@ -330,7 +335,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
       // "none" → omit the field so the upstream default applies; pass levels through.
       if (none || eff.mode === "auto") break;
       const level = toLevel(eff);
-      if (level) body.reasoning_effort = level;
+      if (level) body.reasoning_effort = capped(level);
       break;
     }
     case "kiro":
@@ -345,7 +350,9 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
 // Mutates and returns body. No-op when model has no reasoning capability.
 // `intent` is a pre-captured config (from captureThinking on the original body);
 // falls back to extracting from the current body when omitted.
-export function applyThinking(targetFormat, model, body, provider = null, intent = undefined) {
+// `effortCap`（自维护特性 ADR 0003）：该供应商声明的可接受思考强度档位集合，
+// 钳制翻译产出的线上档位（覆盖 budget 等任意客户端意图形状）。
+export function applyThinking(targetFormat, model, body, provider = null, intent = undefined, effortCap = null) {
   if (!body || typeof body !== "object") return body;
 
   const { cleanModel, override } = parseSuffix(model);
@@ -362,6 +369,6 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   const fmt = resolveFormat(targetFormat, cleanModel, provider);
   const supportedLevels = getThinkingLevels(provider, cleanModel);
   stripAll(body);
-  applyFormat(fmt, body, cfg, caps, supportedLevels);
+  applyFormat(fmt, body, cfg, caps, supportedLevels, Array.isArray(effortCap) && effortCap.length ? effortCap : null);
   return body;
 }

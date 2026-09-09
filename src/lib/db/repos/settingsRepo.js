@@ -17,6 +17,22 @@ const DEFAULT_SETTINGS = {
   comboStrategy: "fallback",
   comboStickyRoundRobinLimit: 1,
   comboStrategies: {},
+  // 思考强度上限（自维护特性，ADR 0003）：{ "provider/model": ["low","medium","high","xhigh"] }
+  effortCaps: {},
+  // effort-aware 路由默认开；每 combo 可用 comboStrategies[name].effortAwareRoute 覆盖
+  effortAwareRoute: true,
+  // 自动重试（自维护特性，ADR 0003）：完整形态见 open-sse/services/autoRetry.js DEFAULT_AUTO_RETRY
+  autoRetry: {
+    enabled: true,
+    statusCodes: [429, 500, 502, 503, 504, 529],
+    maxRetries: 20,
+    memberRetries: 0,
+    intervalSeconds: 5,
+    backoff: true,
+    backoffMaxSeconds: 60,
+    retryAfterMaxSeconds: 120,
+    totalWaitBudgetSeconds: 600,
+  },
   capacityAdapter: {
     vision: { enabled: true, roundRobin: false, models: [] },
     pdf: { enabled: false, roundRobin: false, models: [] },

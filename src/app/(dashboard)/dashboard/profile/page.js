@@ -292,6 +292,33 @@ export default function ProfilePage() {
     }
   };
 
+  // 自维护特性（ADR 0003）：effort-aware 路由全局默认开关
+  const updateEffortAwareRoute = async (enabled) => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ effortAwareRoute: enabled }),
+      });
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, effortAwareRoute: enabled }));
+      }
+    } catch (err) {
+      console.error("Failed to update effort-aware route:", err);
+    }
+  };
+
+  // 自动重试（自维护特性，ADR 0003）：局部更新 settings.autoRetry
+  const updateAutoRetry = (patch) => {
+    const next = { ...(settings.autoRetry || {}), ...patch };
+    setSettings(prev => ({ ...prev, autoRetry: next }));
+    fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoRetry: next }),
+    }).catch(err => console.error("Failed to update auto retry:", err));
+  };
+
   const updateStickyLimit = async (limit) => {
     const numLimit = parseInt(limit);
     if (isNaN(numLimit) || numLimit < 1) return;
@@ -1494,6 +1521,21 @@ export default function ProfilePage() {
               />
             </div>
 
+            {/* Effort-aware routing（自维护特性，ADR 0003） */}
+            <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Effort-aware Routing</p>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Prefer combo members whose declared effort cap supports the requested reasoning effort（上限在 Combo 页成员上声明）
+                </p>
+              </div>
+              <Toggle
+                checked={settings.effortAwareRoute !== false}
+                onChange={() => updateEffortAwareRoute(settings.effortAwareRoute === false)}
+                disabled={loading}
+              />
+            </div>
+
             {/* Combo Sticky Round Robin Limit */}
             {settings.comboStrategy === "round-robin" && (
               <div className="flex items-center justify-between pt-2 border-t border-border/50">
@@ -1525,6 +1567,9 @@ export default function ProfilePage() {
             </p>
           </div>
         </Card>
+
+        {/* Retry Strategy（自维护特性，ADR 0003） */}
+        <RetryStrategyCard settings={settings} onChange={updateAutoRetry} loading={loading} />
 
         {/* Network */}
         <Card>
@@ -1698,5 +1743,106 @@ export default function ProfilePage() {
         />
       </Modal>
     </div>
+  );
+}
+
+// 自动重试（自维护特性，ADR 0003）：完整语义见 open-sse/services/autoRetry.js。
+const AUTO_RETRY_DEFAULTS = {
+  enabled: true,
+  statusCodes: [429, 500, 502, 503, 504, 529],
+  maxRetries: 20,
+  memberRetries: 0,
+  intervalSeconds: 5,
+  backoff: true,
+  backoffMaxSeconds: 60,
+  retryAfterMaxSeconds: 120,
+  totalWaitBudgetSeconds: 600,
+};
+
+function RetryStrategyCard({ settings, onChange, loading }) {
+  const ar = { ...AUTO_RETRY_DEFAULTS, ...(settings.autoRetry || {}) };
+  const num = (label, desc, key, { min = 0, max = 99999 } = {}) => (
+    <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
+      <div className="min-w-0">
+        <p className="font-medium text-sm sm:text-base">{label}</p>
+        <p className="text-xs sm:text-sm text-text-muted">{desc}</p>
+      </div>
+      <Input
+        type="number"
+        min={min}
+        max={max}
+        value={ar[key]}
+        onChange={(e) => {
+          const v = parseInt(e.target.value, 10);
+          if (Number.isInteger(v) && v >= min && v <= max) onChange({ [key]: v });
+        }}
+        disabled={loading}
+        className="w-20 text-center"
+      />
+    </div>
+  );
+
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 shrink-0">
+          <span className="material-symbols-outlined text-[20px]">autorenew</span>
+        </div>
+        <h3 className="text-base sm:text-lg font-semibold">Retry Strategy</h3>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start sm:items-center justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-sm sm:text-base">Auto Retry</p>
+            <p className="text-xs sm:text-sm text-text-muted">
+              Hold failing requests (429/5xx) and retry automatically so agents keep running
+            </p>
+          </div>
+          <Toggle
+            checked={ar.enabled !== false}
+            onChange={(v) => onChange({ enabled: v })}
+            disabled={loading}
+          />
+        </div>
+
+        {ar.enabled !== false && (
+          <>
+            {num("Max Retries", "Whole-request retries after all combo members fail (0 = unlimited)", "maxRetries", { max: 999 })}
+            {num("Member Retries", "Retry the same combo member on 429/5xx before switching (0 = off)", "memberRetries", { max: 20 })}
+            {num("Interval (s)", "Base wait between retries", "intervalSeconds", { min: 1, max: 600 })}
+            <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
+              <div className="min-w-0">
+                <p className="font-medium text-sm sm:text-base">Exponential Backoff</p>
+                <p className="text-xs sm:text-sm text-text-muted">Double the wait each attempt, with ±20% jitter</p>
+              </div>
+              <Toggle
+                checked={ar.backoff !== false}
+                onChange={(v) => onChange({ backoff: v })}
+                disabled={loading}
+              />
+            </div>
+            {num("Backoff Max (s)", "Exponential backoff ceiling", "backoffMaxSeconds", { max: 3600 })}
+            {num("Retry-After Cap (s)", "Clamp upstream Retry-After so one provider can't hold a request too long (0 = no cap)", "retryAfterMaxSeconds", { max: 3600 })}
+            {num("Total Wait Budget (s)", "Cumulative wait ceiling per request (0 = unlimited)", "totalWaitBudgetSeconds", { max: 36000 })}
+            <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
+              <div className="min-w-0">
+                <p className="font-medium text-sm sm:text-base">Status Codes</p>
+                <p className="text-xs sm:text-sm text-text-muted">Comma-separated codes that trigger retry (rate-limit text always matches)</p>
+              </div>
+              <Input
+                value={(ar.statusCodes || []).join(", ")}
+                onChange={(e) => {
+                  const list = e.target.value.split(",").map(s => parseInt(s.trim(), 10)).filter(Number.isInteger);
+                  if (list.length > 0) onChange({ statusCodes: list });
+                }}
+                disabled={loading}
+                className="w-40 text-center"
+              />
+            </div>
+          </>
+        )}
+      </div>
+    </Card>
   );
 }
