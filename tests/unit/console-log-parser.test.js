@@ -59,6 +59,13 @@ describe("parseLogLine", () => {
     expect(rtk.text).toBe("saved 24141B / 567694B (4.3%)");
   });
 
+  it("classifies error-status response lines with mid-line ✗ as ERROR", () => {
+    const e = parseLogLine("[00:37:58] 🔵 ✗ ERROR 429 · openai-compatible-chat-f5b8c685/deepseek-v4-flash · 2749ms");
+    expect(e.level).toBe("ERROR");
+    expect(e.icon).toBe("🔵");
+    expect(e.text).toContain("ERROR 429");
+  });
+
   it("classifies Warning:/Debug: markers without timestamp", () => {
     expect(parseLogLine("Warning: deprecated option").level).toBe("WARN");
     expect(parseLogLine("Debug: cache miss").level).toBe("DEBUG");

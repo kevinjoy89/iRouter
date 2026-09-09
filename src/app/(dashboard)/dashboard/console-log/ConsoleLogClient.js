@@ -23,6 +23,8 @@ const LEVEL_CHIP = {
 };
 // 旧 logger 的级别 emoji：行内已用级别标签展示级别，这些图标不再重复渲染
 const LEVEL_EMOJIS = new Set(["❌", "💥", "⚠", "ℹ", "🔍", "⨯", "✗", "✘", "✖", "×"]);
+// 会话关联色点（🟢🔵🟣…）已由级别/标签承担信息，不再显示
+const SESSION_DOTS = new Set(["🟢", "🔵", "🟣", "🟡", "🟠", "🔴", "⚪", "🟤"]);
 // 日志 TAG（[CHAT]/[COMBO]/[RETRY]…）的彩色标签配色：按名称哈希取色，稳定可读
 const TAG_COLORS = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#a78bfa", "#f472b6", "#2dd4bf", "#f97316", "#a3e635", "#22d3ee"];
 function tagColor(tag) {
@@ -173,15 +175,6 @@ export default function ConsoleLogClient() {
     const ok = await copyText(filtered.map((e) => e.raw).join("\n"));
     if (!ok) console.error("Failed to copy logs");
   };
-  const [rowCopiedRaw, setRowCopiedRaw] = useState("");
-  const copyRow = (raw) => {
-    copyText(raw).then((ok) => {
-      if (ok) {
-        setRowCopiedRaw(raw);
-        setTimeout(() => setRowCopiedRaw((prev) => (prev === raw ? "" : prev)), 900);
-      }
-    });
-  };
 
   const toggleLevel = (lv) => {
     setLevels((prev) => {
@@ -261,14 +254,16 @@ export default function ConsoleLogClient() {
                   const parts = [
                     e.time ? { k: "t", cls: "text-gray-500", v: e.time } : null,
                     { k: "l", cls: `${LEVEL_COLORS[e.level]} font-semibold`, v: e.level },
-                    e.icon && !LEVEL_EMOJIS.has(e.icon) ? { k: "i", cls: "text-gray-400", v: e.icon } : null,
+                    e.icon && !LEVEL_EMOJIS.has(e.icon) && !SESSION_DOTS.has(e.icon)
+                      ? { k: "i", cls: "text-gray-400", v: e.icon }
+                      : null,
                     e.tag ? { k: "g", chip: true, v: e.tag, color: tagColor(e.tag) } : null,
                   ].filter(Boolean);
                   return (
                     <div
                       key={idx}
                       style={{ height: ROW_H }}
-                      className="group/row relative whitespace-pre overflow-hidden select-text"
+                      className="whitespace-pre overflow-hidden select-text"
                     >
                       {parts.map((p, pi) => (
                         <Fragment key={p.k}>
@@ -287,15 +282,6 @@ export default function ConsoleLogClient() {
                       ))}
                       {" "}
                       <span className="text-gray-200">{e.text}</span>
-                      <button
-                        onClick={() => copyRow(e.raw)}
-                        title="Copy this line"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/row:opacity-100 p-0.5 rounded text-gray-400 hover:text-white transition-opacity"
-                      >
-                        <span className="material-symbols-outlined text-[13px]">
-                          {rowCopiedRaw === e.raw ? "check" : "content_copy"}
-                        </span>
-                      </button>
                     </div>
                   );
                 })}

@@ -22,6 +22,7 @@ const EMOJI_LEVEL = {
 const TEXT_MARKERS = [
   [/^(?:⨯|✗|✘|✖|×|❌|💥)/, "ERROR"],
   [/(^|\s)Error:/, "ERROR"],
+  [/✗|✘/, "ERROR"], // 行内失败标记（如 "🔵 ✗ ERROR 429 · ..."）
   [/^⚠/, "WARN"],
   [/(^|\s)Warning:/i, "WARN"],
   [/^🔍/, "DEBUG"],
