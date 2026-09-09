@@ -14,6 +14,8 @@ describe("parseLogLine", () => {
     const e = parseLogLine("[12:34:29] ⚠️ [AUTH] 1373 locked for 64s");
     expect(e.level).toBe("WARN");
     expect(e.tag).toBe("AUTH");
+    // FE0F 变体选择符应在解析时剥离，保证客户端隐藏集合精确命中
+    expect(e.icon).toBe("⚠");
   });
 
   it("parses info ℹ️ and debug 🔍", () => {

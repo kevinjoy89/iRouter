@@ -82,7 +82,7 @@ export function parseLogLine(raw) {
   }
   return {
     time: tm[1],
-    icon,
+    icon: icon.replace(/\uFE0F/g, ""),
     tag,
     text: text.replace(/\s+$/, ""),
     level: EMOJI_LEVEL[icon.replace(/\uFE0F/g, "")] || detectByMarkers(rawStr) || "LOG",
