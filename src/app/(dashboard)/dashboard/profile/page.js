@@ -1526,7 +1526,7 @@ export default function ProfilePage() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm sm:text-base">Effort-aware Routing</p>
                 <p className="text-xs sm:text-sm text-text-muted">
-                  Prefer combo members whose declared effort cap supports the requested reasoning effort（上限在 Combo 页成员上声明）
+                  Prefer combo members whose declared effort cap supports the requested reasoning effort
                 </p>
               </div>
               <Toggle

@@ -382,7 +382,7 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
           {/* Effort-aware routing toggle（自维护特性，ADR 0003） */}
           <label
             className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer select-none"
-            title="排路由时优先支持请求思考强度的成员（成员上限在编辑弹窗里声明）"
+            title="Prefer members that natively support the requested reasoning effort (declare caps in the edit dialog)"
           >
             <Toggle
               checked={strategy.effortAwareRoute !== false}
@@ -686,7 +686,7 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
         className="shrink-0 rounded border border-black/10 bg-white px-1 py-0.5 font-mono text-[11px] text-text-muted outline-none dark:border-white/10 dark:bg-black/20"
         title="Max reasoning effort this provider accepts (empty = undeclared)"
       >
-        <option value="">effort?</option>
+        <option value="">effort</option>
         {EFFORT_LEVELS.map((l) => (
           <option key={l} value={l}>{l}</option>
         ))}

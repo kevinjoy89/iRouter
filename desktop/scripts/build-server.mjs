@@ -2,7 +2,7 @@
 // 构建内嵌网关：9router 源码已并入仓库根目录（原 submodule 已废弃），
 // 在根目录产出 Next standalone，复制进 desktop/build/server。
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, rmSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -89,29 +89,7 @@ if (existsSync(nativeSqlite)) {
   log("已移除 better-sqlite3（运行时走 sql.js 回退）");
 }
 
-// 5. 合并桌面端补丁多语言字典进 standalone 产物
-const i18nPatchDir = join(DESKTOP_ROOT, "resources", "i18n");
-const literalsDir = join(OUT, "public", "i18n", "literals");
-if (existsSync(i18nPatchDir) && existsSync(literalsDir)) {
-  const patchFiles = readdirSync(i18nPatchDir).filter((f) => f.endsWith(".json"));
-  for (const patchFile of patchFiles) {
-    const targetFile = join(literalsDir, patchFile);
-    try {
-      const patchContent = JSON.parse(readFileSync(join(i18nPatchDir, patchFile), "utf8"));
-      let baseContent = {};
-      if (existsSync(targetFile)) {
-        baseContent = JSON.parse(readFileSync(targetFile, "utf8"));
-      }
-      const merged = { ...baseContent, ...patchContent };
-      writeFileSync(targetFile, JSON.stringify(merged, null, 2), "utf8");
-      log(`已合并多语言补丁字典: ${patchFile} (${Object.keys(patchContent).length} 条目)`);
-    } catch (err) {
-      console.error(`[build-server] 合并多语言补丁字典失败 ${patchFile}:`, err);
-    }
-  }
-}
-
-// 6. 产物自检
+// 5. 产物自检
 for (const [p, what] of [
   [join(OUT, "custom-server.js"), "custom-server.js"],
   [join(OUT, "server.js"), "server.js"],
