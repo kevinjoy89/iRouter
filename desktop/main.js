@@ -1060,12 +1060,100 @@ const SHELL_SYNC_SCRIPT = `
     }
   }
 
+  // 换算大数值指标为万/亿单位，仅大于 10000 时生效
+  function formatLargeMetricNumber(rawText, locale) {
+    if (typeof rawText !== "string") return rawText;
+    const cleaned = rawText.replace(/,/g, "").trim();
+    const num = Number(cleaned);
+    if (isNaN(num) || !isFinite(num)) return rawText;
+
+    // 仅大于 10000 时才换算
+    if (num <= 10000) {
+      return rawText;
+    }
+
+    const isTw = locale === "zh-TW";
+    const isZh = locale === "zh-CN" || (!isTw && locale !== "en");
+
+    if (isZh || isTw) {
+      const wanUnit = isTw ? " 萬" : " 万";
+      const yiUnit = isTw ? " 億" : " 亿";
+
+      // 大于等于 1 亿 (100,000,000)
+      if (num >= 100000000) {
+        const val = num / 100000000;
+        return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + yiUnit;
+      }
+
+      // 大于 1 万
+      const val = num / 10000;
+      // 进位检查：若四舍五入后达到 10000.00 万，进位至 1.00 亿
+      const roundedStr = val.toFixed(2);
+      if (roundedStr === "10000.00") {
+        return "1.00" + yiUnit;
+      }
+      return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + wanUnit;
+    }
+
+    // 英文模式 (en)
+    if (locale === "en") {
+      if (num >= 1000000000) {
+        const val = num / 1000000000;
+        return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "B";
+      }
+      if (num >= 1000000) {
+        const val = num / 1000000;
+        const rounded = val.toFixed(2);
+        if (rounded === "1000.00") return "1.00B";
+        return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "M";
+      }
+      const val = num / 1000;
+      const rounded = val.toFixed(2);
+      if (rounded === "1000.00") return "1.00M";
+      return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "K";
+    }
+
+    return rawText;
+  }
+
+  // 对使用情况页面的统计卡片大数值进行万/亿换算
+  function formatUsageOverviewNumbers() {
+    const candidateSpans = document.querySelectorAll("span.truncate.text-2xl.font-bold");
+    for (const el of candidateSpans) {
+      if (el.classList.contains("text-warning")) continue;
+
+      const currentText = el.textContent.trim();
+      if (!currentText || currentText.includes("$") || currentText.includes("~")) continue;
+
+      const isPureNumber = /^\\d{1,3}(?:,\\d{3})*$/.test(currentText);
+
+      if (isPureNumber) {
+        el._irouterRawNumber = currentText;
+        el.setAttribute("title", currentText);
+        const formatted = formatLargeMetricNumber(currentText, currentLocale);
+        if (el.textContent !== formatted) {
+          el.textContent = formatted;
+          el._irouterFormattedText = formatted;
+          el._irouterFormattedLocale = currentLocale;
+        }
+      } else if (el._irouterRawNumber && el._irouterFormattedLocale !== currentLocale) {
+        const formatted = formatLargeMetricNumber(el._irouterRawNumber, currentLocale);
+        if (el.textContent !== formatted) {
+          el.textContent = formatted;
+          el._irouterFormattedText = formatted;
+          el._irouterFormattedLocale = currentLocale;
+        }
+      }
+    }
+  }
+
   let updateTimer = null;
   function triggerDomTranslate() {
     if (updateTimer) return;
     updateTimer = setTimeout(() => {
       updateTimer = null;
       replaceAppBrandAndVersion();
+      formatUsageOverviewNumbers();
       translatePlaceholders();
       translateSkippedElements();
       translateDynamicPatterns();
