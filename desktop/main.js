@@ -1315,19 +1315,8 @@ function createWindow() {
   applyShellCss(win);
   applyShellSync(win);
 
-  // 面板访问守卫：给本会话的窗口与资源请求注入客户端头，网关侧 middleware
-  // 只放行带此头的 HTML 页面（浏览器直连被 403），见 src/proxy.js。
-  try {
-    session.defaultSession.webRequest.onBeforeSendHeaders(
-      { urls: [`${gatewayOrigin()}/*`] },
-      (details, callback) => {
-        details.requestHeaders[PANEL_CLIENT_HEADER] = PANEL_CLIENT_VALUE;
-        callback({ requestHeaders: details.requestHeaders });
-      }
-    );
-  } catch (err) {
-    console.warn("[iRouter] 面板访问守卫注入客户端头失败:", err?.message);
-  }
+  // 面板访问守卫：网关侧（custom-server）按 UA 中的 Electron 标识放行桌面窗口，
+  // 浏览器直连 HTML 页面被连接级拒绝（见 custom-server.js isBlockedPanelRequest）。
 
   win.once("ready-to-show", () => win.show());
 

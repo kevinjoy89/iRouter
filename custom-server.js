@@ -21,7 +21,11 @@ const PANEL_CLIENT_HEADER = "x-irouter-client";
 const PANEL_CLIENT_VALUE = "irouter-app";
 
 function isBlockedPanelRequest(req) {
-  const hasClient = req.headers[PANEL_CLIENT_HEADER] === PANEL_CLIENT_VALUE;
+  // 桌面窗口识别：Electron UA 天然携带（零依赖，不依赖 webRequest 注入）；
+  // 也接受显式客户端头。浏览器无法天然携带两者之一，即被连接级拒绝。
+  const ua = req.headers["user-agent"] || "";
+  const hasClient =
+    req.headers[PANEL_CLIENT_HEADER] === PANEL_CLIENT_VALUE || ua.includes("Electron/");
   if (hasClient) return false;
   const accept = req.headers.accept || "";
   const isHtmlPage = accept.includes("text/html");
