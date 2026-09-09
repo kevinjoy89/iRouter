@@ -183,16 +183,15 @@ cd desktop && npm run dist:mac
 ### 5. electron-builder 反复下载 electron（约 130MB）导致打包慢
 **现象**：`dist:mac` / `electron-builder --mac` 每次都在日志出现 `downloaded label=electron progress=100%`，且 `~/Library/Caches/electron/` 下的 zip 每次被重写；网络不稳时甚至卡到 `Timeout awaiting 'request' for 600000ms` 直接失败。
 **原因**：@electron/get 对缓存的校验/下载链路依赖 GitHub Release，网络抖动时校验失败即整包重下。
-**解决办法**：
-- **预置缓存**：`~/Library/Caches/electron/<hash>/electron-v<版本>-darwin-arm64.zip` 存在且完整时（可从他人机器或可成功下载的机器拷贝），配合以下任一方式可跳过下载：
+**解决办法（已内置，一般无需手动处理）**：
+- 打包脚本 `desktop/scripts/package.mjs` 固定走国内镜像：electron 主包与 electron-builder 工具包（dmg-builder/icons）分别经 `ELECTRON_MIRROR` / `ELECTRON_BUILDER_BINARIES_MIRROR` 指向 npmmirror；`electron-builder.yml` 另有 `electronDownload.mirror` 兜底。
+- 因此统一用 `npm run dist:mac`（内部走 package.mjs），不要直接 `npx electron-builder`。
+- 需要覆盖镜像时用环境变量（如内网代理镜像）：
   ```bash
-  # a) 镜像加速（推荐，改用国内镜像，下载秒级）
-  ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npx electron-builder --mac
-
-  # b) 缓存重定向到可写目录（沙箱/CI 环境禁用 ~/Library/Caches 时）
-  ELECTRON_CACHE=/tmp/electron-cache ELECTRON_BUILDER_CACHE=/tmp/electron-builder-cache npx electron-builder --mac
+  ELECTRON_MIRROR=<mirror> ELECTRON_BUILDER_BINARIES_MIRROR=<mirror> npm run dist:mac
   ```
-- 验证缓存命中：日志无 `downloaded` 行，`electron zip extracted successfully` 直接出现，第二阶全程约 1-2 分钟。
+- 缓存重定向（沙箱/CI 环境禁用 `~/Library/Caches` 时）：`ELECTRON_CACHE=/tmp/electron-cache ELECTRON_BUILDER_CACHE=/tmp/electron-builder-cache npm run dist:mac`
+- 验证镜像生效：日志里下载地址为 `npmmirror.com`，无 600s 超时；缓存命中时第二阶全程约 1-2 分钟。
 
 ### 6. npm/npx 报 `EPERM`（cache folder contains root-owned files）
 **现象**：任何 `npm`/`npx` 命令报 `Your cache folder contains root-owned files, due to a bug in previous versions of npm`。

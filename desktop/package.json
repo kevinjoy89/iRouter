@@ -3,7 +3,7 @@
   "productName": "iRouter",
   "version": "0.0.2",
   "private": true,
-  "description": "iRouter — 9Router 的跨平台独立桌面版（Electron 壳层，上游零改动）",
+  "description": "iRouter — 9Router 的跨平台独立桌面版（Electron 壳层，网关源码基于上游 v0.5.69 定制）",
   "main": "main.js",
   "author": "iRouter",
   "license": "MIT",
@@ -15,9 +15,9 @@
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "test:import": "node scripts/test-import.mjs",
     "test:instance": "node scripts/test-single-instance.mjs",
-    "dist:mac": "npm run build-server && electron-builder --mac",
-    "dist:win": "npm run build-server && electron-builder --win",
-    "dist:linux": "npm run build-server && electron-builder --linux"
+    "dist:mac": "npm run build-server && node scripts/package.mjs --mac",
+    "dist:win": "npm run build-server && node scripts/package.mjs --win",
+    "dist:linux": "npm run build-server && node scripts/package.mjs --linux"
   },
   "devDependencies": {
     "electron": "^44.2.0",

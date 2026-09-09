@@ -30,6 +30,12 @@ extraResources:
 asar: true
 npmRebuild: false
 
+# 国内镜像：electron 主包从 npmmirror 拉取；工具包（dmg-builder/icons）由
+# scripts/package.mjs 设置 ELECTRON_BUILDER_BINARIES_MIRROR。避免 GitHub
+# 直连下载超时（多次卡在 "Timeout awaiting 'request'"）。
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+
 mac:
   target:
     - dmg
