@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { Card, Button, Input } from "@/shared/components";
 import { CONSOLE_LOG_CONFIG } from "@/shared/constants/config";
 import { translate } from "@/i18n/runtime";
@@ -22,7 +22,7 @@ const LEVEL_CHIP = {
   LOG: "border-green-500/60 text-green-400",
 };
 // 旧 logger 的级别 emoji：行内已用级别标签展示级别，这些图标不再重复渲染
-const LEVEL_EMOJIS = new Set(["❌", "💥", "⚠", "ℹ", "🔍"]);
+const LEVEL_EMOJIS = new Set(["❌", "💥", "⚠", "ℹ", "🔍", "⨯", "✗", "✘", "✖", "×"]);
 
 export default function ConsoleLogClient() {
   const [logs, setLogs] = useState([]); // 全量缓冲（上限 CONSOLE_LOG_CONFIG.maxLines）
@@ -214,18 +214,26 @@ export default function ConsoleLogClient() {
                 <div style={{ height: range.start * ROW_H }} />
                 {slice.map((e, i) => {
                   const idx = range.start + i;
-                  const showIcon = e.icon && !LEVEL_EMOJIS.has(e.icon);
+                  const parts = [
+                    e.time ? { k: "t", cls: "text-gray-500", v: e.time } : null,
+                    { k: "l", cls: `${LEVEL_COLORS[e.level]} font-semibold`, v: e.level },
+                    e.icon && !LEVEL_EMOJIS.has(e.icon) ? { k: "i", cls: "text-gray-400", v: e.icon } : null,
+                    e.tag ? { k: "g", cls: "text-cyan-400", v: `[${e.tag}]` } : null,
+                  ].filter(Boolean);
                   return (
                     <div
                       key={idx}
                       style={{ height: ROW_H }}
-                      className="whitespace-pre overflow-hidden"
+                      className="whitespace-pre overflow-hidden select-text"
                     >
-                      {e.time ? <span className="text-gray-500">{e.time} </span> : null}
-                      <span className={`${LEVEL_COLORS[e.level]} font-semibold`}>{e.level.padEnd(5, " ")}</span>
-                      {showIcon ? <span className="text-gray-400"> {e.icon}</span> : null}
-                      {e.tag ? <span className="text-cyan-400"> [{e.tag}]</span> : null}
-                      <span className="text-gray-200"> {e.text}</span>
+                      {parts.map((p, pi) => (
+                        <Fragment key={p.k}>
+                          {pi > 0 ? " " : ""}
+                          <span className={p.cls}>{p.v}</span>
+                        </Fragment>
+                      ))}
+                      {" "}
+                      <span className="text-gray-200">{e.text}</span>
                     </div>
                   );
                 })}

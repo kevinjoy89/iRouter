@@ -62,13 +62,25 @@ function formatArg(arg) {
   }
 }
 
+// 无时间戳前缀的裸 console 输出（Next/DB/modelCatalog 启动杂讯等）在捕获时
+// 补当前时间，保证日志页每行都有时间、复制内容一致
+function stampTime(line) {
+  if (/^\[\d{1,2}:\d{2}:\d{2}\]/.test(line)) return line;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  return `[${hh}:${mm}:${ss}] ${line}`;
+}
+
 function appendLine(line) {
-  state.logs.push(line);
+  const stamped = stampTime(line);
+  state.logs.push(stamped);
   const maxLines = CONSOLE_LOG_CONFIG.maxLines;
   if (state.logs.length > maxLines) {
     state.logs = state.logs.slice(-maxLines);
   }
-  state.pendingLines.push(line);
+  state.pendingLines.push(stamped);
   if (state.pendingLines.length >= MAX_BATCH_LINES) {
     if (state.flushTimer) {
       clearTimeout(state.flushTimer);

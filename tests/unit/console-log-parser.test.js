@@ -41,6 +41,12 @@ describe("parseLogLine", () => {
     expect(e.text).toContain("Failed to find Server Action");
   });
 
+  it("classifies ⨯-prefixed lines after a synthesized timestamp (icon path)", () => {
+    const e = parseLogLine("[23:10:33] ⨯ boom");
+    expect(e.level).toBe("ERROR");
+    expect(e.tag).toBe("");
+  });
+
   it("classifies Warning:/Debug: markers without timestamp", () => {
     expect(parseLogLine("Warning: deprecated option").level).toBe("WARN");
     expect(parseLogLine("Debug: cache miss").level).toBe("DEBUG");

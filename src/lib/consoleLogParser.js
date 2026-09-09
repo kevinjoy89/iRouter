@@ -11,6 +11,11 @@ const EMOJI_LEVEL = {
   "⚠": "WARN",
   "ℹ": "INFO",
   "🔍": "DEBUG",
+  "⨯": "ERROR",
+  "✗": "ERROR",
+  "✘": "ERROR",
+  "✖": "ERROR",
+  "×": "ERROR",
 };
 
 // 无级别 emoji 的行按文本标记识别（Next 错误行以 ⨯ 开头、Warning:/Error: 等）
