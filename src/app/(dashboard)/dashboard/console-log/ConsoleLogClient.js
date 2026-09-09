@@ -21,6 +21,8 @@ const LEVEL_CHIP = {
   DEBUG: "border-purple-500/60 text-purple-400",
   LOG: "border-green-500/60 text-green-400",
 };
+// 旧 logger 的级别 emoji：行内已用级别标签展示级别，这些图标不再重复渲染
+const LEVEL_EMOJIS = new Set(["❌", "💥", "⚠", "ℹ", "🔍"]);
 
 export default function ConsoleLogClient() {
   const [logs, setLogs] = useState([]); // 全量缓冲（上限 CONSOLE_LOG_CONFIG.maxLines）
@@ -171,10 +173,10 @@ export default function ConsoleLogClient() {
   const slice = filtered.slice(range.start, range.end);
 
   return (
-    <div>
-      <Card>
+    <div className="flex flex-1 flex-col min-h-0">
+      <Card className="flex flex-1 flex-col min-h-0">
         {/* 工具栏：状态灯 / 搜索 / 级别过滤 / 行数 / 暂停 / 复制 / 清空 */}
-        <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0 mb-2">
           <span className="flex items-center gap-1.5 mr-1" title={connected ? "SSE connected" : "reconnecting"}>
             <span className={`size-2 rounded-full ${connected ? "bg-green-500" : "bg-amber-500 animate-pulse"}`} />
             <span className={`text-[11px] ${connected ? "text-green-500" : "text-amber-500"}`}>
@@ -198,27 +200,32 @@ export default function ConsoleLogClient() {
           <ClearButton />
         </div>
 
-        {/* 终端区（虚拟滚动，行高固定 + 横向滚动） */}
-        <div className="relative">
+        {/* 终端区（虚拟滚动，行高固定 + 横向滚动；高度 = 窗口剩余空间，内部滚动） */}
+        <div className="relative flex-1 min-h-0">
           <div
             ref={logRef}
             onScroll={onScroll}
-            className="bg-black rounded-b-lg px-4 py-2 text-xs font-mono h-[calc(100vh-260px)] overflow-auto"
+            className="h-full bg-black rounded-lg px-4 py-2 text-xs font-mono overflow-auto"
           >
             {filtered.length === 0 ? (
-              <span className="text-text-muted">{translate("No console logs yet.")}</span>
+              <span className="text-gray-500">{translate("No console logs yet.")}</span>
             ) : (
               <>
                 <div style={{ height: range.start * ROW_H }} />
                 {slice.map((e, i) => {
                   const idx = range.start + i;
+                  const showIcon = e.icon && !LEVEL_EMOJIS.has(e.icon);
                   return (
                     <div
                       key={idx}
                       style={{ height: ROW_H }}
                       className="whitespace-pre overflow-hidden"
                     >
-                      <span className={LEVEL_COLORS[e.level]}>{e.raw}</span>
+                      {e.time ? <span className="text-gray-500">{e.time} </span> : null}
+                      <span className={`${LEVEL_COLORS[e.level]} font-semibold`}>{e.level.padEnd(5, " ")}</span>
+                      {showIcon ? <span className="text-gray-400"> {e.icon}</span> : null}
+                      {e.tag ? <span className="text-cyan-400"> [{e.tag}]</span> : null}
+                      <span className="text-gray-200"> {e.text}</span>
                     </div>
                   );
                 })}

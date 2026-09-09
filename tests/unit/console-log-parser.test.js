@@ -34,6 +34,24 @@ describe("parseLogLine", () => {
     expect(e.raw).toBe("✓ Running next.config took 3ms");
   });
 
+  it("classifies Next error lines without timestamp (⨯ Error: …)", () => {
+    const e = parseLogLine("⨯ Error: Failed to find Server Action. This request might be from an older or newer deployment.");
+    expect(e.level).toBe("ERROR");
+    expect(e.time).toBe("");
+    expect(e.text).toContain("Failed to find Server Action");
+  });
+
+  it("classifies Warning:/Debug: markers without timestamp", () => {
+    expect(parseLogLine("Warning: deprecated option").level).toBe("WARN");
+    expect(parseLogLine("Debug: cache miss").level).toBe("DEBUG");
+  });
+
+  it("keeps session-tag request lines as LOG", () => {
+    const e = parseLogLine("[20:48:40] 🟢 ▶ POST glm-5.3-flash-heading → openai-compatible-chat/glm-5.3-flash");
+    expect(e.level).toBe("LOG");
+    expect(e.icon).toBe("🟢");
+  });
+
   it("handles RETRY tag and empty input", () => {
     const e = parseLogLine("[15:41:33] ℹ️ [RETRY] waiting 33.4s before retry (attempt 1)");
     expect(e.level).toBe("INFO");

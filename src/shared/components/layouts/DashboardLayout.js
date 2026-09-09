@@ -95,8 +95,23 @@ export default function DashboardLayout({ children }) {
         {/* Faint grid background */}
         <div className="landing-grid absolute inset-0 pointer-events-none -z-10" aria-hidden="true" />
         <Header key={pathname} onMenuClick={() => setSidebarOpen(true)} />
-        <div className={`flex-1 overflow-y-auto custom-scrollbar ${pathname === "/dashboard/basic-chat" ? "" : "p-6 lg:p-10"} ${pathname === "/dashboard/basic-chat" ? "flex flex-col overflow-hidden" : ""}`}>
-          <div className={`${pathname === "/dashboard/basic-chat" ? "flex-1 w-full h-full flex flex-col" : "max-w-7xl mx-auto"}`}>{children}</div>
+        {/* 满高页面（basic-chat / console-log）：内容区不整体滚动，页面内部自行分区滚动 */}
+        <div
+          className={`flex-1 custom-scrollbar ${
+            pathname === "/dashboard/basic-chat" || pathname === "/dashboard/console-log"
+              ? "flex flex-col overflow-hidden"
+              : "overflow-y-auto"
+          } ${pathname === "/dashboard/basic-chat" ? "" : "p-6 lg:p-10"}`}
+        >
+          <div
+            className={
+              pathname === "/dashboard/basic-chat" || pathname === "/dashboard/console-log"
+                ? "flex-1 w-full min-h-0 flex flex-col"
+                : "max-w-7xl mx-auto"
+            }
+          >
+            {children}
+          </div>
         </div>
       </main>
     </div>

@@ -13,6 +13,24 @@ const EMOJI_LEVEL = {
   "🔍": "DEBUG",
 };
 
+// 无级别 emoji 的行按文本标记识别（Next 错误行以 ⨯ 开头、Warning:/Error: 等）
+const TEXT_MARKERS = [
+  [/^(?:⨯|✗|✘|✖|×|❌|💥)/, "ERROR"],
+  [/(^|\s)Error:/, "ERROR"],
+  [/^⚠/, "WARN"],
+  [/(^|\s)Warning:/i, "WARN"],
+  [/^🔍/, "DEBUG"],
+  [/(^|\s)Debug:/i, "DEBUG"],
+  [/^ℹ/, "INFO"],
+];
+
+function detectByMarkers(line) {
+  for (const [re, lv] of TEXT_MARKERS) {
+    if (re.test(line)) return lv;
+  }
+  return null;
+}
+
 // [时间] 图标 [TAG] 文本；时间/TAG 均可缺失
 const LINE_RE = /^\[(\d{1,2}:\d{2}:\d{2})\]\s*(\S+)\s*(?:\[([A-Z0-9_-]+)\])?\s?(.*)$/s;
 
@@ -20,7 +38,15 @@ export function parseLogLine(raw) {
   const rawStr = String(raw ?? "");
   const m = LINE_RE.exec(rawStr);
   if (!m) {
-    return { time: "", icon: "", tag: "", text: rawStr, level: "LOG", raw: rawStr };
+    // 无时间戳前缀的行（Next 错误行 ⨯ Error: …、Warning: … 等）按文本标记识别
+    return {
+      time: "",
+      icon: "",
+      tag: "",
+      text: rawStr,
+      level: detectByMarkers(rawStr) || "LOG",
+      raw: rawStr,
+    };
   }
   const [, time, iconRaw, tag = "", text = ""] = m;
   const icon = iconRaw.replace(/\uFE0F/g, "");
@@ -29,7 +55,7 @@ export function parseLogLine(raw) {
     icon,
     tag,
     text,
-    level: EMOJI_LEVEL[icon] || "LOG",
+    level: EMOJI_LEVEL[icon] || detectByMarkers(rawStr) || "LOG",
     raw: rawStr,
   };
 }
