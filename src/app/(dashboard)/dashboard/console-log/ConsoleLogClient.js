@@ -236,6 +236,7 @@ export default function ConsoleLogClient() {
           <div
             ref={logRef}
             onScroll={onScroll}
+            data-irouter-log
             className="h-full bg-black rounded-lg px-4 py-2 text-xs font-mono overflow-auto"
           >
             {filtered.length === 0 ? (

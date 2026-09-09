@@ -449,6 +449,18 @@ function getShellCss() {
     font-size: 0.875rem !important;
     line-height: 1.25rem !important;
   }
+  /* 应用形态：默认禁文本选中（复制只发生在输入类与显式可复制区域）。
+     Next 的 CSS 优化器会吞掉 globals.css 里的 body user-select 规则，
+     故由壳层运行时注入（insertCSS 不走优化管线）。 */
+  html, body, body * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+  }
+  input, textarea, select, option, [contenteditable="true"],
+  [data-irouter-log], [data-irouter-log] * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
 `;
 }
 
