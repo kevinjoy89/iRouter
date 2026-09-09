@@ -24,6 +24,31 @@ const LEVEL_CHIP = {
 // 旧 logger 的级别 emoji：行内已用级别标签展示级别，这些图标不再重复渲染
 const LEVEL_EMOJIS = new Set(["❌", "💥", "⚠", "ℹ", "🔍", "⨯", "✗", "✘", "✖", "×"]);
 
+// 复制文本：优先异步剪贴板 API，失败回退 execCommand（Electron 窗口内某些
+// 场景 Cmd+C 会被系统/菜单吞掉，显式按钮不依赖快捷键）
+async function copyText(text) {
+  if (!text) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    /* 走 execCommand 回退 */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function ConsoleLogClient() {
   const [logs, setLogs] = useState([]); // 全量缓冲（上限 CONSOLE_LOG_CONFIG.maxLines）
   const [connected, setConnected] = useState(false);
@@ -138,11 +163,24 @@ export default function ConsoleLogClient() {
   };
 
   const copyAll = async () => {
-    try {
-      await navigator.clipboard.writeText(filtered.map((e) => e.raw).join("\n"));
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
+    const ok = await copyText(filtered.map((e) => e.raw).join("\n"));
+    if (!ok) console.error("Failed to copy logs");
+  };
+
+  const copySelection = async () => {
+    const sel = (window.getSelection?.()?.toString?.() || "").trim();
+    if (!sel) return;
+    const ok = await copyText(sel);
+    if (!ok) console.error("Failed to copy selection");
+  };
+  const [rowCopiedRaw, setRowCopiedRaw] = useState("");
+  const copyRow = (raw) => {
+    copyText(raw).then((ok) => {
+      if (ok) {
+        setRowCopiedRaw(raw);
+        setTimeout(() => setRowCopiedRaw((prev) => (prev === raw ? "" : prev)), 900);
+      }
+    });
   };
 
   const toggleLevel = (lv) => {
@@ -194,6 +232,9 @@ export default function ConsoleLogClient() {
             {paused ? translate("Resume") : translate("Pause")}
             {paused && pausedCount > 0 && <span className="ml-1 text-primary">+{pausedCount}</span>}
           </Button>
+          <Button size="sm" variant="outline" icon="select_all" onClick={copySelection}>
+            {translate("Copy Selection")}
+          </Button>
           <Button size="sm" variant="outline" icon="content_copy" onClick={copyAll}>
             {translate("Copy All")}
           </Button>
@@ -224,7 +265,7 @@ export default function ConsoleLogClient() {
                     <div
                       key={idx}
                       style={{ height: ROW_H }}
-                      className="whitespace-pre overflow-hidden select-text"
+                      className="group/row relative whitespace-pre overflow-hidden select-text"
                     >
                       {parts.map((p, pi) => (
                         <Fragment key={p.k}>
@@ -234,6 +275,15 @@ export default function ConsoleLogClient() {
                       ))}
                       {" "}
                       <span className="text-gray-200">{e.text}</span>
+                      <button
+                        onClick={() => copyRow(e.raw)}
+                        title="Copy this line"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/row:opacity-100 p-0.5 rounded text-gray-400 hover:text-white transition-opacity"
+                      >
+                        <span className="material-symbols-outlined text-[13px]">
+                          {rowCopiedRaw === e.raw ? "check" : "content_copy"}
+                        </span>
+                      </button>
                     </div>
                   );
                 })}
