@@ -6,8 +6,8 @@
 
 ## 一、打包架构与全景流程
 
-iRouter 桌面端采用 **双层解耦架构**（遵循 ADR-0002 原则）：
-- **内嵌网关层 (`9router/`)**：基于 Next.js 16 Standalone 服务端，集成 SQLite 数据存储与多语言补丁；
+iRouter 桌面端采用 **双层解耦架构**（网关源码基于上游 v0.5.69 定制，位于仓库根目录）：
+- **内嵌网关层（仓库根目录 `src/` + `open-sse/`）**：基于 Next.js 16 Standalone 服务端，集成 SQLite 数据存储与多语言补丁；
 - **桌面壳层 (`desktop/`)**：基于 Electron 44 容器，负责系统托盘、多实例管理、原生菜单、无闪烁 UI 注入与数据目录持久化。
 
 ```mermaid
@@ -75,7 +75,7 @@ npm run build-server
 
 #### 该步骤内部自动执行的关键操作：
 1. **环境净化**：清理宿主机泄漏的 `__NEXT_PRIVATE_*`、`PORT`、`HOSTNAME` 等环境变量，防止 Next.js 读取泄漏配置导致编译崩溃；
-2. **Next.js 独立包构建**：在上游 `9router/` 目录执行 `npm install` 并运行 `next build --webpack`，生成 `.next/standalone` 生产输出；
+2. **Next.js 独立包构建**：在仓库根目录执行 `npm install` 并运行 `next build --webpack`，生成 `.next/standalone` 生产输出；
 3. **资产与入口同步**：将 `.next/static`、`public` 资源以及 `custom-server.js` 统一归集至独立包目录；
 4. **便携化处理（剥离原生依赖）**：从 `node_modules` 中剔除依赖宿主 Node ABI 版本的 C++ 原生模块 `better-sqlite3`，确保运行时平滑走 Node 内建 `node:sqlite` 或便携式 `sql.js`；
 5. **多语言字典补丁合并**：将 `desktop/resources/i18n/` 下定制的 `zh-CN.json` 与 `zh-TW.json` 覆盖合并至独立网关的 `public/i18n/literals/` 目录，确保多语言字典生效。
@@ -173,8 +173,8 @@ desktop/build/dist/
 # 清理 desktop 构建缓存与旧产物
 rm -rf desktop/build
 
-# 清理 9router 编译缓存
-rm -rf 9router/.next
+# 清理 9router 编译缓存（源码在仓库根目录）
+rm -rf .next
 
 # 重新执行打包
 cd desktop && npm run dist:mac

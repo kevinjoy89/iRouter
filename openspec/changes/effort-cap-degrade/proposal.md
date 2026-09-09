@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 上游源码直接修改（ADR 0003 取代 0002 的零改动条款，自维护）：新增 `open-sse/services/effortCaps.js`（声明集合解析、钳制、降档步进、invalid-effort 错误匹配的纯函数）
+- 根目录源码直接修改（基于上游 v0.5.69 定制，ADR 0003）：新增 `open-sse/services/effortCaps.js`（声明集合解析、钳制、降档步进、invalid-effort 错误匹配的纯函数）
 - 主动钳制（proactive clamp）：`chat.js` 的 `handleSingleModelChat` 漏斗（单模型、combo 成员、fusion panel 的公共入口）发送前把请求档位钳进声明集合（模型后缀 `model(max)` 与 body 字段 `reasoning_effort` / `reasoning.effort` / `output_config.effort` / gemini thinkingLevel 均覆盖）
 - 能力感知排序（effort-aware routing）：`combo.js` 新增 `reorderByEffortCap`，请求携带思考强度时把"声明上限不足"的成员稳定沉底、能原生支持的排前；复用既有 auto-switch 的排序先例（硬能力优先后排序）
 - 反应式降档重试（reactive degrade retry）：`combo.js` 的 fallback 循环内，invalid-effort 类 400/422（窄匹配：文本提及 reasoning_effort/effort）触发同成员逐档下降重发（按声明集合跳档），降到集合下限仍失败则用**原始**请求试下一个成员；流开始后不重试（此类错误必发生在流开始前，天然安全）
@@ -24,7 +24,7 @@
 
 ## Impact
 
-- 上游 `9router/`：直接修改（自维护模式，升级 = 切 tag 后合并改动；ADR 0003）
+- 9Router 源码（仓库根目录）：直接修改（基于 v0.5.69 定制，升级 = 对比上游手工合并；ADR 0003）
 - settings JSON 新增两个键，无数据库迁移（settings 表整行 JSON）
 - 行为变化仅在"声明了上限"时发生；未声明时全部路径与原先一致（no-op + 反应式重试兜底）
 - 术语：CONTEXT.md 新增 组合模型/思考强度/思考强度上限/主动钳制/能力感知排序 词条

@@ -23,6 +23,6 @@
 
 ## Impact
 
-- 上游 `9router/`：新增 1 个服务模块；修改 combo.js（成员级重试 + Retry-After 头解析）、chat.js（外层重试循环，`handleChat` 拆为 wrapper + `handleChatOnce`）、settingsRepo（默认值）
+- 根目录源码：新增 1 个服务模块；修改 combo.js（成员级重试 + Retry-After 头解析）、chat.js（外层重试循环，`handleChat` 拆为 wrapper + `handleChatOnce`）、settingsRepo（默认值）
 - 默认行为变化：**默认开启**整体重试（429/5xx，最多 20 次、单请求累计等待 ≤ 10 分钟）；成员级重试默认关闭（保持换下家语义）
 - 不重试：2xx/3xx、普通 4xx（invalid field / 404 等，思考强度降级走 effort-cap 那套机制）

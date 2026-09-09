@@ -1,6 +1,6 @@
 # iRouter Context
 
-iRouter 是 9Router（开源 AI 路由网关，decolua/9router）的跨平台独立安装版：装完是一个真正的桌面应用，窗口内直接显示 9Router 面板，无需打开系统浏览器。9Router 上游源码保持零改动，所有定制都在本仓库的壳层完成。
+iRouter 是 9Router（开源 AI 路由网关，decolua/9router）的跨平台独立安装版：装完是一个真正的桌面应用，窗口内直接显示 9Router 面板，无需打开系统浏览器。9Router 源码基于上游 **v0.5.69** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/` 等）；桌面壳层在 `desktop/`。
 
 ## Language
 
@@ -8,12 +8,12 @@ iRouter 是 9Router（开源 AI 路由网关，decolua/9router）的跨平台独
 本产品的正式名称。9Router 的桌面独立安装版，MIT 许可下沿用上游功能与数据格式。
 _Avoid_: 9Router Desktop、9Router 桌面版（容易和上游官方概念混淆）
 
-**锁版上游（pinned upstream）**:
-`9router/` 目录中固定在某个 tag 的 9Router 源码 checkout，自 ADR 0003 起允许直接修改源码（自维护）；升级 = 切到新 tag 并合并本地改动。ADR 0002 的"零改动"条款已被取代。
-_Avoid_: 依赖上游原样（历史含义，自 0003 起不再是约定）
+**定制基线（v0.5.69 baseline）**:
+9Router 源码基于上游 decolua/9router v0.5.69 定制，位于仓库根目录，可自由修改；升级 = 对比上游新版本手工合并本地定制。原 submodule 锁版结构已废弃（ADR 0002/0003 为历史决策）。
+_Avoid_: 锁版上游、零改动、submodule（均为旧结构用语）
 
 **壳层（shell layer）**:
-本仓库内独立于 `9router/` 的定制代码（计划位于 `desktop/` 子目录），负责桌面化：窗口、托盘、单实例、自启、打包安装器。壳层通过进程边界与锁版上游交互。
+位于 `desktop/` 的桌面化定制代码，负责：窗口、托盘、单实例、自启、打包安装器。壳层与网关源码同仓库，通过进程边界交互。
 _Avoid_: 封装、wrapper（与本仓库其他含义混淆）
 
 **内嵌面板（embedded dashboard）**:

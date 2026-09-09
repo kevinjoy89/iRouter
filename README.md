@@ -2,7 +2,7 @@
 
 **9Router 的跨平台独立桌面版**——装完是一个真正的 App，窗口里直接是 9Router 面板，不用再开浏览器，也不需要目标机器装 Node。
 
-上游 [decolua/9router](https://github.com/decolua/9router)（MIT）以 git submodule 锁定版本；自 ADR 0003 起 **自维护**（可直接修改 `9router/` 源码，如思考强度上限与降级功能），升级 = 切新 tag 后合并本地改动。其余桌面化定制在 `desktop/` 壳层。术语见 [CONTEXT.md](./CONTEXT.md)，技术决策见 [docs/adr/](./docs/adr/)。
+9Router 源码基于上游 [decolua/9router](https://github.com/decolua/9router)（MIT）**v0.5.69** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/`），可自由修改（如思考强度上限降级、限流自动重试）；升级 = 对比上游新版本手工合并。桌面壳层在 `desktop/`。术语见 [CONTEXT.md](./CONTEXT.md)，技术决策见 [docs/adr/](./docs/adr/)。
 
 ## 安装（macOS）
 
@@ -58,7 +58,7 @@ API Key:   面板内复制
 
 ```
 iRouter/
-├── 9router/          # 锁版上游 submodule（v0.5.69），自维护（ADR 0003，可改源码）
+├── src/ open-sse/ tests/ cli/   # 9Router 源码（基于上游 v0.5.69 定制）
 ├── desktop/          # 壳层：Electron 主进程 + 构建脚本 + 打包配置
 │   ├── main.js
 │   ├── scripts/      # build-server / smoke / test-import / test-single-instance / mask-icon
@@ -73,7 +73,7 @@ iRouter/
 
 ```bash
 npm install --include=dev   # 本机 npm 若设了 NODE_ENV=production，必须显式带 --include=dev
-npm run build-server        # 构建内嵌网关（在 9router/ 里 next build，产物拷进 build/gateway/server）
+npm run build-server        # 构建内嵌网关（根目录 next build，产物拷进 build/gateway/server）
 npm run dev                 # 构建 + 启动开发实例
 npm run smoke               # 端到端冒烟（隔离数据目录，不碰真实数据）
 npm run test:import         # 首次运行导入的 4 场景验证

@@ -1,6 +1,6 @@
 ## Context
 
-- 上游 `9router/` 自 ADR 0003 起直接修改源码（自维护）；思考强度归一化在 `thinkingUnified.js`，combo 路由在 `services/combo.js`，capabilities 表（`*deepseek-v4*` pattern 兜底）对 provider 是"盲"的——同一个模型名在所有未覆写供应商上采用同一格式与档位透传
+- 9Router 源码位于仓库根目录（基于上游 v0.5.69 定制，可直接修改）；思考强度归一化在 `thinkingUnified.js`，combo 路由在 `services/combo.js`，capabilities 表（`*deepseek-v4*` pattern 兜底）对 provider 是"盲"的——同一个模型名在所有未覆写供应商上采用同一格式与档位透传
 - combo 已有能力感知自动切换（`reorderByCapabilities`，vision/pdf 等硬能力），但完全不看思考强度；fallback 循环对 unmatched 错误默认下沉到下个成员，但全体成员同样拒绝时整体失败
 - 配置存 `settings` 表 JSON（`comboStrategies` 先例）；`updateSettings` 任意键合并，无需白名单改动
 
