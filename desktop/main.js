@@ -27,6 +27,9 @@ const LEGACY_SKIP_ENTRIES = ["runtime"];
 // 面板访问守卫：与网关侧 src/proxy.js 约定的客户端头，浏览器直连面板会被 403
 const PANEL_CLIENT_HEADER = "x-irouter-client";
 const PANEL_CLIENT_VALUE = "irouter-app";
+// 覆盖安装后，Chromium 磁盘缓存可能残留旧构建的页面/脚本：旧 Server Action ID
+// 发给新网关会抛 "Failed to find Server Action"。禁用磁盘缓存，窗口永远加载当前构建。
+app.commandLine.appendSwitch("disable-http-cache");
 
 let mainWindow = null;
 let tray = null;
@@ -1328,7 +1331,10 @@ function createWindow() {
 
   win.once("ready-to-show", () => win.show());
 
-  win.loadURL(`${gatewayOrigin()}/`);
+  // 启动时清一次残留缓存再加载，避免覆盖安装后的旧资源（详见顶部 disable-http-cache）
+  session.defaultSession.clearCache().catch(() => {}).then(() => {
+    win.loadURL(`${gatewayOrigin()}/`);
+  });
   return win;
 }
 
