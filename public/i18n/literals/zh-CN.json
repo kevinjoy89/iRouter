@@ -203,7 +203,7 @@
   "Claude Cowork - Manual Configuration": "Claude Cowork - 手动配置",
   "Claude Desktop (Cowork mode) not detected": "未检测到 Claude Desktop（Cowork 模式）",
   "Claude Desktop Cowork (third-party inference)": "Claude Desktop Cowork（第三方推理）",
-  "Clear": "清除",
+  "Clear": "清空",
   "Clear (will use main model)": "清除（将使用主模型）",
   "Clear Filters": "清除过滤器",
   "Clear search": "清空搜索",
@@ -728,7 +728,7 @@
   "No compatible providers added yet": "尚未添加兼容的提供商",
   "No connections": "无连接",
   "No connections yet": "暂无连接",
-  "No console logs yet.": "还没有控制台日志。",
+  "No console logs yet.": "暂无控制台日志。",
   "No conversations yet.": "暂无对话。",
   "No custom providers": "没有自定义提供商",
   "No custom providers — use buttons above to add OpenAI/Anthropic compatible endpoints": "没有自定义提供商 — 使用上方按钮添加 OpenAI/Anthropic 兼容端点",
@@ -1850,5 +1850,11 @@
   "Your model can't read image/audio? Auto-switches to a model in the pool below.": "模型读不了图像/音频？自动切换到下方模型池中的模型。",
   "Upload Certificate": "上传证书",
   "Download XML": "下载 XML",
-  "Test SAML settings": "测试 SAML 设置"
+  "Test SAML settings": "测试 SAML 设置",
+  "Pause": "暂停",
+  "Resume": "恢复",
+  "Copy All": "复制全部",
+  "Connecting…": "连接中…",
+  "Search logs…": "搜索日志…",
+  "lines": "行"
 }

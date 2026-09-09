@@ -1,29 +1,247 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Card, Button } from "@/shared/components";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Card, Button, Input } from "@/shared/components";
 import { CONSOLE_LOG_CONFIG } from "@/shared/constants/config";
+import { translate } from "@/i18n/runtime";
+import { parseLogLine, matchesFilters, LOG_LEVELS } from "@/lib/consoleLogParser";
 
-const LOG_LEVEL_COLORS = {
-  LOG: "text-green-400",
-  INFO: "text-blue-400",
-  WARN: "text-yellow-400",
-  ERROR: "text-red-400",
-  DEBUG: "text-purple-400",
+// 终端风格日志视图（自维护特性，ADR 0003）：虚拟滚动 + 级别过滤 + 搜索 +
+// 暂停 + 智能自动滚动 + 连接状态灯 + 行数统计 + 复制/清空。
+// 行为对齐参考实现 llm-retry-proxy 的 logs 页面。
+
+const ROW_H = 18; // px，行高固定（whitespace-pre 不换行），虚拟滚动的前提
+const OVERSCAN = 30;
+const BOTTOM_THRESHOLD = 40;
+const LEVEL_COLORS = { ERROR: "text-red-400", WARN: "text-yellow-400", INFO: "text-blue-400", DEBUG: "text-purple-400", LOG: "text-green-400" };
+const LEVEL_CHIP = {
+  ERROR: "border-red-500/60 text-red-400",
+  WARN: "border-yellow-500/60 text-yellow-400",
+  INFO: "border-blue-500/60 text-blue-400",
+  DEBUG: "border-purple-500/60 text-purple-400",
+  LOG: "border-green-500/60 text-green-400",
 };
 
-function colorLine(line) {
-  const match = line.match(/\[(\w+)\]/g);
-  const levelTag = match ? match[1]?.replace(/\[|\]/g, "") : null;
-  const color = LOG_LEVEL_COLORS[levelTag] || "text-green-400";
-  return <span className={color}>{line}</span>;
+export default function ConsoleLogClient() {
+  const [logs, setLogs] = useState([]); // 全量缓冲（上限 CONSOLE_LOG_CONFIG.maxLines）
+  const [connected, setConnected] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [pausedCount, setPausedCount] = useState(0);
+  const [levels, setLevels] = useState(null); // null = 全部
+  const [query, setQuery] = useState("");
+  const [range, setRange] = useState({ start: 0, end: 60 });
+  const [atBottom, setAtBottom] = useState(true);
+  const [total, setTotal] = useState(0); // 渲染节拍：rAF 内只在变化时 setTotal
+  const logRef = useRef(null);
+  const logsRef = useRef([]); // 真实缓冲，避免每条消息 setState
+  const pausedRef = useRef(false);
+  const pausedCountRef = useRef(0);
+  const stickBottomRef = useRef(true);
+  const versionRef = useRef(0);
+  const rafRef = useRef(0);
+  const parseCache = useRef(new Map());
+
+  const scheduleRender = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = 0;
+      setTotal(logsRef.current.length);
+    });
+  }, []);
+
+  const bump = useCallback(() => {
+    // 暂停时不刷新视图，新行进缓冲；恢复后一次性补齐
+    if (pausedRef.current) return;
+    scheduleRender();
+  }, [scheduleRender]);
+
+  // SSE 订阅（连接状态 + init/line/lines/clear）
+  useEffect(() => {
+    const es = new EventSource("/api/translator/console-logs/stream");
+    const cap = CONSOLE_LOG_CONFIG.maxLines;
+    es.onopen = () => setConnected(true);
+    es.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.type === "init") {
+        logsRef.current = msg.logs.slice(-cap);
+      } else if (msg.type === "line") {
+        logsRef.current.push(msg.line);
+        if (logsRef.current.length > cap) logsRef.current.splice(0, logsRef.current.length - cap);
+      } else if (msg.type === "lines") {
+        logsRef.current.push(...msg.lines);
+        if (logsRef.current.length > cap) logsRef.current.splice(0, logsRef.current.length - cap);
+      } else if (msg.type === "clear") {
+        logsRef.current = [];
+        parseCache.current.clear();
+      }
+      if (pausedRef.current) { pausedCountRef.current += 1; setPausedCount(pausedCountRef.current); return; }
+      bump();
+    };
+    es.onerror = () => setConnected(false);
+    return () => es.close();
+  }, [bump]);
+
+  // 过滤后的条目（解析结果按行字符串缓存，行上限内复用）
+  const filtered = (() => {
+    void total;
+    const out = [];
+    for (const line of logsRef.current) {
+      let entry = parseCache.current.get(line);
+      if (!entry) {
+        entry = parseLogLine(line);
+        if (parseCache.current.size > CONSOLE_LOG_CONFIG.maxLines * 2) parseCache.current.clear();
+        parseCache.current.set(line, entry);
+      }
+      if (matchesFilters(entry, { levels, query })) out.push(entry);
+    }
+    return out;
+  })();
+
+  // 智能自动滚动：贴底才跟随
+  useEffect(() => {
+    const el = logRef.current;
+    if (!el || !stickBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [filtered.length, range]);
+
+  const onScroll = () => {
+    const el = logRef.current;
+    if (!el) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD;
+    stickBottomRef.current = bottom;
+    setAtBottom(bottom);
+    const start = Math.max(0, Math.floor(el.scrollTop / ROW_H) - OVERSCAN);
+    const count = Math.ceil(el.clientHeight / ROW_H) + OVERSCAN * 2;
+    setRange((prev) => (prev.start === start && prev.end === start + count ? prev : { start, end: start + count }));
+  };
+
+  const togglePause = () => {
+    const next = !paused;
+    pausedRef.current = next;
+    setPaused(next);
+    if (!next) {
+      pausedCountRef.current = 0;
+      setPausedCount(0);
+      bump();
+    }
+  };
+
+  const scrollToBottom = () => {
+    const el = logRef.current;
+    if (!el) return;
+    stickBottomRef.current = true;
+    setAtBottom(true);
+    el.scrollTop = el.scrollHeight;
+  };
+
+  const copyAll = async () => {
+    try {
+      await navigator.clipboard.writeText(filtered.map((e) => e.raw).join("\n"));
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  const toggleLevel = (lv) => {
+    setLevels((prev) => {
+      const next = new Set(prev ?? LOG_LEVELS);
+      if (next.has(lv)) next.delete(lv);
+      else next.add(lv);
+      return next;
+    });
+  };
+
+  const chip = (lv) => {
+    const active = !levels || levels.has(lv);
+    return (
+      <button
+        key={lv}
+        onClick={() => toggleLevel(lv)}
+        className={`px-1.5 py-0.5 rounded border text-[10px] font-mono transition-colors ${
+          active ? LEVEL_CHIP[lv] : "border-border text-text-muted opacity-50"
+        }`}
+      >
+        {lv}
+      </button>
+    );
+  };
+
+  const pad = (n) => String(n).padStart(5, " ");
+  const slice = filtered.slice(range.start, range.end);
+
+  return (
+    <div>
+      <Card>
+        {/* 工具栏：状态灯 / 搜索 / 级别过滤 / 行数 / 暂停 / 复制 / 清空 */}
+        <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-2">
+          <span className="flex items-center gap-1.5 mr-1" title={connected ? "SSE connected" : "reconnecting"}>
+            <span className={`size-2 rounded-full ${connected ? "bg-green-500" : "bg-amber-500 animate-pulse"}`} />
+            <span className={`text-[11px] ${connected ? "text-green-500" : "text-amber-500"}`}>
+              {connected ? translate("Connected") : translate("Connecting…")}
+            </span>
+          </span>
+          <div className="w-44">
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={translate("Search logs…")} className="h-7 text-xs" />
+          </div>
+          {LEVELS.map(chip)}
+          <span className="text-[11px] text-text-muted font-mono ml-auto">
+            {pad(filtered.length)} / {pad(logsRef.current.length)} {translate("lines")}
+          </span>
+          <Button size="sm" variant="outline" icon={paused ? "play_arrow" : "pause"} onClick={togglePause}>
+            {paused ? translate("Resume") : translate("Pause")}
+            {paused && pausedCount > 0 && <span className="ml-1 text-primary">+{pausedCount}</span>}
+          </Button>
+          <Button size="sm" variant="outline" icon="content_copy" onClick={copyAll}>
+            {translate("Copy All")}
+          </Button>
+          <ClearButton />
+        </div>
+
+        {/* 终端区（虚拟滚动，行高固定 + 横向滚动） */}
+        <div className="relative">
+          <div
+            ref={logRef}
+            onScroll={onScroll}
+            className="bg-black rounded-b-lg px-4 py-2 text-xs font-mono h-[calc(100vh-260px)] overflow-auto"
+          >
+            {filtered.length === 0 ? (
+              <span className="text-text-muted">{translate("No console logs yet.")}</span>
+            ) : (
+              <>
+                <div style={{ height: range.start * ROW_H }} />
+                {slice.map((e, i) => {
+                  const idx = range.start + i;
+                  return (
+                    <div
+                      key={idx}
+                      style={{ height: ROW_H }}
+                      className="whitespace-pre overflow-hidden"
+                    >
+                      <span className={LEVEL_COLORS[e.level]}>{e.raw}</span>
+                    </div>
+                  );
+                })}
+                <div style={{ height: Math.max(0, filtered.length - range.end) * ROW_H }} />
+              </>
+            )}
+          </div>
+          {!atBottom && (
+            <button
+              onClick={scrollToBottom}
+              className="absolute bottom-4 right-6 flex items-center justify-center size-8 rounded-full bg-primary text-white shadow-lg hover:opacity-90"
+              title="Back to bottom"
+            >
+              <span className="material-symbols-outlined text-[18px]">keyboard_double_arrow_down</span>
+            </button>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
 }
 
-export default function ConsoleLogClient() {
-  const [logs, setLogs] = useState([]);
-  const [connected, setConnected] = useState(false);
-  const logRef = useRef(null);
-
+function ClearButton() {
   const handleClear = async () => {
     try {
       await fetch("/api/translator/console-logs", { method: "DELETE" });
@@ -32,65 +250,9 @@ export default function ConsoleLogClient() {
       console.error("Failed to clear console logs:", err);
     }
   };
-
-  useEffect(() => {
-    const es = new EventSource("/api/translator/console-logs/stream");
-
-    es.onopen = () => setConnected(true);
-
-    es.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "init") {
-        setLogs(msg.logs.slice(-CONSOLE_LOG_CONFIG.maxLines));
-      } else if (msg.type === "line") {
-        setLogs((prev) => {
-          const next = [...prev, msg.line];
-          return next.length > CONSOLE_LOG_CONFIG.maxLines ? next.slice(-CONSOLE_LOG_CONFIG.maxLines) : next;
-        });
-      } else if (msg.type === "lines") {
-        setLogs((prev) => {
-          const next = [...prev, ...msg.lines];
-          return next.length > CONSOLE_LOG_CONFIG.maxLines ? next.slice(-CONSOLE_LOG_CONFIG.maxLines) : next;
-        });
-      } else if (msg.type === "clear") {
-        setLogs([]);
-      }
-    };
-
-    es.onerror = () => setConnected(false);
-
-    return () => es.close();
-  }, []);
-
-  // Auto-scroll to bottom on new logs
-  useEffect(() => {
-    if (!logRef.current) return;
-    logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
-
   return (
-    <div className="">
-      <Card>
-        <div className="flex items-center justify-end px-4 pt-3 pb-2">
-          <Button size="sm" variant="outline" icon="delete" onClick={handleClear}>
-            Clear
-          </Button>
-        </div>
-        <div
-          ref={logRef}
-          className="bg-black rounded-b-lg p-4 text-xs font-mono h-[calc(100vh-220px)] overflow-y-auto"
-        >
-          {logs.length === 0 ? (
-            <span className="text-text-muted">No console logs yet.</span>
-          ) : (
-            <div className="space-y-0.5">
-              {logs.map((line, i) => (
-                <div key={i}>{colorLine(line)}</div>
-              ))}
-            </div>
-          )}
-        </div>
-      </Card>
-    </div>
+    <Button size="sm" variant="outline" icon="delete" onClick={handleClear}>
+      {translate("Clear")}
+    </Button>
   );
 }

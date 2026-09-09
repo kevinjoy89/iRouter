@@ -15,7 +15,7 @@
   "Style": "風格",
   "Usage": "統計",
   "API Key": "API 金鑰",
-  "Connected": "已連接",
+  "Connected": "已連線",
   "Disconnected": "未連接",
   "Active": "活躍",
   "Inactive": "非活躍",
@@ -869,5 +869,12 @@
   "Your model can't read image/audio? Auto-switches to a model in the pool below.": "模型讀不了影像/音訊？自動切換到下方模型池中的模型。",
   "Upload Certificate": "上傳憑證",
   "Download XML": "下載 XML",
-  "Test SAML settings": "測試 SAML 設定"
+  "Test SAML settings": "測試 SAML 設定",
+  "Pause": "暫停",
+  "Resume": "恢復",
+  "Copy All": "複製全部",
+  "Connecting…": "連線中…",
+  "No console logs yet.": "暫無控制台日誌。",
+  "Search logs…": "搜尋日誌…",
+  "lines": "行"
 }
