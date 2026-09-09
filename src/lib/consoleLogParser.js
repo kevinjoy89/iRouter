@@ -36,13 +36,17 @@ function detectByMarkers(line) {
   return null;
 }
 
-// [时间] 图标 [TAG] 文本；时间/TAG 均可缺失
-const LINE_RE = /^\[(\d{1,2}:\d{2}:\d{2})\]\s*(\S+)\s*(?:\[([A-Z0-9_-]+)\])?\s?(.*)$/s;
+// [时间] 图标 [TAG] 文本；时间/TAG 均可缺失（解析见 parseLogLine，
+// 优先识别 [TAG] 开头，再按 emoji 图标在前解析）
+const LINE_RE = null; // 占位：早期正则已并入 parseLogLine 分支逻辑
 
 export function parseLogLine(raw) {
   const rawStr = String(raw ?? "");
-  const m = LINE_RE.exec(rawStr);
-  if (!m) {
+  // 时间戳分支：先尝试 [TAG] 开头（补时间戳的裸 console 输出，如
+  // "[00:32:05] [DB] better-sqlite3 ..."），否则按 logger 形状
+  // "[time] emoji [TAG] 文本" 解析（emoji 图标在前）
+  const tm = /^\[(\d{1,2}:\d{2}:\d{2})\]\s*/.exec(rawStr);
+  if (!tm) {
     // 无时间戳前缀的行（Next 错误行 ⨯ Error: …、Warning: … 等）按文本标记识别
     return {
       time: "",
@@ -53,14 +57,34 @@ export function parseLogLine(raw) {
       raw: rawStr,
     };
   }
-  const [, time, iconRaw, tag = "", text = ""] = m;
-  const icon = iconRaw.replace(/\uFE0F/g, "");
+  let rest = rawStr.slice(tm[0].length);
+  const tagFirst = /^\[([A-Z0-9_-]+)\]\s*/.exec(rest);
+  let icon = "";
+  let tag = "";
+  let text = "";
+  if (tagFirst) {
+    tag = tagFirst[1];
+    text = rest.slice(tagFirst[0].length);
+  } else {
+    const ic = /^(\S+?)(?:\s+|$)/u.exec(rest);
+    if (ic) {
+      icon = ic[1];
+      rest = rest.slice(ic[0].length);
+    }
+    const tagM = /^\[([A-Z0-9_-]+)\]\s*/.exec(rest);
+    if (tagM) {
+      tag = tagM[1];
+      text = rest.slice(tagM[0].length);
+    } else {
+      text = rest;
+    }
+  }
   return {
-    time,
+    time: tm[1],
     icon,
     tag,
-    text,
-    level: EMOJI_LEVEL[icon] || detectByMarkers(rawStr) || "LOG",
+    text: text.replace(/\s+$/, ""),
+    level: EMOJI_LEVEL[icon.replace(/\uFE0F/g, "")] || detectByMarkers(rawStr) || "LOG",
     raw: rawStr,
   };
 }

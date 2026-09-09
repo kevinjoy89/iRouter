@@ -47,6 +47,18 @@ describe("parseLogLine", () => {
     expect(e.tag).toBe("");
   });
 
+  it("parses stamped plain lines whose first token is a TAG ([DB]/[RTK])", () => {
+    const db = parseLogLine("[00:32:05] [DB] better-sqlite3 unavailable: Cannot find module 'better-sqlite3'");
+    expect(db.tag).toBe("DB");
+    expect(db.time).toBe("00:32:05");
+    expect(db.text).toBe("better-sqlite3 unavailable: Cannot find module 'better-sqlite3'");
+    expect(db.level).toBe("LOG");
+
+    const rtk = parseLogLine("[00:32:06] [RTK] saved 24141B / 567694B (4.3%)");
+    expect(rtk.tag).toBe("RTK");
+    expect(rtk.text).toBe("saved 24141B / 567694B (4.3%)");
+  });
+
   it("classifies Warning:/Debug: markers without timestamp", () => {
     expect(parseLogLine("Warning: deprecated option").level).toBe("WARN");
     expect(parseLogLine("Debug: cache miss").level).toBe("DEBUG");
