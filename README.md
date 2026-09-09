@@ -2,7 +2,7 @@
 
 **9Router 的跨平台独立桌面版**——装完是一个真正的 App，窗口里直接是 9Router 面板，不用再开浏览器，也不需要目标机器装 Node。
 
-上游 [decolua/9router](https://github.com/decolua/9router)（MIT）以 git submodule 锁定版本，**源码零改动**；所有桌面化定制都在 `desktop/` 壳层。术语见 [CONTEXT.md](./CONTEXT.md)，技术决策见 [docs/adr/](./docs/adr/)。
+上游 [decolua/9router](https://github.com/decolua/9router)（MIT）以 git submodule 锁定版本；自 ADR 0003 起 **自维护**（可直接修改 `9router/` 源码，如思考强度上限与降级功能），升级 = 切新 tag 后合并本地改动。其余桌面化定制在 `desktop/` 壳层。术语见 [CONTEXT.md](./CONTEXT.md)，技术决策见 [docs/adr/](./docs/adr/)。
 
 ## 安装（macOS）
 
@@ -38,11 +38,13 @@ API Key:   面板内复制
 
 ## 数据放在哪
 
-| 平台 | 路径 |
-| --- | --- |
-| macOS | `~/Library/Application Support/iRouter` |
-| Windows | `%APPDATA%\iRouter` |
-| Linux | `~/.config/iRouter` |
+| 平台 | 核心数据库与配置路径 | 运行时缓存路径（GPUCache 等） |
+| --- | --- | --- |
+| macOS | `~/.irouter`（核心：`~/.irouter/db/data.sqlite`） | `~/Library/Application Support/iRouter` |
+| Windows | `%USERPROFILE%\.irouter` | `%APPDATA%\iRouter` |
+| Linux | `~/.irouter` | `~/.config/iRouter` |
+
+**核心数据与应用卸载隔离**：核心 SQLite 数据库、密钥与配置持久化保存在用户主目录下的 `~/.irouter`，即便偶尔卸载应用或清理系统 Application Support 缓存，您的数据与配置依然完好无损。首次运行自动无感平滑迁移已有数据。
 
 **首次运行**若检测到旧版 CLI 的 `~/.9router`，会弹窗询问是否导入（配置、数据库、密钥；不含 CLI 专用的 `runtime/`）。导入是**复制而非移动**，原数据始终保留，随时可退回 CLI 形态。
 
@@ -56,7 +58,7 @@ API Key:   面板内复制
 
 ```
 iRouter/
-├── 9router/          # 锁版上游 submodule（v0.5.69），只读，不改
+├── 9router/          # 锁版上游 submodule（v0.5.69），自维护（ADR 0003，可改源码）
 ├── desktop/          # 壳层：Electron 主进程 + 构建脚本 + 打包配置
 │   ├── main.js
 │   ├── scripts/      # build-server / smoke / test-import / test-single-instance / mask-icon
@@ -67,7 +69,7 @@ iRouter/
 └── CONTEXT.md        # 术语表
 ```
 
-常用命令（在 `desktop/` 下）：
+常用命令（在 `desktop/` 下，完整手动打包与排错指南见 [docs/PACKAGING.md](./docs/PACKAGING.md)）：
 
 ```bash
 npm install --include=dev   # 本机 npm 若设了 NODE_ENV=production，必须显式带 --include=dev
