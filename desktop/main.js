@@ -1256,16 +1256,25 @@ function createWindow() {
   // 被隐藏后 macOS 的选区复制无键等效可用，右键菜单提供复制/全选等原生角色
   //（角色标签走系统语言，符合 macOS 惯例）。适配选中态与可编辑态。
   win.webContents.on("context-menu", (_event, params) => {
-    const hasSel = !!(params.selectionText && params.selectionText.trim());
+    // 仅日志页与可编辑输入框弹出右键菜单；其余页面禁止任何右键菜单
+    //（文字选择在 globals.css 中已默认禁用，仅日志区显式放行）
+    const isLogPage = (params.pageURL || "").includes("/dashboard/console-log");
     const editable = params.isEditable;
+    if (!isLogPage && !editable) return;
+    const hasSel = !!(params.selectionText && params.selectionText.trim());
     const t = getMenuI18n(currentLocale);
-    Menu.buildFromTemplate([
-      { role: "copy", label: t.copy, enabled: hasSel || editable },
-      { role: "cut", label: t.cut, enabled: editable },
-      { role: "paste", label: t.paste, enabled: editable },
-      { type: "separator" },
-      { role: "selectAll", label: t.selectAll, enabled: editable || hasSel },
-    ]).popup({ window: win });
+    const template =
+      isLogPage && !editable
+        ? // 日志区：仅提供复制（需先选中）
+          [{ role: "copy", label: t.copy, enabled: hasSel }]
+        : [
+            { role: "copy", label: t.copy, enabled: hasSel || editable },
+            { role: "cut", label: t.cut, enabled: editable },
+            { role: "paste", label: t.paste, enabled: editable },
+            { type: "separator" },
+            { role: "selectAll", label: t.selectAll, enabled: editable || hasSel },
+          ];
+    Menu.buildFromTemplate(template).popup({ window: win });
   });
 
   // Cmd/Ctrl+C/V/X/A 显式接管（自维护）：隐藏 Edit 菜单后加速键可能不注册，
