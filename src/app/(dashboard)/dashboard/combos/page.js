@@ -9,6 +9,7 @@ import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModa
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { translate } from "@/i18n/runtime";
 
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
@@ -686,7 +687,8 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
         className="shrink-0 rounded border border-black/10 bg-white px-1 py-0.5 font-mono text-[11px] text-text-muted outline-none dark:border-white/10 dark:bg-black/20"
         title="Max reasoning effort this provider accepts (empty = undeclared)"
       >
-        <option value="">effort</option>
+        {/* 未声明占位：select 子树不参与 DOM 翻译，由组件按运行时字典直译 */}
+        <option value="">{translate("Undeclared")}</option>
         {EFFORT_LEVELS.map((l) => (
           <option key={l} value={l}>{l}</option>
         ))}

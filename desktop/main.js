@@ -24,6 +24,9 @@ const SMOKE = process.argv.includes("--smoke");
 const IMPORT_MARKER = ".irouter-import-decided";
 // 导入旧 CLI 数据时排除的条目：runtime/ 是 CLI 自装的 node 运行时，桌面版不需要
 const LEGACY_SKIP_ENTRIES = ["runtime"];
+// 面板访问守卫：与网关侧 src/proxy.js 约定的客户端头，浏览器直连面板会被 403
+const PANEL_CLIENT_HEADER = "x-irouter-client";
+const PANEL_CLIENT_VALUE = "irouter-app";
 
 let mainWindow = null;
 let tray = null;
@@ -166,7 +169,7 @@ function waitHttpReady(port, timeoutMs = 60000) {
     };
     const attempt = () => {
       const req = http.get(
-        { host: "127.0.0.1", port, path: "/login", timeout: 3000 },
+        { host: "127.0.0.1", port, path: "/login", timeout: 3000, headers: { [PANEL_CLIENT_HEADER]: PANEL_CLIENT_VALUE } },
         (res) => {
           res.resume();
           if (res.statusCode === 200) return resolve(true);
@@ -1308,6 +1311,20 @@ function createWindow() {
   applyShellCss(win);
   applyShellSync(win);
 
+  // 面板访问守卫：给本会话的窗口与资源请求注入客户端头，网关侧 middleware
+  // 只放行带此头的 HTML 页面（浏览器直连被 403），见 src/proxy.js。
+  try {
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      { urls: [`${gatewayOrigin()}/*`] },
+      (details, callback) => {
+        details.requestHeaders[PANEL_CLIENT_HEADER] = PANEL_CLIENT_VALUE;
+        callback({ requestHeaders: details.requestHeaders });
+      }
+    );
+  } catch (err) {
+    console.warn("[iRouter] 面板访问守卫注入客户端头失败:", err?.message);
+  }
+
   win.once("ready-to-show", () => win.show());
 
   win.loadURL(`${gatewayOrigin()}/`);
@@ -1951,7 +1968,7 @@ async function stopGateway() {
 function httpProbe(pathname) {
   return new Promise((resolve) => {
     const req = http.get(
-      { host: "127.0.0.1", port: gatewayPort, path: pathname, timeout: 5000 },
+      { host: "127.0.0.1", port: gatewayPort, path: pathname, timeout: 5000, headers: { [PANEL_CLIENT_HEADER]: PANEL_CLIENT_VALUE } },
       (res) => {
         res.resume();
         resolve(res.statusCode);
