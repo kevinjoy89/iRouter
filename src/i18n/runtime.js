@@ -118,6 +118,27 @@ function processElement(element) {
   
   // Process collected nodes
   nodesToProcess.forEach(processTextNode);
+
+  // Tooltip attributes follow the same dictionary (exact-match, idempotent:
+  // already-translated values miss the English key and are left untouched)
+  processElementTitles(element);
+}
+
+// Translate title attributes (tooltips). Mirrors processTextNode's contract.
+function processTitle(element) {
+  if (!element?.getAttribute) return;
+  if (element.closest?.("[data-i18n-skip]")) return;
+  const current = element.getAttribute("title");
+  if (!current) return;
+  const translated = translate(current);
+  if (translated === current) return;
+  element.setAttribute("title", translated);
+}
+
+function processElementTitles(element) {
+  if (!element || element.nodeType !== Node.ELEMENT_NODE) return;
+  processTitle(element);
+  element.querySelectorAll?.("[title]").forEach(processTitle);
 }
 
 // Initialize runtime i18n
@@ -133,6 +154,11 @@ export async function initRuntimeI18n() {
   // Watch for new nodes
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
+      // React re-renders reset title attributes — re-translate on change
+      if (mutation.type === "attributes") {
+        processTitle(mutation.target);
+        return;
+      }
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
           processElement(node);
@@ -146,6 +172,8 @@ export async function initRuntimeI18n() {
   observer.observe(document.body, {
     childList: true,
     subtree: true,
+    attributes: true,
+    attributeFilter: ["title"],
   });
 }
 

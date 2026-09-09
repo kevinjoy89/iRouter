@@ -1844,5 +1844,7 @@
   "Successfully added": "添加成功",
   "Test Connection": "测试连接",
   "The deployment name in your Azure resource": "Azure 资源中的部署名称",
-  "Your Azure OpenAI resource endpoint URL": "Azure OpenAI 资源的端点 URL"
+  "Your Azure OpenAI resource endpoint URL": "Azure OpenAI 资源的端点 URL",
+  "Prefer members that natively support the requested reasoning effort (declare caps in the edit dialog)": "优先路由到原生支持请求思考强度的成员（在编辑弹窗中声明上限）",
+  "Max reasoning effort this provider accepts (empty = undeclared)": "该供应商接受的最大思考强度（留空 = 未声明）"
 }
