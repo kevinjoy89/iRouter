@@ -1252,6 +1252,35 @@ function createWindow() {
   });
   mainWindow = win;
 
+  // 右键上下文菜单（自维护）：Electron 默认无右键菜单；面板 Edit 顶栏菜单
+  // 被隐藏后 macOS 的选区复制无键等效可用，右键菜单提供复制/全选等原生角色
+  //（角色标签走系统语言，符合 macOS 惯例）。适配选中态与可编辑态。
+  win.webContents.on("context-menu", (_event, params) => {
+    const hasSel = !!(params.selectionText && params.selectionText.trim());
+    const editable = params.isEditable;
+    Menu.buildFromTemplate([
+      { role: "copy", enabled: hasSel || editable },
+      { role: "cut", enabled: editable },
+      { role: "paste", enabled: editable },
+      { type: "separator" },
+      { role: "selectAll", enabled: editable || hasSel },
+    ]).popup({ window: win });
+  });
+
+  // Cmd/Ctrl+C/V/X/A 显式接管（自维护）：隐藏 Edit 菜单后加速键可能不注册，
+  // 保证选区复制/粘贴/剪切/全选始终可用；对输入框的原生处理幂等。
+  win.webContents.on("before-input-event", (_event, input) => {
+    if (input.type !== "keyDown" || input.isAutoRepeat) return;
+    const isMac = process.platform === "darwin";
+    const mod = isMac ? input.meta : input.control;
+    if (!mod || input.alt || input.shift) return;
+    const k = input.key.toLowerCase();
+    if (k === "c") win.webContents.copy();
+    else if (k === "v") win.webContents.paste();
+    else if (k === "x") win.webContents.cut();
+    else if (k === "a") win.webContents.selectAll();
+  });
+
   // 接收渲染进程主题与多语言通知，同步更新系统原生外观与菜单文案
   win.webContents.on("console-message", (event, ...args) => {
     const message =

@@ -166,13 +166,6 @@ export default function ConsoleLogClient() {
     const ok = await copyText(filtered.map((e) => e.raw).join("\n"));
     if (!ok) console.error("Failed to copy logs");
   };
-
-  const copySelection = async () => {
-    const sel = (window.getSelection?.()?.toString?.() || "").trim();
-    if (!sel) return;
-    const ok = await copyText(sel);
-    if (!ok) console.error("Failed to copy selection");
-  };
   const [rowCopiedRaw, setRowCopiedRaw] = useState("");
   const copyRow = (raw) => {
     copyText(raw).then((ok) => {
@@ -231,9 +224,6 @@ export default function ConsoleLogClient() {
           <Button size="sm" variant="outline" icon={paused ? "play_arrow" : "pause"} onClick={togglePause}>
             {paused ? translate("Resume") : translate("Pause")}
             {paused && pausedCount > 0 && <span className="ml-1 text-primary">+{pausedCount}</span>}
-          </Button>
-          <Button size="sm" variant="outline" icon="select_all" onClick={copySelection}>
-            {translate("Copy Selection")}
           </Button>
           <Button size="sm" variant="outline" icon="content_copy" onClick={copyAll}>
             {translate("Copy All")}

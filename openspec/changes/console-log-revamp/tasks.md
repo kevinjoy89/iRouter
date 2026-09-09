@@ -17,3 +17,4 @@
 - [x] 4.1 布局：console-log 纳入 DashboardLayout 满高分支（内容区不整体滚动），日志区改为 flex-1 内部滚动，尺寸随窗口剩余空间自适应；工具条与日志区之间补间距
 - [x] 4.2 级别识别：无时间戳行按文本标记识别（`⨯/✗/×` 开头、`Error:`、`Warning:`、`Debug:` 等）；行内改用级别标签（ERROR/WARN/INFO/DEBUG/LOG）显示，旧级别 emoji 不再重复渲染（会话色点等有信息量的图标保留）
 - [x] 4.3 验证：parser 单测 13 用例通过；真实数据目录副本起网关，SSR `/dashboard/console-log` 返回 200
+- [x] 4.4 复制通道修正（真机反馈）：根因 = 壳层隐藏 Edit 顶栏菜单，macOS 选区复制无键等效可用。改为原生方案：右键上下文菜单（role copy/cut/paste/selectAll，适配选中/可编辑态）+ before-input-event 显式接管 Cmd/Ctrl+C/V/X/A；撤掉"复制选中"按钮（与原生路径重复），保留复制全部与每行悬浮复制
