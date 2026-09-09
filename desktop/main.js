@@ -1258,12 +1258,13 @@ function createWindow() {
   win.webContents.on("context-menu", (_event, params) => {
     const hasSel = !!(params.selectionText && params.selectionText.trim());
     const editable = params.isEditable;
+    const t = getMenuI18n(currentLocale);
     Menu.buildFromTemplate([
-      { role: "copy", enabled: hasSel || editable },
-      { role: "cut", enabled: editable },
-      { role: "paste", enabled: editable },
+      { role: "copy", label: t.copy, enabled: hasSel || editable },
+      { role: "cut", label: t.cut, enabled: editable },
+      { role: "paste", label: t.paste, enabled: editable },
       { type: "separator" },
-      { role: "selectAll", enabled: editable || hasSel },
+      { role: "selectAll", label: t.selectAll, enabled: editable || hasSel },
     ]).popup({ window: win });
   });
 
@@ -1402,6 +1403,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "Gateway Address",
     quitApp: "Quit iRouter",
     trayTooltip: "iRouter Gateway",
+    copy: "Copy",
+    paste: "Paste",
+    cut: "Cut",
+    selectAll: "Select All"
   },
   "zh-CN": {
     view: "视图",
@@ -1428,6 +1433,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "网关地址",
     quitApp: "退出 iRouter",
     trayTooltip: "iRouter 网关",
+    copy: "复制",
+    paste: "粘贴",
+    cut: "剪切",
+    selectAll: "全选"
   },
   "zh-TW": {
     view: "檢視",
@@ -1454,6 +1463,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "閘道位址",
     quitApp: "結束 iRouter",
     trayTooltip: "iRouter 閘道",
+    copy: "複製",
+    paste: "貼上",
+    cut: "剪下",
+    selectAll: "全選"
   },
   ja: {
     view: "表示",
@@ -1480,6 +1493,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "ゲートウェイ アドレス",
     quitApp: "iRouter を終了",
     trayTooltip: "iRouter ゲートウェイ",
+    copy: "コピー",
+    paste: "貼り付け",
+    cut: "切り取り",
+    selectAll: "すべて選択"
   },
   ko: {
     view: "보기",
@@ -1506,6 +1523,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "게이트웨이 주소",
     quitApp: "iRouter 종료",
     trayTooltip: "iRouter 게이트웨이",
+    copy: "복사",
+    paste: "붙여넣기",
+    cut: "잘라내기",
+    selectAll: "모두 선택"
   },
   es: {
     view: "Ver",
@@ -1532,6 +1553,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "Dirección de gateway",
     quitApp: "Salir de iRouter",
     trayTooltip: "Gateway iRouter",
+    copy: "Copiar",
+    paste: "Pegar",
+    cut: "Cortar",
+    selectAll: "Seleccionar todo"
   },
   fr: {
     view: "Présentation",
@@ -1558,6 +1583,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "Adresse de la passerelle",
     quitApp: "Quitter iRouter",
     trayTooltip: "Passerelle iRouter",
+    copy: "Copier",
+    paste: "Coller",
+    cut: "Couper",
+    selectAll: "Tout sélectionner"
   },
   de: {
     view: "Darstellung",
@@ -1584,6 +1613,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "Gateway-Adresse",
     quitApp: "iRouter beenden",
     trayTooltip: "iRouter Gateway",
+    copy: "Kopieren",
+    paste: "Einfügen",
+    cut: "Ausschneiden",
+    selectAll: "Alles auswählen"
   },
   ru: {
     view: "Вид",
@@ -1610,6 +1643,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "Адрес шлюза",
     quitApp: "Завершить iRouter",
     trayTooltip: "Шлюз iRouter",
+    copy: "Копировать",
+    paste: "Вставить",
+    cut: "Вырезать",
+    selectAll: "Выделить всё"
   },
   "pt-BR": {
     view: "Visualizar",
@@ -1636,6 +1673,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "Endereço do gateway",
     quitApp: "Encerrar iRouter",
     trayTooltip: "Gateway iRouter",
+    copy: "Copiar",
+    paste: "Colar",
+    cut: "Recortar",
+    selectAll: "Selecionar tudo"
   },
   vi: {
     view: "Xem",
@@ -1662,6 +1703,10 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "Địa chỉ gateway",
     quitApp: "Thoát iRouter",
     trayTooltip: "Gateway iRouter",
+    copy: "Sao chép",
+    paste: "Dán",
+    cut: "Cắt",
+    selectAll: "Chọn tất cả"
   },
 };
 

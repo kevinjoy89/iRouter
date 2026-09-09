@@ -18,3 +18,8 @@
 - [x] 4.2 级别识别：无时间戳行按文本标记识别（`⨯/✗/×` 开头、`Error:`、`Warning:`、`Debug:` 等）；行内改用级别标签（ERROR/WARN/INFO/DEBUG/LOG）显示，旧级别 emoji 不再重复渲染（会话色点等有信息量的图标保留）
 - [x] 4.3 验证：parser 单测 13 用例通过；真实数据目录副本起网关，SSR `/dashboard/console-log` 返回 200
 - [x] 4.4 复制通道修正（真机反馈）：根因 = 壳层隐藏 Edit 顶栏菜单，macOS 选区复制无键等效可用。改为原生方案：右键上下文菜单（role copy/cut/paste/selectAll，适配选中/可编辑态）+ before-input-event 显式接管 Cmd/Ctrl+C/V/X/A；撤掉"复制选中"按钮（与原生路径重复），保留复制全部与每行悬浮复制
+- [x] 4.5 右键菜单多语言（真机反馈）：MENU_TRANSLATIONS 全部 11 语言块补齐
+      copy/paste/cut/selectAll 键（含已有 zh-CN/zh-TW），右键菜单按应用语言
+      显示（不再跟随系统语言）
+- [x] 4.6 全局禁选中（真机反馈）：body user-select:none，输入类（input/
+      textarea/select/option/contenteditable）与日志区（select-text）显式放行

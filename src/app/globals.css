@@ -206,6 +206,19 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* 应用形态：默认禁文本选中（复制只发生在输入类与显式可复制区域） */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 输入类与可编辑区域允许选中/编辑 */
+input,
+textarea,
+select,
+option,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Selection - brand-tinted */
