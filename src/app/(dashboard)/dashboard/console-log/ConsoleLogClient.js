@@ -184,7 +184,7 @@ export default function ConsoleLogClient() {
           <div className="w-44">
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={translate("Search logs…")} className="h-7 text-xs" />
           </div>
-          {LEVELS.map(chip)}
+          {LOG_LEVELS.map(chip)}
           <span className="text-[11px] text-text-muted font-mono ml-auto">
             {pad(filtered.length)} / {pad(logsRef.current.length)} {translate("lines")}
           </span>
