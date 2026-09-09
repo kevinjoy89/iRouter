@@ -8,6 +8,7 @@
 - [x] 2.1 外挂转正：`desktop/resources/i18n/{zh-CN,zh-TW}.json` 各 650 条并入 `public/i18n/literals/{zh-CN,zh-TW}.json`，补丁值优先（zh-CN 覆盖 139 条、zh-TW 覆盖 38 条）；验证：python 合并脚本输出 + 抽查品牌条目（`9Router Proxy v0.5.69`、`~/.9router/db/data.sqlite`）
 - [x] 2.2 新增 22 条新 UI 字符串翻译（Effort-aware / Retry Strategy 卡片全部 label 与描述，zh-CN + zh-TW）；验证：JSON 可解析，抽查 `Effort-aware Routing`/`Retry Strategy`/`Max Retries`/`Status Codes` 四条
 - [x] 2.3 删除外挂：build-server 步骤 5（合并逻辑与未用导入）与 `desktop/resources/i18n/`；验证：grep 无残留引用，目录已删
+- [x] 2.4 配额跟踪器补全（真机反馈）：usage 服务 49 条静态消息（Ollama/DeepSeek/Groq/Kiro/Zed 等 connected/未配置/鉴权失败提示）+ 连接编辑 UI 10 条（Test Connection/Account name/Azure 字段说明等）入字典 zh-CN + zh-TW；验证：条目数 zh-CN 1787 → 1846、zh-TW 806 → 865，Ollama Cloud 与 Test Connection 抽查命中
 
 ## 3. 提交与打包
 
