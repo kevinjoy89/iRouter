@@ -51,6 +51,7 @@ source/*
 .cursor/*
 docs/*
 !docs/ARCHITECTURE.md
+!docs/adr
 test/*
 open-sse/test/*
 RM.vn.md
@@ -89,3 +90,18 @@ graphify-out/*
 
 # Kiro local workspace state
 .kiro/
+
+# 依赖与构建产物
+node_modules/
+.next/
+out/
+desktop/build/
+
+# 本地工具与编辑器产物
+.pi/
+*.log
+
+# 打包输出
+*.dmg
+*.AppImage
+*.exe
