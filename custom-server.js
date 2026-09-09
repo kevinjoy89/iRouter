@@ -21,12 +21,19 @@ const PANEL_CLIENT_HEADER = "x-irouter-client";
 const PANEL_CLIENT_VALUE = "irouter-app";
 
 function isBlockedPanelRequest(req) {
+  const hasClient = req.headers[PANEL_CLIENT_HEADER] === PANEL_CLIENT_VALUE;
+  if (hasClient) return false;
   const accept = req.headers.accept || "";
-  if (!accept.includes("text/html")) return false;
+  const isHtmlPage = accept.includes("text/html");
+  // Server Action POST（Next-Action 头）来自过期客户端（升级前残留的浏览器
+  // 标签页/旧窗口）时同样掐断——否则旧 action ID 会在网关日志里刷
+  // "Failed to find Server Action"
+  const isServerAction = Boolean(req.headers["next-action"]);
+  if (!isHtmlPage && !isServerAction) return false;
   const path = (req.url || "/").split("?")[0];
   if (path === "/callback" || path.startsWith("/callback/") ||
       path.startsWith("/v1") || path.startsWith("/api")) return false;
-  return req.headers[PANEL_CLIENT_HEADER] !== PANEL_CLIENT_VALUE;
+  return true;
 }
 
 let backgroundRefreshStarted = false;
