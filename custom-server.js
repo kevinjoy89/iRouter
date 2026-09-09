@@ -13,7 +13,7 @@ const origCreate = http.createServer.bind(http);
 const PEER_TOKEN = crypto.randomBytes(24).toString("hex");
 process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
 
-// 面板访问守卫（仅桌面形态启用：网关子进程环境带 IRROUTER_PANEL_GUARD=1）。
+// 面板访问守卫（仅桌面形态启用：网关子进程环境带 IR_PANEL_GUARD=1）。
 // 浏览器直连 HTML 页面时不回任何 HTTP 响应——写一行非法状态后掐断 socket，
 // 浏览器呈现 ERR_INVALID_HTTP_RESPONSE / ERR_EMPTY_RESPONSE，而非可用页面。
 // CLI（/v1、/api）、OAuth 回跳（/callback）与桌面窗口（注入客户端头）不受影响。
@@ -70,7 +70,7 @@ http.createServer = (...args) => {
   const rest = args.filter((a) => typeof a !== "function");
   if (!handler) return origCreate(...args);
   const wrapped = (req, res) => {
-    if (process.env.IROUTER_PANEL_GUARD === "1" && isBlockedPanelRequest(req)) {
+    if (process.env.IR_PANEL_GUARD === "1" && isBlockedPanelRequest(req)) {
       const socket = res.socket;
       try { socket.write("IRTR/1.1 9\r\n\r\n"); } catch { /* 对端已断 */ }
       socket.destroy();
