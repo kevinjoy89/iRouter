@@ -1392,7 +1392,6 @@
   "📝 Configure providers in dashboard or use environment variables": "📝 在仪表盘中配置提供商或使用环境变量",
   "🔐 OAuth required. Add now and authenticate after Apply; tool list will be discovered after first connect.": "🔐 需要 OAuth。立即添加并在应用后认证；工具列表将在首次连接后自动发现。",
   "~/.9router/db/data.sqlite": "~/.irouter/db/data.sqlite",
-  "9Router Proxy v0.5.69": "iRouter Proxy v0.0.1",
   "9Router Proxy": "iRouter Proxy",
   "Light": "浅色",
   "Dark": "深色",

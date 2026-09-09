@@ -1,10 +1,9 @@
-import pkg from "../../../package.json" with { type: "json" };
-
-// App configuration
+// App configuration（iRouter 桌面版版本与上游网关基线版本解耦：
+// 上游基线见 docs/adr/0003，当前基于 v0.5.69）
 export const APP_CONFIG = {
-  name: "9Router Proxy",
+  name: "iRouter Proxy",
   description: "AI Infrastructure Management",
-  version: pkg.version,
+  version: "0.0.2",
 };
 
 // GitHub configuration
