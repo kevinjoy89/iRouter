@@ -23,6 +23,13 @@ const LEVEL_CHIP = {
 };
 // 旧 logger 的级别 emoji：行内已用级别标签展示级别，这些图标不再重复渲染
 const LEVEL_EMOJIS = new Set(["❌", "💥", "⚠", "ℹ", "🔍", "⨯", "✗", "✘", "✖", "×"]);
+// 日志 TAG（[CHAT]/[COMBO]/[RETRY]…）的彩色标签配色：按名称哈希取色，稳定可读
+const TAG_COLORS = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#a78bfa", "#f472b6", "#2dd4bf", "#f97316", "#a3e635", "#22d3ee"];
+function tagColor(tag) {
+  let h = 0;
+  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) | 0;
+  return TAG_COLORS[Math.abs(h) % TAG_COLORS.length];
+}
 
 // 复制文本：优先异步剪贴板 API，失败回退 execCommand（Electron 窗口内某些
 // 场景 Cmd+C 会被系统/菜单吞掉，显式按钮不依赖快捷键）
@@ -214,8 +221,13 @@ export default function ConsoleLogClient() {
               {connected ? translate("Connected") : translate("Connecting…")}
             </span>
           </span>
-          <div className="w-44">
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={translate("Search logs…")} className="h-7 text-xs" />
+          <div className="w-44 shrink-0">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={translate("Search logs…")}
+              inputClassName="h-7 py-0 px-2 text-xs"
+            />
           </div>
           {LOG_LEVELS.map(chip)}
           <span className="text-[11px] text-text-muted font-mono ml-auto">
@@ -250,7 +262,7 @@ export default function ConsoleLogClient() {
                     e.time ? { k: "t", cls: "text-gray-500", v: e.time } : null,
                     { k: "l", cls: `${LEVEL_COLORS[e.level]} font-semibold`, v: e.level },
                     e.icon && !LEVEL_EMOJIS.has(e.icon) ? { k: "i", cls: "text-gray-400", v: e.icon } : null,
-                    e.tag ? { k: "g", cls: "text-cyan-400", v: `[${e.tag}]` } : null,
+                    e.tag ? { k: "g", chip: true, v: e.tag, color: tagColor(e.tag) } : null,
                   ].filter(Boolean);
                   return (
                     <div
@@ -261,7 +273,16 @@ export default function ConsoleLogClient() {
                       {parts.map((p, pi) => (
                         <Fragment key={p.k}>
                           {pi > 0 ? " " : ""}
-                          <span className={p.cls}>{p.v}</span>
+                          {p.chip ? (
+                            <span
+                              className="inline-flex items-center rounded border px-1 font-semibold"
+                              style={{ color: p.color, borderColor: `${p.color}66`, background: `${p.color}1a` }}
+                            >
+                              {p.v}
+                            </span>
+                          ) : (
+                            <span className={p.cls}>{p.v}</span>
+                          )}
                         </Fragment>
                       ))}
                       {" "}
