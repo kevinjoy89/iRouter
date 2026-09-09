@@ -1814,7 +1814,7 @@ function RetryStrategyCard({ settings, onChange, loading }) {
             <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
               <div className="min-w-0">
                 <p className="font-medium text-sm sm:text-base">Exponential Backoff</p>
-                <p className="text-xs sm:text-sm text-text-muted">Double the wait each attempt, with ±20% jitter</p>
+                <p className="text-xs sm:text-sm text-text-muted">Double the wait each attempt and respect upstream Retry-After (off = fixed interval)</p>
               </div>
               <Toggle
                 checked={ar.backoff !== false}

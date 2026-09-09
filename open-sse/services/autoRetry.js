@@ -49,15 +49,16 @@ export function isRetryable(status, errorText, cfg) {
   return cfg.statusCodes.includes(status) || isRetryableErrorText(errorText);
 }
 
-// 等待时长：max(Retry-After 封顶值, 指数退避值) × ±20% 抖动。
+// 等待时长：backoff 开 → max(Retry-After 封顶值, 指数退避值) × ±20% 抖动（自适应等待，
+// Retry-After 优先）；backoff 关 → 严格固定间隔，不读 Retry-After、不加抖动。
 // `jitter` 可注入（测试），取值 [0,1)。
 export function computeWaitMs(cfg, attempt, retryAfterMs = null, jitter = Math.random) {
-  const backoffMs = cfg.backoff
-    ? Math.min(cfg.intervalSeconds * 1000 * 2 ** Math.max(attempt, 0), cfg.backoffMaxSeconds * 1000)
-    : cfg.intervalSeconds * 1000;
+  const fixedMs = cfg.intervalSeconds * 1000;
+  if (!cfg.backoff) return fixedMs;
+  const expMs = Math.min(fixedMs * 2 ** Math.max(attempt, 0), cfg.backoffMaxSeconds * 1000);
   const capMs = cfg.retryAfterMaxSeconds > 0 ? cfg.retryAfterMaxSeconds * 1000 : Infinity;
   const raMs = Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? Math.min(retryAfterMs, capMs) : 0;
-  return Math.round(Math.max(raMs, backoffMs) * (0.8 + 0.4 * jitter()));
+  return Math.round(Math.max(raMs, expMs) * (0.8 + 0.4 * jitter()));
 }
 
 // HTTP Retry-After 头（秒数或 HTTP 日期）→ 毫秒；无法解析返回 null

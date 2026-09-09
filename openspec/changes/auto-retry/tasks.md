@@ -15,4 +15,5 @@
 ## 4. 测试与验证
 
 - [x] 4.1 全量回归：auto-retry 26 + combo-effort 10 + effort-caps 22 + effort-cap-wire 9 + thinking-unified 62 + max-clamp 5 + provider-thinking-config 1 = 135/135 通过；语法 + eslint 零告警
-- [ ] 4.2 真机冒烟（待办）：新包安装后，等 sensenova 429 场景复现，确认日志出现 `[RETRY] waiting ... before retry` 且 Agent 不再停摆；确认耗尽时客户端收到 429 + Retry-After
+- [x] 4.2 真机修正（429 现场反馈）：关闭指数退避后等待仍被上游 Retry-After（~33s）接管——修正语义：退避开关 = 自适应等待总开关，关闭即严格固定间隔（不读 Retry-After、无抖动）；指数退避描述文案与 zh-CN/zh-TW 字典条目同步更新
+- [ ] 4.3 真机冒烟（待办）：新包安装后，等 sensenova 429 场景复现，确认日志出现 `[RETRY] waiting ... before retry` 且 Agent 不再停摆；确认耗尽时客户端收到 429 + Retry-After

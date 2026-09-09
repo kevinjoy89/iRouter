@@ -23,7 +23,7 @@
 
 1. **两层重试、各自可配**：整体重试（请求级，`maxRetries`，默认 20、0=无限）包在 `handleChat` 最外层（`withAutoRetry`，`handleChat` 拆为 wrapper + `handleChatOnce`）；成员级重试（`memberRetries`，默认 0=关）在 `handleComboChat` 循环内、思考强度降级重试之后。两级共享同一 `retryState.waitedMs` 累计等待预算。
 2. **触发条件**：状态码白名单（默认 429,500,502,503,504,529，可配）∪ 文本规则（固定启用：`rate limit|too many requests|capacity|overloaded`，仅对 ≥400 生效，与上游 ERROR_RULES 同源）。
-3. **等待时长**：`max(Retry-After 封顶值, 指数退避值) × (0.8~1.2 抖动)`；`retryAfterMaxSeconds` 默认 120 封顶（防止异常巨大的 Retry-After 把请求吊死）；`backoffMaxSeconds` 默认 60。
+3. **等待时长**：指数退避开关 = 自适应等待总开关。开 → `max(Retry-After 封顶值, 指数退避值) × (0.8~1.2 抖动)`；关 → **严格固定间隔**（不读 Retry-After、不加抖动）。`retryAfterMaxSeconds` 默认 120 封顶（防止异常巨大的 Retry-After 把请求吊死）；`backoffMaxSeconds` 默认 60。（真机反馈修正：最初 Retry-After 始终参与，导致关闭退避后固定间隔被上游 Retry-After 接管，等待 ~33s 而非配置间隔。）
 4. **耗尽行为**：原样返回最后一个错误（含 Retry-After 头），不包 503——Claude Code 对 429 自带重试，等于客户端侧第二道防线。
 5. **客户端断开**：`request.signal` 贯穿两级重试；成员级等待中断且 signal 已 abort 时**终止整条回退**（继续换成员只是白烧配额）；预算耗尽则保持换下家语义。
 6. **预算**：`totalWaitBudgetSeconds`（默认 600，0=不限）为单请求累计等待上限，超限按耗尽处理；仅计实际完成的等待。

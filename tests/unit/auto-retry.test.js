@@ -66,8 +66,9 @@ describe("computeWaitMs", () => {
   it("takes the max of Retry-After and backoff", () => {
     expect(computeWaitMs(cfg, 0, 7000, () => 0.5)).toBe(7000);
   });
-  it("with backoff off, waits the fixed interval", () => {
+  it("with backoff off, waits the exact fixed interval and ignores Retry-After", () => {
     expect(computeWaitMs({ ...cfg, backoff: false }, 5, null, () => 0.5)).toBe(5000);
+    expect(computeWaitMs({ ...cfg, backoff: false }, 0, 33000, () => 0.5)).toBe(5000);
   });
   it("applies ±20% jitter at the bounds", () => {
     expect(computeWaitMs(cfg, 0, null, () => 0)).toBe(4000);

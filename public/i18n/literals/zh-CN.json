@@ -1777,7 +1777,6 @@
   "Interval (s)": "重试间隔（秒）",
   "Base wait between retries": "每次重试之间的基础等待时间",
   "Exponential Backoff": "指数退避",
-  "Double the wait each attempt, with ±20% jitter": "每次重试等待时间翻倍，并带 ±20% 随机抖动",
   "Backoff Max (s)": "退避上限（秒）",
   "Exponential backoff ceiling": "指数退避的等待时间上限",
   "Retry-After Cap (s)": "Retry-After 封顶（秒）",
@@ -1785,5 +1784,6 @@
   "Total Wait Budget (s)": "累计等待预算（秒）",
   "Cumulative wait ceiling per request (0 = unlimited)": "单个请求的累计等待时间上限（0 = 不限）",
   "Status Codes": "状态码",
-  "Comma-separated codes that trigger retry (rate-limit text always matches)": "触发重试的状态码，逗号分隔（限流类错误文本始终触发）"
+  "Comma-separated codes that trigger retry (rate-limit text always matches)": "触发重试的状态码，逗号分隔（限流类错误文本始终触发）",
+  "Double the wait each attempt and respect upstream Retry-After (off = fixed interval)": "每次重试等待时间翻倍，并优先遵循上游 Retry-After（关闭 = 固定间隔）"
 }
