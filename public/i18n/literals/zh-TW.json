@@ -876,5 +876,8 @@
   "Connecting…": "連線中…",
   "No console logs yet.": "暫無控制台日誌。",
   "Search logs…": "搜尋日誌…",
+  "Log Stream": "日誌流",
+  "Received": "已接收",
+  "Visible": "可見",
   "lines": "行"
 }

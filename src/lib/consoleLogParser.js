@@ -53,7 +53,8 @@ export function parseLogLine(raw) {
       time: "",
       icon: "",
       tag: "",
-      text: rawStr,
+      // 与时间戳分支一致：摊平内部换行（堆栈类多行日志）
+      text: rawStr.replace(/\s*\n\s*/g, " ").replace(/\s+$/, ""),
       level: detectByMarkers(rawStr) || "LOG",
       raw: rawStr,
     };
@@ -84,7 +85,8 @@ export function parseLogLine(raw) {
     time: tm[1],
     icon: icon.replace(/\uFE0F/g, ""),
     tag,
-    text: text.replace(/\s+$/, ""),
+    // 摊平内部换行（堆栈类多行日志）：行视图定高单行渲染，保留 raw 供复制/搜索
+    text: text.replace(/\s*\n\s*/g, " ").replace(/\s+$/, ""),
     level: EMOJI_LEVEL[icon.replace(/\uFE0F/g, "")] || detectByMarkers(rawStr) || "LOG",
     raw: rawStr,
   };

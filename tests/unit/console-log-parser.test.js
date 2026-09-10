@@ -36,6 +36,13 @@ describe("parseLogLine", () => {
     expect(e.raw).toBe("✓ Running next.config took 3ms");
   });
 
+  it("flattens internal newlines for single-line rows, keeps raw intact", () => {
+    const e = parseLogLine("[12:34:10] • [DB] Driver: node:sqlite\n    at /app/next-server.js\n    at /app/require-hook.js");
+    expect(e.text).not.toMatch(/\n/);
+    expect(e.text).toBe("Driver: node:sqlite at /app/next-server.js at /app/require-hook.js");
+    expect(e.raw).toContain("\n    at");
+  });
+
   it("classifies Next error lines without timestamp (⨯ Error: …)", () => {
     const e = parseLogLine("⨯ Error: Failed to find Server Action. This request might be from an older or newer deployment.");
     expect(e.level).toBe("ERROR");

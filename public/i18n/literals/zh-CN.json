@@ -1856,5 +1856,8 @@
   "Copy All": "复制全部",
   "Connecting…": "连接中…",
   "Search logs…": "搜索日志…",
+  "Log Stream": "日志流",
+  "Received": "已接收",
+  "Visible": "可见",
   "lines": "行"
 }
