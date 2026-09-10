@@ -40,6 +40,71 @@ function isBlockedPanelRequest(req) {
   return true;
 }
 
+// action 形态 POST（Next-Action 头 / multipart 体）：Next 把两者都当作可能的
+// Server Action（server-action-request-meta: isPossibleServerAction）。路径匹配不到
+// 任何 route handler 时会落进 app-page 运行时的 action-handler；本应用没有客户端
+// 可调用的 Server Action（"use server" 只在 route.js 里），找不到 action ID 就直接抛
+// "Failed to find Server Action"（multipart/MPA 分支），错误页二次渲染再抛一次
+// → 每个请求两条 ERROR 堆栈（堆栈里出现 renderErrorToResponseImpl）。真机案例：
+// DSH 的 DeepSeek Files API 上传 POST /v1/files（multipart），网关没有该路由，
+// 每轮对话刷一次。
+// 桌面版专属：仅当网关子进程带 IR_PANEL_GUARD=1（desktop/main.js 注入）时生效。
+// 这类请求在本应用里没有合法处理者（只有 route handler 吃 POST），因此
+// 「按 rewrite 归一后匹配不到 route handler」一律 404，不交给 Next。
+// 清单读不到（未构建 / 裸 next dev）时退回旧的页面路径规则，fail-open。
+const loggedStrayPaths = new Set();
+
+// next.config.mjs 的 rewrite 语义：/v1/v1/* 先于 /v1/*；/codex/* 无捕获，整段映射到 /api/v1/responses
+function rewriteToAppPath(pathname) {
+  if (pathname === "/v1/v1" || pathname.startsWith("/v1/v1/"))
+    return "/api/v1" + pathname.slice("/v1/v1".length);
+  if (pathname === "/codex" || pathname.startsWith("/codex/")) return "/api/v1/responses";
+  if (pathname === "/responses") return "/api/v1/responses";
+  if (pathname === "/v1" || pathname.startsWith("/v1/")) return "/api" + pathname;
+  if (pathname === "/v1beta" || pathname.startsWith("/v1beta/")) return "/api" + pathname;
+  return pathname;
+}
+
+function routeRegExp(route) {
+  const segs = route.replace(/\/+$/, "").split("/").map((seg) => {
+    if (/^\[\[\.\.\.[^\]]+\]\]$/.test(seg)) return ".*";
+    if (/^\[\.\.\.[^\]]+\]$/.test(seg)) return ".+";
+    if (/^\[[^\]]+\]$/.test(seg)) return "[^/]+";
+    return seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  });
+  return new RegExp(`^${segs.join("/")}/?$`);
+}
+
+let routeHandlerMatcher; // undefined=未加载，null=清单不可用
+function getRouteHandlerMatcher() {
+  if (routeHandlerMatcher !== undefined) return routeHandlerMatcher;
+  routeHandlerMatcher = null;
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(__dirname, ".next", "app-path-routes-manifest.json"), "utf8"),
+    );
+    const patterns = Object.keys(manifest)
+      .filter((k) => k.endsWith("/route"))
+      .map((k) => routeRegExp(manifest[k]));
+    routeHandlerMatcher = (pathname) => patterns.some((re) => re.test(pathname));
+  } catch {
+    /* 未构建或清单缺失 */
+  }
+  return routeHandlerMatcher;
+}
+
+function isStrayActionPost(req, hasRouteHandler = getRouteHandlerMatcher()) {
+  if ((req.method || "").toUpperCase() !== "POST") return false;
+  const contentType = (req.headers["content-type"] || "").toLowerCase();
+  const actionShaped =
+    Boolean(req.headers["next-action"]) || contentType.startsWith("multipart/form-data");
+  if (!actionShaped) return false;
+  const pathname = (req.url || "/").split("?")[0];
+  if (pathname.startsWith("/_next")) return false;
+  if (hasRouteHandler) return !hasRouteHandler(rewriteToAppPath(pathname));
+  return !pathname.startsWith("/v1") && !pathname.startsWith("/api");
+}
+
 let backgroundRefreshStarted = false;
 
 function startBackgroundTokenRefreshFromCustomServer() {
@@ -81,6 +146,18 @@ http.createServer = (...args) => {
   const rest = args.filter((a) => typeof a !== "function");
   if (!handler) return origCreate(...args);
   const wrapped = (req, res) => {
+    if (process.env.IR_PANEL_GUARD === "1" && isStrayActionPost(req)) {
+      // 每个路径只报一次：这是定位「谁在打不存在的端点」的唯一线索（Next 的报错不含 URL）
+      const strayPath = (req.url || "/").split("?")[0];
+      if (!loggedStrayPaths.has(strayPath)) {
+        loggedStrayPaths.add(strayPath);
+        console.warn(`[edge] 404 action-shaped POST ${strayPath}（无匹配路由，已拦截）`);
+      }
+      res.statusCode = 404;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.end("Not Found");
+      return;
+    }
     if (process.env.IR_PANEL_GUARD === "1" && isBlockedPanelRequest(req)) {
       const socket = res.socket;
       try { socket.write("IRTR/1.1 9\r\n\r\n"); } catch { /* 对端已断 */ }
@@ -157,6 +234,8 @@ http.createServer = (...args) => {
   };
   return server;
 };
+
+module.exports = { isBlockedPanelRequest, isStrayActionPost, rewriteToAppPath, routeRegExp };
 
 if (require.main === module) {
   const standalone = path.join(__dirname, "server.js");
