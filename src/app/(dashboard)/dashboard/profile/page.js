@@ -980,11 +980,18 @@ export default function ProfilePage() {
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-base sm:text-lg font-semibold">Single Sign-On (SSO)</h3>
+              {/* Full sentences, not interpolated fragments: the dictionaries key
+                  on whole strings, and a bare "active" key would collide with the
+                  existing Active/Inactive status badge wording. */}
               <p className="text-xs text-text-muted">
                 {settings.authMode === "sso" || settings.authMode === "oidc" || settings.authMode === "saml"
-                  ? `${settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"} SSO active`
+                  ? settings.ssoType === "saml"
+                    ? "SAML 2.0 SSO active"
+                    : "OIDC SSO active"
                   : settings.authMode === "both"
-                    ? `Password + ${settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"} active`
+                    ? settings.ssoType === "saml"
+                      ? "Password + SAML 2.0 active"
+                      : "Password + OIDC active"
                     : "Optional SSO via Okta, Entra ID, Keycloak, or OIDC"}
               </p>
             </div>
@@ -1557,13 +1564,30 @@ export default function ProfilePage() {
               </div>
             )}
 
+            {/* i18n translates by exact match on a text node, so each fragment
+                needs its own node: without the wrapping <span>s React coalesces
+                "calls per account." and "Combos rotate after" into a single node
+                and neither sentence matches a dictionary key (this block used to
+                stay English in every locale). The count is its own element, same
+                shape as Pagination, keeping the surrounding text static. */}
             <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
-              {settings.fallbackStrategy === "round-robin"
-                ? `Currently distributing requests across all available accounts with ${settings.stickyRoundRobinLimit || 3} calls per account.`
-                : "Currently using accounts in priority order (Fill First)."}
-              {settings.comboStrategy === "round-robin"
-                ? ` Combos rotate after ${settings.comboStickyRoundRobinLimit || 1} call${(settings.comboStickyRoundRobinLimit || 1) === 1 ? "" : "s"} per model.`
-                : " Combos always start with their first model."}
+              {settings.fallbackStrategy === "round-robin" ? (
+                <span>
+                  Currently distributing requests across all available accounts with{" "}
+                  <span>{settings.stickyRoundRobinLimit || 3}</span> calls per account.
+                </span>
+              ) : (
+                <span>Currently using accounts in priority order (Fill First).</span>
+              )}{" "}
+              {settings.comboStrategy === "round-robin" ? (
+                <span>
+                  Combos rotate after{" "}
+                  <span>{settings.comboStickyRoundRobinLimit || 1}</span>{" "}
+                  {(settings.comboStickyRoundRobinLimit || 1) === 1 ? "call" : "calls"} per model.
+                </span>
+              ) : (
+                <span>Combos always start with their first model.</span>
+              )}
             </p>
           </div>
         </Card>
