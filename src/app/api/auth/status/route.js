@@ -36,6 +36,9 @@ export async function GET() {
       samlConfigured: isSamlConfigured(settings),
       samlLoginLabel: (settings.samlLoginLabel || "Sign in with SAML SSO").trim() || "Sign in with SAML SSO",
       hasPassword: !!settings.password,
+      // 初始口令来源：设了 INITIAL_PASSWORD 时它不再是 123456，登录页据此决定提示文案。
+      // 只传布尔值——口令本身不下发。
+      initialPasswordFromEnv: !!process.env.INITIAL_PASSWORD,
       displayName,
       loginMethod,
       authenticated: !!session,
@@ -56,6 +59,7 @@ export async function GET() {
       samlConfigured: false,
       samlLoginLabel: "Sign in with SAML SSO",
       hasPassword: false,
+      initialPasswordFromEnv: !!process.env.INITIAL_PASSWORD,
       displayName: "Password user",
       loginMethod: "Password",
       authenticated: false,

@@ -9,9 +9,20 @@ import { fileURLToPath } from "node:url";
 
 const DESKTOP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const APP_BIN = join(DESKTOP_ROOT, "build", "dist", "mac-arm64", "iRouter.app", "Contents", "MacOS", "iRouter");
+const APP_GATEWAY = join(DESKTOP_ROOT, "build", "dist", "mac-arm64", "iRouter.app", "Contents", "Resources", "gateway", "server");
 
 if (!existsSync(APP_BIN)) {
   console.error(`找不到打包产物：${APP_BIN}\n请先执行：npm run dist:mac`);
+  process.exit(1);
+}
+
+// 产物内不得混入 .env：其中的 JWT_SECRET / INITIAL_PASSWORD 是仓库里公开的占位值，
+// 一旦随包分发，网关会用它替代随机生成的 jwt-secret，且初始口令被改成 change-me。
+const envLeaks = existsSync(APP_GATEWAY)
+  ? readdirSync(APP_GATEWAY).filter((n) => n === ".env" || n.startsWith(".env."))
+  : [];
+if (envLeaks.length > 0) {
+  console.error(`[packaged] 产物内含公开密钥文件：${envLeaks.join(", ")}`);
   process.exit(1);
 }
 

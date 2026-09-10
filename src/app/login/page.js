@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [retryAfter, setRetryAfter] = useState(0);
   const [loading, setLoading] = useState(false);
   const [hasPassword, setHasPassword] = useState(null);
+  const [initialPasswordFromEnv, setInitialPasswordFromEnv] = useState(false);
   const [authMode, setAuthMode] = useState("password");
   const [ssoType, setSsoType] = useState("oidc");
   const [oidcConfigured, setOidcConfigured] = useState(false);
@@ -45,6 +46,7 @@ export default function LoginPage() {
             return;
           }
           setHasPassword(!!data.hasPassword);
+          setInitialPasswordFromEnv(data.initialPasswordFromEnv === true);
           setAuthMode(data.authMode || "password");
           setSsoType(data.ssoType || "oidc");
           setOidcConfigured(data.oidcConfigured === true);
@@ -250,9 +252,12 @@ export default function LoginPage() {
                   {retryAfter > 0 ? `Wait ${retryAfter}s` : "Login"}
                 </Button>
 
-                <p className="text-xs text-center text-text-muted mt-2">
-                  Default password is <code className="bg-sidebar px-1 rounded">123456</code>
-                </p>
+                {/* 仅在实际使用默认口令时提示；设了 INITIAL_PASSWORD 或已改过密码则不提示 */}
+                {hasPassword === false && !initialPasswordFromEnv && (
+                  <p className="text-xs text-center text-text-muted mt-2">
+                    Default password is <code className="bg-sidebar px-1 rounded">123456</code>
+                  </p>
+                )}
                 {hasPassword === false && (
                   <p className="text-xs text-center text-amber-600 dark:text-amber-400">
                     Security risk: no password set. You will be asked to set one when logging in remotely.

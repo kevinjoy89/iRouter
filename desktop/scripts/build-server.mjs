@@ -2,7 +2,7 @@
 // 构建内嵌网关：9router 源码已并入仓库根目录（原 submodule 已废弃），
 // 在根目录产出 Next standalone，复制进 desktop/build/server。
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, rmSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, rmSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -93,7 +93,21 @@ if (existsSync(nativeSqlite)) {
   log("已移除 better-sqlite3（原生模块 ABI 不兼容 Electron，运行时走 node:sqlite）");
 }
 
-// 5. 产物自检
+// 5. 剔除 .env：Next standalone 会把仓库根的 .env 一并拷进来（含 .env.example 的
+//    占位密钥）。留着的后果是「密钥取自公开文件」：
+//    · JWT_SECRET → dashboardSession.js 走 env 提前返回，永不生成随机 jwt-secret 文件，
+//      壳层 main.js 读不到该文件 → smoke 登录注入失败、面板停在 /login；
+//      且该值等同已提交的 .env.example，任何人可离线签发合法 auth_token。
+//    · INITIAL_PASSWORD=change-me → 覆盖代码默认值 123456，与登录页提示不符。
+//    删掉后网关恢复安全默认：JWT_SECRET 首次启动随机生成落盘、初始口令回落 123456。
+for (const name of readdirSync(OUT)) {
+  if (name === ".env" || name.startsWith(".env.")) {
+    rmSync(join(OUT, name), { recursive: true, force: true });
+    log(`已移除 ${name}（避免公开占位密钥进入产物，网关改用安全默认值）`);
+  }
+}
+
+// 6. 产物自检
 for (const [p, what] of [
   [join(OUT, "custom-server.js"), "custom-server.js"],
   [join(OUT, "server.js"), "server.js"],
@@ -105,6 +119,13 @@ for (const [p, what] of [
 if (existsSync(nativeSqlite)) {
   console.error("[build-server] better-sqlite3 未被移除");
   process.exit(1);
+}
+// .env 回归守卫：@next/env 会自动读取服务端同目录的 .env，混入即重新引入公开密钥
+for (const name of readdirSync(OUT)) {
+  if (name === ".env" || name.startsWith(".env.")) {
+    console.error(`[build-server] ${name} 未被移除`);
+    process.exit(1);
+  }
 }
 
 log(`完成 → ${OUT}`);

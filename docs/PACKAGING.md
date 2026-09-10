@@ -115,8 +115,8 @@ npx electron-builder --mac --universal
 
 ```text
 desktop/build/dist/
-├── iRouter-0.0.3.dmg            <-- [发布交付] macOS 磁盘镜像安装包（约 149 MB）
-├── iRouter-0.0.3.dmg.blockmap   <-- 块更新校验文件
+├── iRouter-0.0.4.dmg            <-- [发布交付] macOS 磁盘镜像安装包（约 149 MB）
+├── iRouter-0.0.4.dmg.blockmap   <-- 块更新校验文件
 ├── builder-debug.yml            <-- 构建配置调试快照
 └── mac-arm64/                   <-- [本地运行/测试] 解包后的完整应用目录
     └── iRouter.app              <-- 可直接双击运行的应用程序包
@@ -124,7 +124,7 @@ desktop/build/dist/
 
 ### 首次安装与运行说明（macOS）
 
-1. 双击打开 `iRouter-0.0.3.dmg`，将 `iRouter.app` 拖入 `/Applications`（应用程序目录）；
+1. 双击打开 `iRouter-0.0.4.dmg`，将 `iRouter.app` 拖入 `/Applications`（应用程序目录）；
 2. **绕过 Gatekeeper 安全拦截**（由于未签名）：
    - **方式一（GUI）**：在「访达 → 应用程序」中，**按住 Control 键并右键点击 iRouter.app**，选择「打开」，在弹窗中再次点击「打开」；
    - **方式二（系统设置）**：打开「系统设置 → 隐私与安全性」，滚动到最下方，点击「仍要打开」；
@@ -138,7 +138,7 @@ desktop/build/dist/
 
 启动应用后，可按以下列表快速验收核心能力：
 
-- [ ] **品牌与版本展示**：侧边栏与个人设置页（`/dashboard/profile`）底部均展示为 `iRouter Proxy v0.0.3`；
+- [ ] **品牌与版本展示**：侧边栏与个人设置页（`/dashboard/profile`）底部均展示为 `iRouter Proxy v0.0.4`；
 - [ ] **多语言设置**：个人设置页内联分段切换器（跟随系统、英文、简体中文、繁体中文）平滑切换；
 - [ ] **数据持久化路径**：个人设置页“数据库位置”卡片显示为 `~/.irouter/db/data.sqlite`；
 - [ ] **下载备份命名**：点击“下载备份”，确认生成文件名为 `irouter-backup-<时间戳>.json`；
