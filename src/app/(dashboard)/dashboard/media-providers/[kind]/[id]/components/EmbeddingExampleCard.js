@@ -115,13 +115,13 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               placeholder="e.g. voyage-3, embed-english-v3.0, text-embedding-3-small"
-              className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
+              className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary font-mono"
             />
           ) : (
             <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+              className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
             >
               {embeddingModels.map((m) => (
                 <option key={m.id} value={m.id}>{m.name || m.id}</option>
@@ -136,7 +136,7 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
             <input
               value={endpoint}
               onChange={(e) => useTunnel ? setTunnelEndpoint(e.target.value) : setLocalEndpoint(e.target.value)}
-              className="w-full min-w-0 flex-1 px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
+              className="w-full min-w-0 flex-1 px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary font-mono"
               placeholder="http://localhost:3000"
             />
             {/* Tunnel toggle — only show if tunnel URL is available */}
@@ -162,7 +162,7 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="sk-..."
-            className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
+            className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary font-mono"
           />
         </Row>
 
@@ -172,7 +172,7 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+              className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
             />
             {input && (
               <button
@@ -194,7 +194,7 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
             value={dimensions}
             onChange={(e) => setDimensions(e.target.value)}
             placeholder="optional, e.g. 512, 1024 (leave empty for default)"
-            className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+            className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
           />
         </Row>
 

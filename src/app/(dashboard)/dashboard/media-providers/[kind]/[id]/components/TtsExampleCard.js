@@ -287,7 +287,7 @@ export function TtsExampleCard({ providerId }) {
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
               >
                 {(() => {
                   const ttsModels = getModelsByProviderId(providerId).filter(m => getModelKind(m) === "tts");
@@ -305,7 +305,7 @@ export function TtsExampleCard({ providerId }) {
               <select
                 value={languageHint}
                 onChange={(e) => setLanguageHint(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
               >
                 <option value="">Auto-detect</option>
                 {(config.languageOptions || GOOGLE_TTS_LANGUAGES).map((l) =>
@@ -323,7 +323,7 @@ export function TtsExampleCard({ providerId }) {
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <button
                   onClick={openModal}
-                  className="w-full min-w-0 flex-1 px-3 py-1.5 text-sm border border-border rounded-lg bg-background font-mono truncate text-left hover:border-primary/40 transition-colors"
+                  className="w-full min-w-0 flex-1 px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 font-mono truncate text-left hover:border-primary/40 transition-colors"
                 >
                   {selectedLang
                     ? <span className="text-text-main">{languages.find((l) => l.code === selectedLang)?.name || selectedLang}</span>
@@ -385,7 +385,7 @@ export function TtsExampleCard({ providerId }) {
                       setSelectedVoice(e.target.value);
                     }}
                     placeholder="e.g. CwhRBWXzGAHq8TQ4Fs17"
-                    className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
+                    className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary font-mono"
                   />
                   {voiceId && (
                     <button
@@ -411,7 +411,7 @@ export function TtsExampleCard({ providerId }) {
                   setSelectedVoice(e.target.value);
                   setSelectedVoiceName(m?.name || e.target.value);
                 }}
-                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
               >
                 {getModelsByProviderId(providerId).filter((m) => getModelKind(m) === "tts").map((m) => (
                   <option key={m.id} value={m.id}>{m.name || m.id}</option>
@@ -426,7 +426,7 @@ export function TtsExampleCard({ providerId }) {
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+                className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
               />
               {input && (
                 <button
@@ -449,7 +449,7 @@ export function TtsExampleCard({ providerId }) {
                   onChange={(e) => setStyle(e.target.value)}
                   placeholder={translate("e.g. a warm, gentle voice, speaking slowly with a British accent")}
                   rows={2}
-                  className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary resize-none"
+                  className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary resize-none"
                 />
                 {style && (
                   <button
@@ -469,7 +469,7 @@ export function TtsExampleCard({ providerId }) {
             <select
               value={responseFormat}
               onChange={(e) => setResponseFormat(e.target.value)}
-              className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+              className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
             >
               <option value="mp3">MP3 (Binary)</option>
               <option value="json">JSON (Base64)</option>
@@ -570,7 +570,7 @@ export function TtsExampleCard({ providerId }) {
                 value={modalSearch}
                 onChange={(e) => setModalSearch(e.target.value)}
                 placeholder="Search language..."
-                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
               />
             </div>
 

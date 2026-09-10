@@ -72,7 +72,7 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
               onChange={(e) => { setModelId(e.target.value); setTestStatus(null); setTestError(""); }}
               onKeyDown={handleKeyDown}
               placeholder="e.g. claude-opus-4-5"
-              className="flex-1 px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+              className="flex-1 px-3 py-2 text-sm border border-border rounded-lg bg-surface-2 focus:outline-none focus:border-primary"
               autoFocus
             />
             <Button

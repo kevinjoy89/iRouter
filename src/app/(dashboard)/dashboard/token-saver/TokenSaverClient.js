@@ -576,7 +576,7 @@ export default function TokenSaverClient() {
                         type="button"
                         onClick={() => handleRemoveExtra(extra)}
                         disabled={removingExtra === extra}
-                        className="ml-1 text-error underline hover:opacity-80 disabled:opacity-50"
+                        className="ml-1 text-danger underline hover:opacity-80 disabled:opacity-50"
                         title={`Uninstall [${extra}]`}
                       >
                         {removingExtra === extra ? "Uninstalling…" : "Uninstall"}
@@ -619,7 +619,7 @@ export default function TokenSaverClient() {
               )}
             </div>
             {extrasActionError && (
-              <p className="text-xs text-error mt-1">{extrasActionError}</p>
+              <p className="text-xs text-danger mt-1">{extrasActionError}</p>
             )}
             {restartingProxy && (
               <p className="text-xs text-text-muted mt-1">Restarting proxy…</p>
