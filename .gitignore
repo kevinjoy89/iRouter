@@ -105,3 +105,4 @@ desktop/build/
 *.dmg
 *.AppImage
 *.exe
+.tmp-ocr/
