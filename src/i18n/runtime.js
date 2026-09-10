@@ -55,7 +55,7 @@ export function onLocaleChange(callback) {
 }
 
 // Process text node
-function processTextNode(node) {
+export function processTextNode(node) {
   if (!node.nodeValue || !node.nodeValue.trim()) return;
   
   // Skip if parent is script, style, code, or structural elements
@@ -82,14 +82,19 @@ function processTextNode(node) {
   
   if (skipTags.includes(tagName)) return;
   
-  // Store original text if not already stored
-  if (!node._originalText) {
+  // Store original text if not already stored. React updates text nodes in place
+  // and characterData is not observed, so a cached original goes stale: re-capture
+  // whenever the node no longer holds what we wrote last, otherwise a later
+  // full-DOM pass (route/locale change) reverts dynamic text to its mount-time
+  // value — counters and connection labels would freeze while the rest re-renders.
+  if (!node._originalText || node._i18nApplied !== node.nodeValue) {
     node._originalText = node.nodeValue;
   }
   
   // Use original text for translation
   const original = node._originalText;
   const translated = translate(original);
+  node._i18nApplied = translated;
   
   // Only update if different to avoid unnecessary DOM mutations
   if (translated !== node.nodeValue) {
