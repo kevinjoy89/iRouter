@@ -366,6 +366,7 @@
   "Delete selected preset": "حذف تنظیم از پیش انتخاب شده",
   "Delete this combo?": "این ترکیب حذف شود؟",
   "Delete this connection?": "این اتصال حذف شود؟",
+  "Deleted Providers": "ارائه‌دهندگان حذف‌شده",
   "Deno Deploy API Token": "توکن Deno Deploy API",
   "Deno Deploy v2 runs on a high-performance global edge network": "Deno Deploy v2 بر روی شبکه لبه جهانی با کارایی بالا اجرا می‌شود",
   "Deno Relay": "Deno Relay",

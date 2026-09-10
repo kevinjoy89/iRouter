@@ -366,6 +366,7 @@
   "Delete selected preset": "លុប Preset ដែលបានជ្រើស",
   "Delete this combo?": "លុប Combo នេះមែនទេ?",
   "Delete this connection?": "លុបការតភ្ជាប់នេះមែនទេ?",
+  "Deleted Providers": "អ្នកផ្តល់សេវាដែលបានលុប",
   "Deno Deploy API Token": "Deno Deploy API Token",
   "Deno Deploy v2 runs on a high-performance global edge network": "Deno Deploy v2 ដំណើរការលើបណ្តាញ Edge សកលដែលមានប្រសិទ្ធភាពខ្ពស់",
   "Deno Relay": "Deno Relay",

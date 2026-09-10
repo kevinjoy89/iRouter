@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRequestDetails } from "@/lib/usageDb";
+import { getProviderNameMap } from "@/lib/usageProviders";
+import { DELETED_PROVIDER_ID } from "@/shared/constants/providers";
 
 /**
  * GET /api/usage/request-details
@@ -39,7 +41,13 @@ export async function GET(request) {
       pageSize
     };
     
-    if (provider) filter.provider = provider;
+    if (provider === DELETED_PROVIDER_ID) {
+      // "Deleted Providers" is a UI grouping, not a real provider id: match every
+      // provider that no longer resolves to a configured node or built-in provider.
+      filter.providerNotIn = Object.keys(await getProviderNameMap());
+    } else if (provider) {
+      filter.provider = provider;
+    }
     if (model) filter.model = model;
     if (connectionId) filter.connectionId = connectionId;
     if (status) filter.status = status;

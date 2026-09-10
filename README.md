@@ -6,7 +6,7 @@
 
 ## 安装（macOS）
 
-1. 打开 `desktop/build/dist/iRouter-0.0.4.dmg`
+1. 打开 `desktop/build/dist/iRouter-0.0.5.dmg`
 2. 把 **iRouter** 拖进 `Applications`
 3. **首次打开**：应用未做签名与公证，Gatekeeper 会拦。解决办法二选一：
    - 在「应用程序」里 **右键（按住 Control）点 iRouter → 打开 → 再点打开**

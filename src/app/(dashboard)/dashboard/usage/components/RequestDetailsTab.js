@@ -6,7 +6,7 @@ import Button from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import Pagination from "@/shared/components/Pagination";
 import { cn } from "@/shared/utils/cn";
-import { AI_PROVIDERS, getProviderByAlias } from "@/shared/constants/providers";
+import { AI_PROVIDERS, getProviderByAlias, DELETED_PROVIDER_ID, DELETED_PROVIDER_LABEL } from "@/shared/constants/providers";
 
 let providerNameCache = null;
 let providerNodesCache = null;
@@ -199,7 +199,7 @@ export default function RequestDetailsTab() {
               <option value="">All Providers</option>
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>
-                  {provider.name}
+                  {provider.id === DELETED_PROVIDER_ID ? DELETED_PROVIDER_LABEL : provider.name}
                 </option>
               ))}
             </select>

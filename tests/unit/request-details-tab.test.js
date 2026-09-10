@@ -7,6 +7,7 @@ import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
 const originalDataDir = process.env.DATA_DIR;
+const originalEnableRequestLogs = process.env.ENABLE_REQUEST_LOGS;
 let tempDir;
 let db;
 let adapter;
@@ -19,10 +20,16 @@ async function saveDetail(detail) {
 beforeAll(async () => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "9router-details-tab-"));
   process.env.DATA_DIR = tempDir;
+  // An ambient ENABLE_REQUEST_LOGS (e.g. exported by the developer's shell from
+  // .env) overrides the settings flag and makes saveRequestDetail() a silent
+  // no-op — every "row was stored" assertion then fails for reasons unrelated to
+  // the code under test. Unset it so the settings value decides, as in production
+  // where the packaged app ships no .env.
+  delete process.env.ENABLE_REQUEST_LOGS;
   vi.resetModules();
   db = await import("@/lib/db/index.js");
   await db.initDb();
-  await db.updateSettings({ enableObservability2: true, observabilityBatchSize: 1 });
+  await db.updateSettings({ enableObservability: true, observabilityBatchSize: 1 });
 
   const { getAdapter } = await import("@/lib/db/driver.js");
   adapter = await getAdapter();
@@ -32,6 +39,8 @@ afterAll(() => {
   if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
   if (originalDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = originalDataDir;
+  if (originalEnableRequestLogs === undefined) delete process.env.ENABLE_REQUEST_LOGS;
+  else process.env.ENABLE_REQUEST_LOGS = originalEnableRequestLogs;
 });
 
 describe("request details — tab crash-risk cases", () => {
@@ -168,6 +177,65 @@ describe("getDistinctProviders — providers route (no full-row parse)", () => {
     expect(list.every((p) => p !== null)).toBe(true);
     const sorted = [...list].sort();
     expect(list).toEqual(sorted);
+  });
+
+  it("includes providers present only in usageHistory (requestDetails is capped)", async () => {
+    // requestDetails has a retention cap and is LRU-pruned, so a provider that
+    // only appears in older usage rows must still be listed.
+    await db.saveRequestUsage({
+      provider: "history-only-provider",
+      model: "m",
+      tokens: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+
+    const list = await db.getDistinctProviders();
+    expect(list).toContain("history-only-provider");
+  });
+});
+
+describe("buildProviderEntries — deleted-provider grouping", () => {
+  it("resolvable ids keep their names, orphans collapse to one entry", async () => {
+    const { buildProviderEntries } = await import("@/lib/usageProviders.js");
+    const { DELETED_PROVIDER_ID, DELETED_PROVIDER_LABEL } =
+      await import("@/shared/constants/providers.js");
+
+    const entries = buildProviderEntries(
+      ["openai", "openai-compatible-chat-dead-1", "anthropic", "openai-compatible-chat-dead-2"],
+      { openai: "OpenAI", anthropic: "Anthropic" }
+    );
+
+    expect(entries.filter((e) => e.id === DELETED_PROVIDER_ID)).toHaveLength(1);
+    expect(entries[0]).toEqual({ id: DELETED_PROVIDER_ID, name: DELETED_PROVIDER_LABEL });
+    expect(entries.map((e) => e.id)).toEqual([
+      DELETED_PROVIDER_ID,
+      "openai",
+      "anthropic",
+    ]);
+  });
+
+  it("no orphans → no placeholder entry", async () => {
+    const { buildProviderEntries } = await import("@/lib/usageProviders.js");
+    const { DELETED_PROVIDER_ID } = await import("@/shared/constants/providers.js");
+    const entries = buildProviderEntries(["openai"], { openai: "OpenAI" });
+    expect(entries.map((e) => e.id)).toEqual(["openai"]);
+    expect(entries.some((e) => e.id === DELETED_PROVIDER_ID)).toBe(false);
+  });
+});
+
+describe("request-details — deleted-provider filter", () => {
+  it("providerNotIn excludes known ids and keeps orphans", async () => {
+    await saveDetail({ id: "orphan-1", provider: "openai-compatible-chat-dead-9", model: "m", status: "ok", tokens: {}, request: {}, response: {} });
+
+    const res = await db.getRequestDetails({ providerNotIn: ["openai", "anthropic"] });
+    const providers = res.details.map((d) => d.provider);
+    expect(providers).toContain("openai-compatible-chat-dead-9");
+    expect(providers).not.toContain("openai");
+  });
+
+  it("empty providerNotIn → matches every non-null provider", async () => {
+    const res = await db.getRequestDetails({ providerNotIn: [] });
+    expect(res.details.length).toBeGreaterThan(0);
+    expect(res.details.every((d) => d.provider !== null)).toBe(true);
   });
 });
 

@@ -97,6 +97,13 @@ export function isCustomEmbeddingProvider(providerId) {
   return typeof providerId === "string" && providerId.startsWith(CUSTOM_EMBEDDING_PREFIX);
 }
 
+// Usage → Details provider filter: history can reference provider ids whose node
+// was deleted later, which resolve to no name. Those collapse into one entry
+// instead of a wall of orphaned UUIDs. Shares no server-only imports so the
+// dashboard (client) and the API can both use it.
+export const DELETED_PROVIDER_ID = "__deleted__";
+export const DELETED_PROVIDER_LABEL = "Deleted Providers";
+
 // All providers (combined)
 export const AI_PROVIDERS = { ...FREE_PROVIDERS, ...FREE_TIER_PROVIDERS, ...OAUTH_PROVIDERS, ...APIKEY_PROVIDERS, ...WEB_COOKIE_PROVIDERS };
 

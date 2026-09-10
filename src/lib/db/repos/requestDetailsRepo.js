@@ -165,6 +165,16 @@ export async function getRequestDetails(filter = {}) {
   const params = [];
 
   if (filter.provider) { conds.push("provider = ?"); params.push(filter.provider); }
+  // Sentinel filter: ids that resolve to no known provider. An empty known-list
+  // still means "everything is unresolvable" → match any non-null provider.
+  if (Array.isArray(filter.providerNotIn)) {
+    conds.push(
+      filter.providerNotIn.length
+        ? `provider NOT IN (${filter.providerNotIn.map(() => "?").join(", ")})`
+        : "provider IS NOT NULL"
+    );
+    params.push(...filter.providerNotIn);
+  }
   if (filter.model) { conds.push("model = ?"); params.push(filter.model); }
   if (filter.connectionId) { conds.push("connectionId = ?"); params.push(filter.connectionId); }
   if (filter.status) { conds.push("status = ?"); params.push(filter.status); }
@@ -194,7 +204,15 @@ export async function getRequestDetails(filter = {}) {
 
 export async function getDistinctProviders() {
   const db = await getAdapter();
-  const rows = db.all(`SELECT DISTINCT provider FROM requestDetails WHERE provider IS NOT NULL ORDER BY provider ASC`);
+  // requestDetails 有保留上限（observabilityMaxRecords，默认 1000 条）并会被 LRU 淘汰，
+  // 单独作为来源会让下拉框随窗口滑动而丢掉仍在使用的供应商。usageHistory 无上限，
+  // 二者取并集才是「用过的全部供应商」。
+  const rows = db.all(`
+    SELECT provider FROM requestDetails WHERE provider IS NOT NULL
+    UNION
+    SELECT provider FROM usageHistory WHERE provider IS NOT NULL
+    ORDER BY provider ASC
+  `);
   return rows.map((r) => r.provider);
 }
 
