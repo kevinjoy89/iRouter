@@ -23,7 +23,11 @@ async function tryBetterSqlite() {
     const { createBetterSqliteAdapter } = await import("./adapters/betterSqliteAdapter.js");
     return createBetterSqliteAdapter(DATA_FILE);
   } catch (e) {
-    console.warn(`[DB] better-sqlite3 unavailable: ${e.message}`);
+    // 可选依赖缺失是合法状态（开发机未装 / 打包版按设计剔除原生模块），静默走下一级；
+    // 只有「装了但加载失败」（ABI 不匹配、二进制损坏）才告警，e.message 取首行避免 Require stack 刷屏
+    if (e?.code !== "MODULE_NOT_FOUND") {
+      console.warn(`[DB] better-sqlite3 存在但加载失败，降级下一驱动: ${e.message.split("\n")[0]}`);
+    }
     return null;
   }
 }

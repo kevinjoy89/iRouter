@@ -82,11 +82,15 @@ rmSync(OUT, { recursive: true, force: true });
 mkdirSync(dirname(OUT), { recursive: true });
 cpSync(STANDALONE, OUT, { recursive: true });
 
-// 4. 强制 sql.js 纯 WASM 回退：剔除 Electron ABI 下需要重编译的原生模块
+// 4. 剔除 better-sqlite3 原生模块：node_modules 里的 .node 按开发机 Node 编译
+//    （实测 dev Node MODULE_VERSION 147，Electron 44 内嵌 Node 24.20 为 149，二者不兼容），
+//    且 electron-builder.yml 设置了 npmRebuild: false（打包不重编译），带上必是坏二进制。
+//    运行时走驱动链下一级 node:sqlite（Node ≥22.5 内置的真 SQLite，Electron 的 Node 24 自带），
+//    不是 sql.js WASM 降级；顺带省掉随包的 ~12MB。
 const nativeSqlite = join(OUT, "node_modules", "better-sqlite3");
 if (existsSync(nativeSqlite)) {
   rmSync(nativeSqlite, { recursive: true, force: true });
-  log("已移除 better-sqlite3（运行时走 sql.js 回退）");
+  log("已移除 better-sqlite3（原生模块 ABI 不兼容 Electron，运行时走 node:sqlite）");
 }
 
 // 5. 产物自检

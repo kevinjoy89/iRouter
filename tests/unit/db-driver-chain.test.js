@@ -45,6 +45,41 @@ describe("Driver fallback chain", () => {
     }
   });
 
+  it("可选依赖缺失（MODULE_NOT_FOUND）静默降级，不刷告警", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // 从适配器内部抛出（等价于真实场景：适配器顶层 import 原生模块失败），
+    // vi.doMock 工厂抛错会被 vitest 自身的 mock 校验拦截，模拟不到这条分支
+    vi.doMock("@/lib/db/adapters/betterSqliteAdapter.js", () => ({
+      createBetterSqliteAdapter: () => {
+        const err = new Error("Cannot find module 'better-sqlite3'");
+        err.code = "MODULE_NOT_FOUND";
+        throw err;
+      },
+    }));
+    const { getAdapter } = await import("@/lib/db/driver.js");
+    const db = await getAdapter();
+    const noisy = warn.mock.calls.filter((c) => String(c[0]).includes("better-sqlite3"));
+    expect(noisy).toEqual([]);
+    expect(["node:sqlite", "sql.js"]).toContain(db.driver);
+    warn.mockRestore();
+  });
+
+  it("装了但加载失败（ABI 不匹配等）仍然告警", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.doMock("@/lib/db/adapters/betterSqliteAdapter.js", () => ({
+      createBetterSqliteAdapter: () => {
+        const err = new Error("NODE_MODULE_VERSION 147. This version requires 149");
+        err.code = "ERR_DLOPEN_FAILED";
+        throw err;
+      },
+    }));
+    const { getAdapter } = await import("@/lib/db/driver.js");
+    await getAdapter();
+    const warned = warn.mock.calls.some((c) => String(c[0]).includes("better-sqlite3"));
+    expect(warned).toBe(true);
+    warn.mockRestore();
+  });
+
   it("falls back to sql.js when both native drivers unavailable", async () => {
     vi.doMock("@/lib/db/adapters/betterSqliteAdapter.js", () => {
       throw new Error("simulated unavailable");
