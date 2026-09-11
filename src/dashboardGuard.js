@@ -29,7 +29,6 @@ const PUBLIC_API_PATHS = [
   "/api/auth/status",
   "/api/auth/oidc",
   "/api/auth/saml",
-  "/api/version",
   "/api/settings/require-login",
 ];
 
