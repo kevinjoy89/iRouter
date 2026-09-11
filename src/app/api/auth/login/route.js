@@ -24,7 +24,7 @@ export async function POST(request) {
     const lock = checkLock(ip);
     if (lock.locked) {
       return NextResponse.json(
-        { error: `Too many failed attempts. Try again in ${lock.retryAfter}s. ${RESET_HINT}`, retryAfter: lock.retryAfter, resetHint: RESET_HINT },
+        { error: `Too many failed attempts. Try again in ${lock.retryAfter}s. ${RESET_HINT}`, code: "locked", retryAfter: lock.retryAfter, resetHint: RESET_HINT },
         { status: 429, headers: { "Retry-After": String(lock.retryAfter) } }
       );
     }
@@ -34,7 +34,7 @@ export async function POST(request) {
 
     // Block login via tunnel/tailscale if dashboard access is disabled
     if (isTunnelRequest(request, settings) && settings.tunnelDashboardAccess !== true) {
-      return NextResponse.json({ error: "Dashboard access via tunnel is disabled" }, { status: 403 });
+      return NextResponse.json({ error: "Dashboard access via tunnel is disabled", code: "tunnel_disabled" }, { status: 403 });
     }
 
     // Default password is '123456' if not set
@@ -43,10 +43,10 @@ export async function POST(request) {
     if (settings.authMode === "sso" || settings.authMode === "saml" || settings.authMode === "oidc") {
       const ssoType = settings.ssoType || (settings.authMode === "saml" ? "saml" : "oidc");
       if (ssoType === "saml" && isSamlConfigured(settings)) {
-        return NextResponse.json({ error: "Password login is disabled. Use SAML SSO sign in." }, { status: 403 });
+        return NextResponse.json({ error: "Password login is disabled. Use SAML SSO sign in.", code: "sso_only_saml" }, { status: 403 });
       }
       if (ssoType === "oidc" && isOidcConfigured(settings)) {
-        return NextResponse.json({ error: "Password login is disabled. Use OIDC sign in." }, { status: 403 });
+        return NextResponse.json({ error: "Password login is disabled. Use OIDC sign in.", code: "sso_only_oidc" }, { status: 403 });
       }
     }
 
@@ -82,7 +82,7 @@ export async function POST(request) {
         // oversight: issuing any credential before the default password is
         // rotated re-opens the exact attack chain this branch closes.
         return NextResponse.json(
-          { success: false, error: "Default password must be changed before remote access. Change it from the local machine (or set INITIAL_PASSWORD).", mustChangePassword },
+          { success: false, error: "Default password must be changed before remote access. Change it from the local machine (or set INITIAL_PASSWORD).", code: "default_password_remote", mustChangePassword },
           { status: 403, headers: NO_STORE_HEADERS }
         );
       }
@@ -97,12 +97,12 @@ export async function POST(request) {
     const postLock = checkLock(ip);
     if (postLock.locked) {
       return NextResponse.json(
-        { error: `Too many failed attempts. Try again in ${postLock.retryAfter}s. ${RESET_HINT}`, retryAfter: postLock.retryAfter, resetHint: RESET_HINT },
+        { error: `Too many failed attempts. Try again in ${postLock.retryAfter}s. ${RESET_HINT}`, code: "locked", retryAfter: postLock.retryAfter, resetHint: RESET_HINT },
         { status: 429, headers: { "Retry-After": String(postLock.retryAfter) } }
       );
     }
     return NextResponse.json(
-      { error: `Invalid password. ${remainingBeforeLock} attempt(s) left before lockout.`, remainingBeforeLock },
+      { error: `Invalid password. ${remainingBeforeLock} attempt(s) left before lockout.`, code: "invalid_password", remainingBeforeLock },
       { status: 401 }
     );
   } catch (error) {

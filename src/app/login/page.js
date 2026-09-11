@@ -2,6 +2,26 @@
 
 import { useState, useEffect } from "react";
 import { Card, Button, Input } from "@/shared/components";
+import { translate } from "@/i18n/runtime";
+
+// 服务端只回稳定 code + 参数，英文原文留在 error 字段给非 UI 调用方；
+// 这里按整句模板取译文（字典是精确匹配，占位符随模板一起进字典），再回填参数。
+const ERROR_TEMPLATES = {
+  invalid_password: "Invalid password. {n} attempt(s) left before lockout.",
+  locked: "Too many failed attempts. Try again in {s}s.",
+  tunnel_disabled: "Dashboard access via tunnel is disabled",
+  sso_only_saml: "Password login is disabled. Use SAML SSO sign in.",
+  sso_only_oidc: "Password login is disabled. Use OIDC sign in.",
+  default_password_remote: "Default password must be changed before remote access. Change it from the local machine (or set INITIAL_PASSWORD).",
+};
+
+function loginErrorMessage(data) {
+  const template = ERROR_TEMPLATES[data?.code];
+  if (!template) return translate("Invalid password");
+  return translate(template)
+    .replace("{n}", data.remainingBeforeLock)
+    .replace("{s}", data.retryAfter);
+}
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
@@ -87,12 +107,12 @@ export default function LoginPage() {
         window.location.assign("/dashboard");
       } else {
         const data = await res.json();
-        setError(data.error || "Invalid password");
+        setError(loginErrorMessage(data));
         if (data.resetHint) setResetHint(data.resetHint);
         if (data.retryAfter) setRetryAfter(Number(data.retryAfter));
       }
     } catch (err) {
-      setError("An error occurred. Please try again.");
+      setError(translate("An error occurred. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -113,10 +133,10 @@ export default function LoginPage() {
         window.location.assign("/dashboard");
       } else {
         const data = await res.json();
-        setError(data.error || "Failed to set password");
+        setError(translate(data.error || "Failed to set password"));
       }
     } catch (err) {
-      setError("An error occurred. Please try again.");
+      setError(translate("An error occurred. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -249,7 +269,7 @@ export default function LoginPage() {
                   loading={loading}
                   disabled={retryAfter > 0}
                 >
-                  {retryAfter > 0 ? `Wait ${retryAfter}s` : "Login"}
+                  {retryAfter > 0 ? translate("Wait {s}s").replace("{s}", retryAfter) : "Login"}
                 </Button>
 
                 {/* 仅在实际使用默认口令时提示；设了 INITIAL_PASSWORD 或已改过密码则不提示 */}

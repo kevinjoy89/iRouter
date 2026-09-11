@@ -1868,5 +1868,16 @@
   "Log Stream": "日志流",
   "Received": "已接收",
   "Visible": "可见",
-  "lines": "行"
+  "lines": "行",
+  "Invalid password. {n} attempt(s) left before lockout.": "密码错误，锁定前还剩 {n} 次尝试机会。",
+  "Too many failed attempts. Try again in {s}s.": "失败尝试次数过多，请在 {s} 秒后重试。",
+  "Dashboard access via tunnel is disabled": "通过隧道访问仪表盘已被禁用",
+  "Password login is disabled. Use SAML SSO sign in.": "密码登录已禁用，请使用 SAML SSO 登录。",
+  "Password login is disabled. Use OIDC sign in.": "密码登录已禁用，请使用 OIDC 登录。",
+  "Default password must be changed before remote access. Change it from the local machine (or set INITIAL_PASSWORD).": "远程访问前必须修改默认密码：请在本地机器上修改，或设置 INITIAL_PASSWORD。",
+  "Wait {s}s": "{s}s 后重试",
+  "Failed to set password": "设置密码失败",
+  "Current password required": "请输入当前密码",
+  "Invalid current password": "当前密码错误",
+  "Token rates behind the estimated cost in usage statistics": "用量统计中预估成本所依据的 Token 单价"
 }
