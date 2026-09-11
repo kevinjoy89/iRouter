@@ -3,10 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import { Card, Button, Toggle, Input } from "@/shared/components";
 import Modal, { ConfirmModal } from "@/shared/components/Modal";
+import PricingModal from "@/shared/components/PricingModal";
 import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
 import { useTheme } from "@/shared/hooks/useTheme";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
+import { translate } from "@/i18n/runtime";
 import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
 import { LOCALE_FLAGS } from "@/shared/constants/locales";
 
@@ -25,6 +27,7 @@ export default function ProfilePage() {
   const [langOpen, setLangOpen] = useState(false);
   const [shutdownOpen, setShutdownOpen] = useState(false);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
@@ -253,7 +256,7 @@ export default function ProfilePage() {
         setPassStatus({ type: "success", message: "Password updated successfully" });
         setPasswords({ current: "", new: "", confirm: "" });
       } else {
-        setPassStatus({ type: "error", message: data.error || "Failed to update password" });
+        setPassStatus({ type: "error", message: translate(data.error || "Failed to update password") });
       }
     } catch (err) {
       setPassStatus({ type: "error", message: "An error occurred" });
@@ -696,7 +699,7 @@ export default function ProfilePage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to export database");
+        throw new Error(translate(data.error || "Failed to export database"));
       }
 
       const payload = await res.json();
@@ -745,7 +748,7 @@ export default function ProfilePage() {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || "Failed to import database");
+        throw new Error(translate(data.error || "Failed to import database"));
       }
 
       await reloadSettings();
@@ -1690,6 +1693,26 @@ export default function ProfilePage() {
           </div>
         </Card>
 
+        {/* Pricing rates (used by the usage cost estimates) */}
+        <Card>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">payments</span>
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base sm:text-lg font-semibold">Pricing</h3>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Token rates behind the estimated cost in usage statistics
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" onClick={() => setPricingOpen(true)}>
+              Edit Pricing
+            </Button>
+          </div>
+        </Card>
+
         {/* Account actions */}
         <div className="flex flex-col sm:flex-row gap-2">
           <Button
@@ -1737,6 +1760,8 @@ export default function ProfilePage() {
         variant="danger"
         loading={isShuttingDown}
       />
+
+      <PricingModal isOpen={pricingOpen} onClose={() => setPricingOpen(false)} />
 
       <Modal
         isOpen={dbAuth.open}

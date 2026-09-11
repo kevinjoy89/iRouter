@@ -6,7 +6,7 @@ import Card from "@/shared/components/Card";
 const fmt = (n) => new Intl.NumberFormat().format(n || 0);
 const fmtCost = (n) => `$${(n || 0).toFixed(2)}`;
 
-export default function OverviewCards({ stats, onEditPricing }) {
+export default function OverviewCards({ stats }) {
   return (
     <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 sm:gap-4">
       <Card className="flex min-w-0 flex-col gap-1 px-4 py-3">
@@ -26,20 +26,7 @@ export default function OverviewCards({ stats, onEditPricing }) {
         <span className="truncate text-2xl font-bold text-success">{fmt(stats.totalCompletionTokens)}</span>
       </Card>
       <Card className="flex min-w-0 flex-col gap-1 px-4 py-3">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-text-muted text-sm uppercase font-semibold">Est. Cost</span>
-          {/* Pricing rates feed this number, so the entry point sits where the
-              cost is read rather than in a nav item nobody visits. */}
-          {onEditPricing && (
-            <button
-              type="button"
-              onClick={onEditPricing}
-              className="text-[11px] font-medium text-primary hover:underline shrink-0"
-            >
-              Edit Pricing
-            </button>
-          )}
-        </div>
+        <span className="text-text-muted text-sm uppercase font-semibold">Est. Cost</span>
         <span className="truncate text-2xl font-bold text-warning">~{fmtCost(stats.totalCost)}</span>
         <span className="text-[10px] text-text-muted">Estimated, not actual billing</span>
       </Card>
@@ -49,5 +36,4 @@ export default function OverviewCards({ stats, onEditPricing }) {
 
 OverviewCards.propTypes = {
   stats: PropTypes.object.isRequired,
-  onEditPricing: PropTypes.func,
 };

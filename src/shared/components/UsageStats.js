@@ -18,7 +18,6 @@ import dynamic from "next/dynamic";
 // Lazy-load: keeps @xyflow/react out of the shared bundle until topology renders
 const ProviderTopology = dynamic(() => import("@/app/(dashboard)/dashboard/usage/components/ProviderTopology"), { ssr: false });
 import UsageChart from "@/app/(dashboard)/dashboard/usage/components/UsageChart";
-import PricingModal from "./PricingModal";
 
 function timeAgo(timestamp) {
   const diff = Math.floor((Date.now() - new Date(timestamp)) / 1000);
@@ -215,9 +214,6 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
   const [viewMode, setViewMode] = useState("costs");
   const [providers, setProviders] = useState([]);
   const [periodLocal, setPeriodLocal] = useState("today");
-  const [showPricing, setShowPricing] = useState(false);
-  // Bumped after a pricing save to re-run the stats fetch (costs are derived).
-  const [statsReloadKey, setStatsReloadKey] = useState(0);
   const isInitialLoad = useRef(true);
   const hasLoadedStats = useRef(false);
   const period = periodProp ?? periodLocal;
@@ -279,7 +275,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
         setLoading(false);
         setFetching(false);
       });
-  }, [period, statsReloadKey]);
+  }, [period]);
 
   // SSE connection - real-time updates for activeRequests + recentRequests only
   useEffect(() => {
@@ -471,7 +467,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
 
       {/* Overview cards */}
       {loading ? spinner : (
-        <OverviewCards stats={stats} onEditPricing={() => setShowPricing(true)} />
+        <OverviewCards stats={stats} />
       )}
 
       {/* Provider topology + Recent Requests */}
@@ -535,16 +531,6 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
           />
         )}
       </div>
-
-      <PricingModal
-        isOpen={showPricing}
-        onClose={() => setShowPricing(false)}
-        onSave={() => {
-          // Rates changed → the recomputed cost arrives with the next stats fetch.
-          // (PricingModal closes itself right after calling onSave.)
-          setStatsReloadKey((k) => k + 1);
-        }}
-      />
     </div>
   );
 }
