@@ -49,23 +49,39 @@ function effortAwareRouteFor(settings, comboName) {
 export async function handleChat(request, clientRawRequest = null) {
   const settings = await getSettings();
   const cfg = resolveAutoRetry(settings);
-  if (!cfg.enabled) return handleChatOnce(request, clientRawRequest, settings, null);
-  const retryState = { waitedMs: 0 };
-  return withAutoRetry(
-    () => handleChatOnce(request, clientRawRequest, settings, retryState),
-    cfg,
-    { signal: request?.signal, retryState, log, label: "RETRY" }
-  );
-}
 
-async function handleChatOnce(request, clientRawRequest = null, settings = null, retryState = null) {
-  if (!settings) settings = await getSettings();
+  // 请求体只能读一次：`request.json()` 消费流，重试闭包内再读会抛
+  // `TypeError: Body is unusable`，导致第 2 次尝试恒返回 400（限流重试整体失效）。
+  // 解析提到重试之外，重试复用同一对象。对 body 的原地改写
+  // （stripUnsupportedModalities / prefetchRemoteImages / applyEffortToBody）
+  // 均为幂等，重复执行结果一致——账号回退与 combo 成员回退早已是同一模式。
   let body;
   try {
     body = await request.json();
   } catch {
     log.warn("CHAT", "Invalid JSON body");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
+  }
+
+  if (!cfg.enabled) return handleChatOnce(request, clientRawRequest, settings, null, body);
+  const retryState = { waitedMs: 0 };
+  return withAutoRetry(
+    () => handleChatOnce(request, clientRawRequest, settings, retryState, body),
+    cfg,
+    { signal: request?.signal, retryState, log, label: "RETRY" }
+  );
+}
+
+async function handleChatOnce(request, clientRawRequest = null, settings = null, retryState = null, body = null) {
+  if (!settings) settings = await getSettings();
+  // body 由 handleChat 解析后传入；缺省时兜底自解析（直接调用本函数的测试/路径）。
+  if (!body) {
+    try {
+      body = await request.json();
+    } catch {
+      log.warn("CHAT", "Invalid JSON body");
+      return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
+    }
   }
 
   // Build clientRawRequest for logging (if not provided)
