@@ -25,7 +25,7 @@ describe("runtime i18n text node cache", () => {
 });
 
 // 回归：新增面板文案容易漏进字典（英文即源文，漏了就永远显示英文）。
-// Request Redaction 卡片（ADR 0005 的请求脱敏）首版即漏了全部 11 条。
+// Redaction Policy 卡片（ADR 0005 的请求脱敏）首版即漏了全部 11 条。
 // 这里钉住「新 UI 文案必须入 zh-CN / zh-TW 字典」这一约定。
 describe("面板新增文案的字典覆盖", () => {
   // 路径相对测试文件解析（不是 cwd）：套件既可能从仓库根跑，也可能带 --root tests 跑，
@@ -42,10 +42,24 @@ describe("面板新增文案的字典覆盖", () => {
 
   function redactionBlock() {
     const src = readFileSync(PROFILE, "utf8");
-    return src.slice(src.indexOf("{/* Request Redaction"), src.indexOf("{/* Pricing rates"));
+    return src.slice(src.indexOf("{/* Redaction Policy"), src.indexOf("{/* Pricing rates"));
   }
 
-  it("Request Redaction 卡片的所有可翻译文案都在 zh-CN / zh-TW 字典中", () => {
+  // 卡片排序是刻意的产品决策（脱敏紧随重试）。源码扫描钉住它，否则后续重构
+  // 悄悄挪回去没有任何信号——这三个注释锚点在 profile 页里各出现一次。
+  it("脱敏策略卡片紧随重试策略、且在 Network 之前", () => {
+    const src = readFileSync(PROFILE, "utf8");
+    const idx = (anchor) => {
+      const at = src.indexOf(anchor);
+      expect(at, `锚点缺失: ${anchor}`).toBeGreaterThan(-1);
+      expect(src.indexOf(anchor, at + 1), `锚点不唯一: ${anchor}`).toBe(-1);
+      return at;
+    };
+    expect(idx("{/* Retry Strategy")).toBeLessThan(idx("{/* Redaction Policy"));
+    expect(idx("{/* Redaction Policy")).toBeLessThan(idx("{/* Network */}"));
+  });
+
+  it("Redaction Policy 卡片的所有可翻译文案都在 zh-CN / zh-TW 字典中", () => {
     const block = redactionBlock();
     expect(block.length).toBeGreaterThan(200); // 卡片存在（防止锚点失效后静默通过）
 
@@ -98,7 +112,10 @@ describe("面板新增文案的字典覆盖", () => {
   it("豁免区必须给出「怎么用」：可复制按钮 + 包裹前后对比示例", () => {
     const block = redactionBlock();
     const START = block.indexOf("Allow exemption markers");
-    const region = block.slice(START, START + 2600);
+    expect(START).toBeGreaterThan(-1); // 锚点失效时报错，而不是拿着全文静默通过
+    // 窗口取到卡片末尾，不写固定字数：豁免区之前多加一行（加个图标头、改段排版）
+    // 就会把后面的断言挤出窗口——曾因格式化器重排整份文件而假红一次。
+    const region = block.slice(START);
 
     // 一键复制（把标记连同样例一起复制，用户可直接粘进 prompt）
     expect(region).toContain("copy(");

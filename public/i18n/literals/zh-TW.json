@@ -914,7 +914,7 @@
   "Please add an active Cline connection first": "請先新增一個可用的 Cline 連線",
   "models": "個模型",
   "Fetching...": "取得中...",
-  "Request Redaction": "請求脫敏",
+  "Redaction Policy": "脫敏策略",
   "Detect secrets (API keys, private keys, ID/bank cards) in the request body before forwarding upstream. Outbound only — request details stored locally are still kept in plain text.": "轉發上游前偵測請求體中的敏感資訊（API 金鑰、私鑰、身分證/銀行卡）。僅涵蓋出站請求——本機儲存的請求詳情仍為明文。",
   "Match stored credentials": "比對本機已存憑證",
   "Exact-match against the API keys and tokens already stored in this app. Zero false positives. Only the rule name is logged, never the value.": "與本應用程式已儲存的 API 金鑰與權杖精確比對，零誤報。日誌只記錄規則名稱，絕不記錄憑證值。",

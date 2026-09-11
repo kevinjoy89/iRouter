@@ -1884,7 +1884,7 @@
   "Error fetching models": "获取模型出错",
   "Please add an active Cline connection first": "请先添加一个可用的 Cline 连接",
   "models": "个模型",
-  "Request Redaction": "请求脱敏",
+  "Redaction Policy": "脱敏策略",
   "Detect secrets (API keys, private keys, ID/bank cards) in the request body before forwarding upstream. Outbound only — request details stored locally are still kept in plain text.": "转发上游前检测请求体中的敏感信息（API 密钥、私钥、身份证/银行卡）。仅覆盖出站请求——本机保存的请求详情仍为明文。",
   "Match stored credentials": "匹配本机已存凭据",
   "Exact-match against the API keys and tokens already stored in this app. Zero false positives. Only the rule name is logged, never the value.": "与本应用已保存的 API 密钥和令牌精确匹配，零误报。日志只记录规则名，绝不记录凭据值。",

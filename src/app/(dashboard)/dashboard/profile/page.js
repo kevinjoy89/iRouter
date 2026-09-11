@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Card, Button, Toggle, Input, Select } from "@/shared/components";
-import Modal, { ConfirmModal } from "@/shared/components/Modal";
+import Modal from "@/shared/components/Modal";
 import PricingModal from "@/shared/components/PricingModal";
 import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
 import { useTheme } from "@/shared/hooks/useTheme";
@@ -23,12 +23,10 @@ function getLocaleFromCookie() {
 }
 
 export default function ProfilePage() {
-  const { theme, setTheme, isDark } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { copied, copy } = useCopyToClipboard();
   const [locale, setLocale] = useState(() => getLocaleFromCookie());
   const [langOpen, setLangOpen] = useState(false);
-  const [shutdownOpen, setShutdownOpen] = useState(false);
-  const [isShuttingDown, setIsShuttingDown] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
@@ -789,28 +787,6 @@ export default function ProfilePage() {
   const dlpMode = settings.dlpMode || "off";
   const dlpKnownSecrets = settings.dlpKnownSecrets !== false;
   const dlpAllowExemptions = settings.dlpAllowExemptions === true;
-
-  const handleShutdown = async () => {
-    setIsShuttingDown(true);
-    try {
-      await fetch("/api/version/shutdown", { method: "POST" });
-    } catch (e) {
-      // Expected to fail as server shuts down; ignore error
-    }
-    setIsShuttingDown(false);
-    setShutdownOpen(false);
-  };
-
-  const handleLogout = async () => {
-    try {
-      const res = await fetch("/api/auth/logout", { method: "POST" });
-      if (res.ok) {
-        window.location.assign("/login");
-      }
-    } catch (err) {
-      console.error("Failed to logout:", err);
-    }
-  };
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-0">
@@ -1617,6 +1593,112 @@ export default function ProfilePage() {
         {/* Retry Strategy（自维护特性，ADR 0003） */}
         <RetryStrategyCard settings={settings} onChange={updateAutoRetry} loading={loading} />
 
+        {/* Redaction Policy（ADR 0005）：转发前检测并改写敏感内容。
+            仅覆盖出站字节——本机 requestDetails 落盘仍是明文。 */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-rose-500/10 text-rose-500 shrink-0">
+              <span className="material-symbols-outlined text-[20px]">policy</span>
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-semibold">Redaction Policy</h3>
+              <p className="text-xs sm:text-sm text-text-muted">
+                Detect secrets (API keys, private keys, ID/bank cards) in the request body before
+                forwarding upstream. Outbound only — request details stored locally are still kept
+                in plain text.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+
+            {/* option 文案带逐档说明：runtime i18n 的 skipTags 比对的是**直接父元素**，
+                <option> 不在其中，故 option 文本同样被翻译（整句作 key，无通用词碰撞）。
+                实测依据见 tests/unit/i18n-runtime.test.js。 */}
+            <Select
+              label="Mode"
+              value={dlpMode}
+              disabled={loading}
+              onChange={(e) => updateDlpSetting({ dlpMode: e.target.value })}
+              options={[
+                { value: "off", label: "Off — forward everything unchanged" },
+                { value: "audit", label: "Audit — log matches, forward unchanged" },
+                { value: "redact", label: "Redact — replace matches with [REDACTED:rule]" },
+                { value: "block", label: "Block — reject the request with HTTP 422" },
+              ]}
+            />
+
+            <div className="flex items-start sm:items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Match stored credentials</p>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Exact-match against the API keys and tokens already stored in this app. Zero false
+                  positives. Only the rule name is logged, never the value.
+                </p>
+              </div>
+              <Toggle
+                checked={dlpKnownSecrets}
+                onChange={() => updateDlpSetting({ dlpKnownSecrets: !dlpKnownSecrets })}
+                disabled={loading || dlpMode === "off"}
+              />
+            </div>
+
+            <div className="flex items-start sm:items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Allow exemption markers</p>
+                {/* 标记字面量必须留在 <code> 内：code 在 runtime i18n 的 skipTags 内不参与翻译，
+                    也不会把描述句切成多个文本节点（那会导致整句匹配不上字典）。
+                    此前为过 i18n 检查删掉过它们，结果只剩一个开关、用户无从得知写什么——勿再删。 */}
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Everything between the two markers skips inspection and reaches the provider
+                  unchanged. Use it to send something a rule keeps flagging by mistake.
+                </p>
+
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <code className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-[11px]">[[ALLOW_SENSITIVE]]</code>
+                  <span className="text-[11px] text-text-muted">your text</span>
+                  <code className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-[11px]">[[/ALLOW_SENSITIVE]]</code>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => copy("[[ALLOW_SENSITIVE]] your text [[/ALLOW_SENSITIVE]]", "dlp-markers")}
+                  >
+                    {copied === "dlp-markers" ? "Copied" : "Copy"}
+                  </Button>
+                </div>
+
+                {/* 具体效果：同一个串，包与不包的区别。用示例而非术语说明，GUI 用户一眼可懂。
+                    示例串取「形状上确实会被 ai_tokens 命中」的值，避免演示与实际行为不符。 */}
+                <div className="mt-2 rounded-lg border border-border/60 bg-surface-2/40 px-2.5 py-2 space-y-1">
+                  <div className="flex items-start gap-2 text-[11px]">
+                    <span className="text-emerald-500 font-bold shrink-0">✓</span>
+                    <code className="font-mono break-all">[[ALLOW_SENSITIVE]]sk-live-9f3a2b7c1d8e4f6a[[/ALLOW_SENSITIVE]]</code>
+                  </div>
+                  <div className="flex items-start gap-2 text-[11px] pl-4">
+                    <span className="text-text-muted shrink-0">→</span>
+                    <span className="text-text-muted">sent unchanged, markers removed</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-[11px] pt-1">
+                    <span className="text-red-500 font-bold shrink-0">✗</span>
+                    <code className="font-mono break-all">sk-live-9f3a2b7c1d8e4f6a</code>
+                  </div>
+                  <div className="flex items-start gap-2 text-[11px] pl-4">
+                    <span className="text-text-muted shrink-0">→</span>
+                    <code className="font-mono text-text-muted">[REDACTED:ai_tokens]</code>
+                  </div>
+                </div>
+              </div>
+              <Toggle
+                checked={dlpAllowExemptions}
+                onChange={() => updateDlpSetting({ dlpAllowExemptions: !dlpAllowExemptions })}
+                disabled={loading || dlpMode === "off"}
+              />
+            </div>
+          </div>
+        </Card>
+
+
         {/* Network */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
@@ -1712,105 +1794,6 @@ export default function ProfilePage() {
           </div>
         </Card>
 
-        {/* Request Redaction（ADR 0005）：转发前检测并改写敏感内容。
-            仅覆盖出站字节——本机 requestDetails 落盘仍是明文。 */}
-        <Card>
-          <div className="flex flex-col gap-4">
-            <div>
-              <p className="font-medium text-sm sm:text-base">Request Redaction</p>
-              <p className="text-xs sm:text-sm text-text-muted">
-                Detect secrets (API keys, private keys, ID/bank cards) in the request body before
-                forwarding upstream. Outbound only — request details stored locally are still kept
-                in plain text.
-              </p>
-            </div>
-
-            {/* option 文案带逐档说明：runtime i18n 的 skipTags 比对的是**直接父元素**，
-                <option> 不在其中，故 option 文本同样被翻译（整句作 key，无通用词碰撞）。
-                实测依据见 tests/unit/i18n-runtime.test.js。 */}
-            <Select
-              label="Mode"
-              value={dlpMode}
-              disabled={loading}
-              onChange={(e) => updateDlpSetting({ dlpMode: e.target.value })}
-              options={[
-                { value: "off", label: "Off — forward everything unchanged" },
-                { value: "audit", label: "Audit — log matches, forward unchanged" },
-                { value: "redact", label: "Redact — replace matches with [REDACTED:rule]" },
-                { value: "block", label: "Block — reject the request with HTTP 422" },
-              ]}
-            />
-
-            <div className="flex items-start sm:items-center justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Match stored credentials</p>
-                <p className="text-xs sm:text-sm text-text-muted">
-                  Exact-match against the API keys and tokens already stored in this app. Zero false
-                  positives. Only the rule name is logged, never the value.
-                </p>
-              </div>
-              <Toggle
-                checked={dlpKnownSecrets}
-                onChange={() => updateDlpSetting({ dlpKnownSecrets: !dlpKnownSecrets })}
-                disabled={loading || dlpMode === "off"}
-              />
-            </div>
-
-            <div className="flex items-start sm:items-center justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Allow exemption markers</p>
-                {/* 标记字面量必须留在 <code> 内：code 在 runtime i18n 的 skipTags 内不参与翻译，
-                    也不会把描述句切成多个文本节点（那会导致整句匹配不上字典）。
-                    此前为过 i18n 检查删掉过它们，结果只剩一个开关、用户无从得知写什么——勿再删。 */}
-                <p className="text-xs sm:text-sm text-text-muted">
-                  Everything between the two markers skips inspection and reaches the provider
-                  unchanged. Use it to send something a rule keeps flagging by mistake.
-                </p>
-
-                <div className="mt-2 flex items-center gap-2 flex-wrap">
-                  <code className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-[11px]">[[ALLOW_SENSITIVE]]</code>
-                  <span className="text-[11px] text-text-muted">your text</span>
-                  <code className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-[11px]">[[/ALLOW_SENSITIVE]]</code>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => copy("[[ALLOW_SENSITIVE]] your text [[/ALLOW_SENSITIVE]]", "dlp-markers")}
-                  >
-                    {copied === "dlp-markers" ? "Copied" : "Copy"}
-                  </Button>
-                </div>
-
-                {/* 具体效果：同一个串，包与不包的区别。用示例而非术语说明，GUI 用户一眼可懂。
-                    示例串取「形状上确实会被 ai_tokens 命中」的值，避免演示与实际行为不符。 */}
-                <div className="mt-2 rounded-lg border border-border/60 bg-surface-2/40 px-2.5 py-2 space-y-1">
-                  <div className="flex items-start gap-2 text-[11px]">
-                    <span className="text-emerald-500 font-bold shrink-0">✓</span>
-                    <code className="font-mono break-all">[[ALLOW_SENSITIVE]]sk-live-9f3a2b7c1d8e4f6a[[/ALLOW_SENSITIVE]]</code>
-                  </div>
-                  <div className="flex items-start gap-2 text-[11px] pl-4">
-                    <span className="text-text-muted shrink-0">→</span>
-                    <span className="text-text-muted">sent unchanged, markers removed</span>
-                  </div>
-                  <div className="flex items-start gap-2 text-[11px] pt-1">
-                    <span className="text-red-500 font-bold shrink-0">✗</span>
-                    <code className="font-mono break-all">sk-live-9f3a2b7c1d8e4f6a</code>
-                  </div>
-                  <div className="flex items-start gap-2 text-[11px] pl-4">
-                    <span className="text-text-muted shrink-0">→</span>
-                    <code className="font-mono text-text-muted">[REDACTED:ai_tokens]</code>
-                  </div>
-                </div>
-              </div>
-              <Toggle
-                checked={dlpAllowExemptions}
-                onChange={() => updateDlpSetting({ dlpAllowExemptions: !dlpAllowExemptions })}
-                disabled={loading || dlpMode === "off"}
-              />
-            </div>
-          </div>
-        </Card>
-
         {/* Pricing rates (used by the usage cost estimates) */}
         <Card>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1831,27 +1814,6 @@ export default function ProfilePage() {
           </div>
         </Card>
 
-        {/* Account actions */}
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Button
-            variant="outline"
-            fullWidth
-            icon="power_settings_new"
-            onClick={() => setShutdownOpen(true)}
-            className="text-red-500 border-red-200 hover:bg-red-50 hover:border-red-300"
-          >
-            Shutdown
-          </Button>
-          <Button
-            variant="outline"
-            fullWidth
-            icon="logout"
-            onClick={handleLogout}
-          >
-            Logout
-          </Button>
-        </div>
-
         {/* App Info */}
         <div className="text-center text-xs sm:text-sm text-text-muted py-4">
           <p>{APP_CONFIG.name} v{APP_CONFIG.version}</p>
@@ -1867,18 +1829,6 @@ export default function ProfilePage() {
           setLocale(next);
         }}
       />
-      <ConfirmModal
-        isOpen={shutdownOpen}
-        onClose={() => setShutdownOpen(false)}
-        onConfirm={handleShutdown}
-        title="Close Proxy"
-        message="Are you sure you want to close the proxy server?"
-        confirmText="Close"
-        cancelText="Cancel"
-        variant="danger"
-        loading={isShuttingDown}
-      />
-
       <PricingModal isOpen={pricingOpen} onClose={() => setPricingOpen(false)} />
 
       <Modal

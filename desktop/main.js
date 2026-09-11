@@ -2247,7 +2247,7 @@ async function runSmoke() {
       results.push(`菜单栏多语言动态响应=${i18nOk} (中=[${zhLabels.join(", ")}], 英=[${enLabels.join(", ")}])`);
       ok &&= i18nOk;
 
-      // 面板文案多语言：以「请求脱敏」卡片（ADR 0005）为探针，验证面板字典确实随包分发
+      // 面板文案多语言：以「脱敏策略」卡片（ADR 0005）为探针，验证面板字典确实随包分发
       // 且新增文案已入典。浏览器直连面板被 custom-server 守卫拒绝（连接级掐断），
       // 故只能在这里驱动真实桌面窗口断言——这也是本检查放在 smoke 而非单测的原因。
       // 回归背景：该卡片首版全部文案漏入字典，中文界面整片显示英文。
@@ -2283,14 +2283,14 @@ async function runSmoke() {
              const CLOSE = B + "/ALLOW_SENSITIVE" + E2;
              const codes = [...document.querySelectorAll("code")].map((c) => c.textContent.trim());
              return {
-               card: body.includes("请求脱敏"),
+               card: body.includes("脱敏策略"),
                knownSecrets: body.includes("匹配本机已存凭据"),
                exemptions: body.includes("允许豁免标记"),
                // 四档 mode 文案（option 的直接父元素不在 runtime skipTags 内，故会被翻译）
                modes: ["关闭 —", "仅告警 —", "改写 —", "拦截 —"].every((p) => opts.some((o) => o.startsWith(p))),
                markers: codes.includes(OPEN) && codes.includes(CLOSE),
                // 英文残留即回归（卡片内不应再有整句英文）
-               leaked: body.includes("Request Redaction") || body.includes("forward everything unchanged"),
+               leaked: body.includes("Redaction Policy") || body.includes("forward everything unchanged"),
              };
            })()`,
           true,
@@ -2304,9 +2304,9 @@ async function runSmoke() {
         // 用法：IROUTER_SMOKE_SHOT=/tmp/x.png npm run smoke:packaged
         if (process.env.IROUTER_SMOKE_SHOT) {
           try {
-            // 滚到 Request Redaction 卡片，再截可视区
+            // 滚到 Redaction Policy 卡片，再截可视区
             await win.webContents.executeJavaScript(
-              `(() => { const el = [...document.querySelectorAll("p")].find((p) => p.textContent.trim() === "请求脱敏");
+              `(() => { const el = [...document.querySelectorAll("h3")].find((h) => h.textContent.trim() === "脱敏策略");
                         if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
               true,
             );
