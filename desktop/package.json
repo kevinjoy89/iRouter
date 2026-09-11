@@ -1,7 +1,7 @@
 {
   "name": "irouter-desktop",
   "productName": "iRouter",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "private": true,
   "description": "iRouter — 9Router 的跨平台独立桌面版（Electron 壳层，网关源码基于上游 v0.5.69 定制）",
   "main": "main.js",
