@@ -64,6 +64,12 @@ describe("Driver fallback chain", () => {
     warn.mockRestore();
   });
 
+  // Node >= 24：上游 guard 在 import 适配器之前就 return null（better-sqlite3 原生插件
+  // 在 Node >= 24 加载即 SIGSEGV，是 try/catch 兜不住的进程级崩溃），所以"装了但加载失败"
+  // 的分支在此版本上不可达，此时断言不告警才是正确行为。
+  const [maj] = process.versions.node.split(".").map(Number);
+  const nativeSkipped = maj >= 24;
+
   it("装了但加载失败（ABI 不匹配等）仍然告警", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.doMock("@/lib/db/adapters/betterSqliteAdapter.js", () => ({
@@ -76,8 +82,19 @@ describe("Driver fallback chain", () => {
     const { getAdapter } = await import("@/lib/db/driver.js");
     await getAdapter();
     const warned = warn.mock.calls.some((c) => String(c[0]).includes("better-sqlite3"));
-    expect(warned).toBe(true);
+    // Node >= 24 上适配器根本不会被 import，告警分支不可达
+    expect(warned).toBe(!nativeSkipped);
     warn.mockRestore();
+  });
+
+  it("Node >= 24 直接跳过 better-sqlite3（避免原生插件加载即 SIGSEGV）", async () => {
+    const { getAdapter } = await import("@/lib/db/driver.js");
+    const db = await getAdapter();
+    if (nativeSkipped) {
+      expect(["node:sqlite", "sql.js"]).toContain(db.driver);
+    } else {
+      expect(["better-sqlite3", "node:sqlite", "sql.js"]).toContain(db.driver);
+    }
   });
 
   it("falls back to sql.js when both native drivers unavailable", async () => {

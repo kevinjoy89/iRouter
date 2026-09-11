@@ -23,15 +23,30 @@ const SPECIALIZED = new Set([
   "xiaomi-tokenplan", "mimo-free",
 ]);
 
-// Sanitize header: khử token + field thời gian động (kimi X-Msh-Device-Id) để snapshot ổn định.
+// Sanitize header: khử token + field động (kimi X-Msh-Device-Id, phiên bản app).
+// Phiên bản app là giá trị động: nó đổi theo mỗi lần sync upstream (package.json bump),
+// nên phải khử đích danh 3 header mang nó — nếu không, mỗi lần sync lại vỡ snapshot
+// cline/clinepass/kimi mà không phản ánh lỗi thật nào.
+// Lưu ý: KHÔNG khử mọi header khớp /version/i — anthropic-version, X-Stainless-Package-Version
+// là giá trị hợp đồng API thật, phải được lock nguyên trạng.
+const APP_VERSION_HEADERS = new Set(["x-client-version", "x-core-version", "x-msh-version"]);
+
 function sanitize(headers) {
   const out = {};
   for (const [k, v] of Object.entries(headers)) {
-    out[k] = typeof v === "string"
-      ? v.replace(/Bearer .+/, "Bearer <TOK>")
-          .replace(/sk-test-APIKEY|tok-test-ACCESS/g, "<CRED>")
-          .replace(/kimi-\d{10,}/g, "kimi-<TS>")
-      : v;
+    if (typeof v !== "string") {
+      out[k] = v;
+      continue;
+    }
+    let s = v
+      .replace(/Bearer .+/, "Bearer <TOK>")
+      .replace(/sk-test-APIKEY|tok-test-ACCESS/g, "<CRED>")
+      .replace(/kimi-\d{10,}/g, "kimi-<TS>");
+    // Chỉ 3 header mang phiên bản app (giá trị = package.json version) → <VER>
+    if (APP_VERSION_HEADERS.has(k.toLowerCase())) s = "<VER>";
+    // User-Agent dạng "9Router/<ver>" — giữ tên app, khử phần version
+    s = s.replace(/^(9Router)\/[\d.]+$/i, "$1/<VER>");
+    out[k] = s;
   }
   return out;
 }

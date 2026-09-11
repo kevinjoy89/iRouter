@@ -2,6 +2,8 @@
 // PASS nếu KHÔNG có test nào pass(baseline) → fail(now). Test mới được phép.
 // Usage: node tests/__baseline__/verify-no-regression.mjs <current-results.json>
 import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, resolve, relative, isAbsolute } from "path";
 
 const knownFails = new Set(
   readFileSync(new URL("./known-fails.txt", import.meta.url), "utf8")
@@ -11,10 +13,22 @@ const knownFails = new Set(
 const resultsPath = process.argv[2];
 if (!resultsPath) { console.error("Missing results.json path"); process.exit(2); }
 
+// known-fails.txt ghi path dạng "tests/unit/foo.test.js :: <tên test>".
+// Trước đây gate hardcode split("/app/") — đúng với layout Docker của upstream
+// (repo mount tại /app) nhưng sai ở mọi checkout khác: mọi tên file thành
+// "undefined" nên TOÀN BỘ fail đều bị báo là regression. Suy path từ vị trí
+// thật của repo thay vì giả định "/app/".
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function toRelKey(absPath) {
+  const rel = relative(REPO_ROOT, absPath);
+  return (isAbsolute(rel) ? absPath : rel).split("\\").join("/");
+}
+
 const r = JSON.parse(readFileSync(resultsPath, "utf8"));
 const nowFails = r.testResults.flatMap(f =>
   f.assertionResults.filter(a => a.status === "failed")
-    .map(a => f.name.split("/app/")[1] + " :: " + a.fullName)
+    .map(a => toRelKey(f.name) + " :: " + a.fullName)
 );
 
 // Regression = fail bây giờ NHƯNG không có trong baseline known-fails
