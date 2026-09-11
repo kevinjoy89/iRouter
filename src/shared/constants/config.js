@@ -1,9 +1,13 @@
-// App configuration（iRouter 桌面版版本与上游网关基线版本解耦：
-// 上游基线见 docs/adr/0003，当前基于 v0.5.69）
+// App configuration
+// 可见版本号 = 产品版本号（iRouter 桌面版），不是上游网关基线号。
+// 真源为 desktop/package.json：desktop/scripts/build-server.mjs 构建期经
+// NEXT_PUBLIC_APP_VERSION 注入；此处回退值仅供裸构建（CLI 形态 / 根目录直跑）使用。
+// 上游基线号保留在根 package.json（供 UA / X-Msh-Version 等与上游对齐的标识）。
+// 二者解耦是有意为之，勿"顺手统一"——见 docs/adr/0004。
 export const APP_CONFIG = {
   name: "iRouter Proxy",
   description: "AI Infrastructure Management",
-  version: "0.0.9",
+  version: process.env.NEXT_PUBLIC_APP_VERSION || "0.1.0",
 };
 
 // GitHub configuration

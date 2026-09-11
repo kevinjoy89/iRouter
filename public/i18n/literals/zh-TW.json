@@ -908,5 +908,10 @@
   "Reset Password to Default": "重設密碼為預設值",
   "Edit Pricing": "編輯定價",
   "Est. Cost": "預估成本",
-  "Estimated, not actual billing": "預估費用，非實際帳單"
+  "Estimated, not actual billing": "預估費用，非實際帳單",
+  "Import from /models": "從 /models 匯入",
+  "Error fetching models": "取得模型時發生錯誤",
+  "Please add an active Cline connection first": "請先新增一個可用的 Cline 連線",
+  "models": "個模型",
+  "Fetching...": "取得中..."
 }

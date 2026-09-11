@@ -2,7 +2,7 @@
 // 构建内嵌网关：9router 源码已并入仓库根目录（原 submodule 已废弃），
 // 在根目录产出 Next standalone，复制进 desktop/build/server。
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, rmSync, mkdirSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, rmSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +12,11 @@ const REPO_ROOT = resolve(DESKTOP_ROOT, "..");
 const UPSTREAM = REPO_ROOT;
 const STANDALONE = join(UPSTREAM, ".next", "standalone");
 const OUT = join(DESKTOP_ROOT, "build", "gateway", "server");
+
+// 产品版本号真源 = desktop/package.json（见 docs/adr/0004）。
+// 面板可见版本号由此注入：config.js 被客户端组件导入，运行时读文件不可用，
+// NEXT_PUBLIC_* 是 Next 构建期内联到客户端 bundle 的唯一直通路径。
+const APP_VERSION = JSON.parse(readFileSync(join(DESKTOP_ROOT, "package.json"), "utf8")).version;
 
 function log(msg) {
   console.log(`[build-server] ${msg}`);
@@ -62,12 +67,15 @@ run("npm", ["install", "--include=dev", "--no-audit", "--no-fund"], {
 // 2. 构建：next build --webpack + postbuild(copy-standalone-assets.mjs
 //    把 static/ public/ custom-server.js 并入 .next/standalone)
 //    注入构建期临时的 JWT_SECRET 与 DATA_DIR，避免收集路由信息时触碰主目录 ~/.9router
+//    NEXT_PUBLIC_APP_VERSION：面板可见版本号（来源 desktop/package.json，见 ADR 0004）
 const buildDataDir = join(DESKTOP_ROOT, "build", ".build-data");
 mkdirSync(buildDataDir, { recursive: true });
+log(`注入 NEXT_PUBLIC_APP_VERSION=${APP_VERSION}`);
 run("npm", ["run", "build"], {
   env: {
     JWT_SECRET: "build-secret-irouter-gateway-compilation",
     DATA_DIR: buildDataDir,
+    NEXT_PUBLIC_APP_VERSION: APP_VERSION,
   },
 });
 

@@ -1879,5 +1879,9 @@
   "Failed to set password": "设置密码失败",
   "Current password required": "请输入当前密码",
   "Invalid current password": "当前密码错误",
-  "Token rates behind the estimated cost in usage statistics": "用量统计中预估成本所依据的 Token 单价"
+  "Token rates behind the estimated cost in usage statistics": "用量统计中预估成本所依据的 Token 单价",
+  "Import from /models": "从 /models 导入",
+  "Error fetching models": "获取模型出错",
+  "Please add an active Cline connection first": "请先添加一个可用的 Cline 连接",
+  "models": "个模型"
 }
