@@ -27,6 +27,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
+import { applyRequestRedaction, blockedResponse, logDlpOutcome } from "@/lib/dlp/index.js";
 
 // effort-aware 路由开关（自维护特性，ADR 0003）：每 combo 配置覆盖全局默认。
 // 全局默认开（settings.effortAwareRoute !== false）。
@@ -62,6 +63,22 @@ export async function handleChat(request, clientRawRequest = null) {
     log.warn("CHAT", "Invalid JSON body");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
   }
+
+  // 请求脱敏（ADR 0005）：在客户端 body 上做一次，统一覆盖全部 translator；
+  // 与重试共用同一对象，故重试期间不会出现「首次脱敏、重试漏脱敏」。
+  // 引擎恒 fail-open（出错返回原文），block 命中才拦截。
+  const redaction = await applyRequestRedaction(body, settings);
+  if (redaction.error) {
+    log.warn("DLP", `inspection failed, forwarding as-is: ${redaction.error}`);
+  }
+  if (redaction.blocked) {
+    log.warn("DLP", `blocked rules=${redaction.blockedRules.join(",")}`);
+    return blockedResponse(redaction.blockedRules);
+  }
+  // 每个请求都记一行（含零命中）：否则「扫了但没命中」与「根本没跑」在日志里
+  // 无法区分——这正是排查「开了脱敏却没看到命中」时最容易误导人的地方。
+  logDlpOutcome(log, settings.dlpMode, redaction);
+  body = redaction.body;
 
   if (!cfg.enabled) return handleChatOnce(request, clientRawRequest, settings, null, body);
   const retryState = { waitedMs: 0 };

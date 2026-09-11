@@ -1,0 +1,482 @@
+// 请求脱敏引擎测试。
+//
+// 移植自参考实现 llm-retry-proxy 的 tests/test_dlp_api.py。原测试大量针对
+// Python 代理层（gzip 解压、Content-Length 限制、分块读上限、fail_closed），
+// 这些按 design.md 的 Non-Goals 不在本版范围内；此处覆盖其**引擎语义**部分，
+// 并补齐规则加载、fail-open 与并发不串味。
+import { describe, it, expect } from "vitest";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  inspectRequestBody, validatePolicy, loadPolicy, buildKnownSecretPattern,
+  entropy, validIdCard, validBankCard, DEFAULT_RULE_FILE, resolveDefaultRuleFile,
+} from "../../open-sse/dlp/index.js";
+
+// 参考测试里的同一枚 token（高熵，能过 min_entropy 与 keywords）
+const TOKEN = "sk-A1b2C3d4E5f6G7h8J9k0LmNoPqRsTuVx";
+
+// 只启用 ai_tokens，与参考测试的 dlp_rules={"ai_tokens"} 对齐
+const BASE = { rules: ["ai_tokens"] };
+
+describe("DLP: 规则加载与校验", () => {
+  it("内置规则文件可加载，15 条规则、12 条启用（3 条 PII 默认关）", () => {
+    expect(validatePolicy()).toEqual({ version: 2, rules: 15, enabled: 12 });
+  });
+
+  it("导出的默认规则文件路径存在", () => {
+    expect(validatePolicy(DEFAULT_RULE_FILE).rules).toBe(15);
+  });
+
+  it("规则缺失 pattern 与 json_keys 时抛错", () => {
+    expect(() => loadPolicy("/nonexistent/rules.yaml")).toThrow();
+  });
+
+  it("structured_secret 由 json_keys 定义，无需 pattern", () => {
+    const policy = loadPolicy();
+    const rule = policy.rules.get("structured_secret");
+    expect(rule.pattern).toBeNull();
+    expect(rule.jsonKeys.has("password")).toBe(true);
+  });
+});
+
+// 打包回归：Next 会把引擎打进 .next/server/chunks/*.js，届时 import.meta.url 被冻结为
+// **构建机**的绝对路径。若只用它定位规则文件，用户机器上 loadPolicy 会抛错 → 引擎
+// fail-open → UI 显示已开启但从不脱敏（最坏的失败模式）。以下用例钉住探测优先级。
+describe("DLP: 规则文件定位（打包回归）", () => {
+  it("优先使用 DLP_RULE_FILE 环境变量", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dlp-rules-"));
+    const custom = join(dir, "custom.yaml");
+    writeFileSync(custom, "version: 2\nrules:\n  x:\n    pattern: 'z'\n");
+    expect(resolveDefaultRuleFile({ envFile: custom, cwd: dir, moduleDir: dir })).toBe(custom);
+  });
+
+  it("环境变量未设时回退到 cwd 相对路径（打包产物布局）", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dlp-cwd-"));
+    const nested = join(dir, "open-sse", "dlp");
+    mkdirSync(nested, { recursive: true });
+    const expected = join(nested, "dlp_rules.yaml");
+    writeFileSync(expected, "version: 2\nrules:\n  x:\n    pattern: 'z'\n");
+
+    // 模拟打包后：moduleDir 指向不存在的构建机路径，cwd 才是产物目录
+    const resolved = resolveDefaultRuleFile({
+      envFile: undefined,
+      cwd: dir,
+      moduleDir: "/nonexistent/build-machine/open-sse/dlp",
+    });
+    expect(resolved).toBe(expected);
+    expect(validatePolicy(resolved)).toEqual({ version: 2, rules: 1, enabled: 1 });
+  });
+
+  it("构建机路径不存在且 cwd 无规则时，回退到模块相对路径", () => {
+    const moduleDir = mkdtempSync(join(tmpdir(), "dlp-mod-"));
+    const expected = join(moduleDir, "dlp_rules.yaml");
+    writeFileSync(expected, "version: 2\nrules:\n  x:\n    pattern: 'z'\n");
+
+    const resolved = resolveDefaultRuleFile({
+      envFile: undefined,
+      cwd: "/nonexistent/consumer/cwd",
+      moduleDir,
+    });
+    expect(resolved).toBe(expected);
+  });
+
+  it("全部候选都不存在时返回路径而非抛错（交给 fail-open 记录 error）", () => {
+    const resolved = resolveDefaultRuleFile({
+      envFile: undefined,
+      cwd: "/nonexistent/a",
+      moduleDir: "/nonexistent/b",
+    });
+    expect(typeof resolved).toBe("string");
+    expect(resolved).toContain("dlp_rules.yaml");
+  });
+
+  it("cwd 相对路径优先于模块相对路径（产物内 yaml 随包同层）", () => {
+    const cwdDir = mkdtempSync(join(tmpdir(), "dlp-pri-cwd-"));
+    const modDir = mkdtempSync(join(tmpdir(), "dlp-pri-mod-"));
+    const cwdNested = join(cwdDir, "open-sse", "dlp");
+    mkdirSync(cwdNested, { recursive: true });
+    writeFileSync(join(cwdNested, "dlp_rules.yaml"), "version: 2\nrules:\n  a:\n    pattern: 'z'\n");
+    writeFileSync(join(modDir, "dlp_rules.yaml"), "version: 2\nrules:\n  b:\n    pattern: 'z'\n");
+
+    const resolved = resolveDefaultRuleFile({ envFile: undefined, cwd: cwdDir, moduleDir: modDir });
+    expect(resolved).toBe(join(cwdNested, "dlp_rules.yaml"));
+    expect(loadPolicy(resolved).rules.has("a")).toBe(true);
+  });
+});
+
+describe("DLP: 检测与替换", () => {
+  it("明文 AI token 被 redact，其余内容保留", () => {
+    const body = { messages: [{ role: "user", content: `here is ${TOKEN} ok` }] };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+
+    expect(r.matchedRules).toContain("ai_tokens");
+    expect(r.body.messages[0].content).toBe("here is [REDACTED:ai_tokens] ok");
+    expect(r.redactions).toBe(1);
+    expect(r.error).toBeNull();
+  });
+
+  it("block 模式报告 blockedRules，但仍返回改写结果（由调用方决定拦截）", () => {
+    const body = { messages: [{ role: "user", content: TOKEN }] };
+    const r = inspectRequestBody(body, { mode: "block", ...BASE });
+
+    expect(r.blockedRules).toContain("ai_tokens");
+    expect(r.matchedRules).toContain("ai_tokens");
+  });
+
+  it("audit 模式只报告命中，不改写内容", () => {
+    const body = { messages: [{ role: "user", content: `x ${TOKEN} y` }] };
+    const r = inspectRequestBody(body, { mode: "audit", ...BASE });
+
+    expect(r.auditedRules).toContain("ai_tokens");
+    expect(r.redactions).toBe(0);
+    expect(r.body.messages[0].content).toBe(`x ${TOKEN} y`);
+  });
+
+  it("低熵示例值被 allowlist 与熵阈值挡住，不误报", () => {
+    const body = { messages: [{ role: "user", content: "sk-your_key_here_example" }] };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+
+    expect(r.matchedRules).toEqual([]);
+    expect(r.redactions).toBe(0);
+  });
+
+  it("不含关键词时不进入正则（keywords 预筛）", () => {
+    const body = { messages: [{ role: "user", content: "nothing sensitive here at all" }] };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.matchedRules).toEqual([]);
+  });
+
+  it("mode=off 时直接原样返回", () => {
+    const body = { messages: [{ role: "user", content: TOKEN }] };
+    const r = inspectRequestBody(body, { mode: "off", ...BASE });
+    expect(r.body).toBe(body);
+    expect(r.matchedRules).toEqual([]);
+  });
+
+  it("不原地修改调用方对象", () => {
+    const body = { messages: [{ role: "user", content: TOKEN }] };
+    inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(body.messages[0].content).toBe(TOKEN);
+  });
+});
+
+describe("DLP: 结构感知（防误伤）", () => {
+  it("扫描 user 与 tool 消息，跳过 system 与 assistant", () => {
+    const body = {
+      messages: [
+        { role: "system", content: `sys ${TOKEN}` },
+        { role: "user", content: `usr ${TOKEN}` },
+        { role: "assistant", content: `asst ${TOKEN}` },
+        { role: "tool", content: `tool ${TOKEN}` },
+      ],
+    };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+
+    expect(r.body.messages[0].content).toBe(`sys ${TOKEN}`);      // system 不扫
+    expect(r.body.messages[1].content).toBe("usr [REDACTED:ai_tokens]");
+    expect(r.body.messages[2].content).toBe(`asst ${TOKEN}`);     // assistant 不扫
+    expect(r.body.messages[3].content).toBe("tool [REDACTED:ai_tokens]");
+  });
+
+  it("Responses 风格：扫描 *_call_output 的 output 字段", () => {
+    const body = { input: [{ type: "local_shell_call_output", output: TOKEN }] };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.body.input[0].output).toBe("[REDACTED:ai_tokens]");
+  });
+
+  it("扫描顶层 prompt 与 query", () => {
+    const r1 = inspectRequestBody({ prompt: TOKEN }, { mode: "redact", ...BASE });
+    expect(r1.body.prompt).toBe("[REDACTED:ai_tokens]");
+    const r2 = inspectRequestBody({ query: TOKEN }, { mode: "redact", ...BASE });
+    expect(r2.body.query).toBe("[REDACTED:ai_tokens]");
+  });
+
+  it("无法识别结构时退化为递归扫描全部字符串", () => {
+    const body = { weird: { nested: [TOKEN] } };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.body.weird.nested[0]).toBe("[REDACTED:ai_tokens]");
+  });
+
+  it("内联二进制（data URI / 长 base64 字段）跳过扫描", () => {
+    const body = { image: `data:image/png;base64,${"A".repeat(8000)}` };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.body.image).toBe(body.image);
+    expect(r.matchedRules).toEqual([]);
+  });
+
+  it("json_keys 规则按字段名命中（structured_secret）", () => {
+    // 注意：结构识别的短路语义（对齐参考实现）——顶层若有 messages/input/prompt/query，
+    // 只遍历这些字段；其它顶层字段不进入扫描。故此处用未被识别的形状走递归兜底。
+    const body = { config: { password: "hunter2xyz" } };
+    const r = inspectRequestBody(body, { mode: "redact", rules: ["structured_secret"] });
+    expect(r.matchedRules).toContain("structured_secret");
+    expect(r.body.config.password).toBe("[REDACTED:structured_secret]");
+  });
+
+  it("json_keys 命中但值被 allowlist 放过时不改写", () => {
+    const body = { config: { password: "changeme" } };
+    const r = inspectRequestBody(body, { mode: "redact", rules: ["structured_secret"] });
+    expect(r.body.config.password).toBe("changeme");
+    expect(r.matchedRules).toEqual([]);
+  });
+});
+
+describe("DLP: 嵌套编码（防绕过）", () => {
+  it("base64 编码的 AI token 被识别为 encoded_secret（block 模式不改写）", () => {
+    // 参考实现语义：只有 action=redact 的 span 才参与替换，block 只上报规则名。
+    // 故此处断言命中与拦截，而非改写结果。
+    const encoded = Buffer.from(TOKEN).toString("base64");
+    const body = { input: [{ type: "local_shell_call_output", output: encoded }] };
+    const r = inspectRequestBody(body, { mode: "block", ...BASE });
+
+    expect(r.matchedRules).toContain("encoded_secret");
+    expect(r.blockedRules).toContain("encoded_secret");
+    expect(r.body.input[0].output).toBe(encoded);
+  });
+
+  it("base64 编码的 AI token 在 redact 模式下整段替换", () => {
+    const encoded = Buffer.from(TOKEN).toString("base64");
+    const body = { input: [{ type: "local_shell_call_output", output: encoded }] };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+
+    expect(r.matchedRules).toContain("encoded_secret");
+    expect(r.body.input[0].output).toBe("[REDACTED:encoded_secret]");
+  });
+
+  it("两层 base64 仍可识别", () => {
+    const once = Buffer.from(TOKEN).toString("base64");
+    const twice = Buffer.from(once).toString("base64");
+    const body = { input: twice };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.matchedRules).toContain("encoded_secret");
+  });
+
+  it("hex 编码的 token 被识别", () => {
+    const hex = Buffer.from(TOKEN).toString("hex");
+    const body = { input: hex };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.matchedRules).toContain("encoded_secret");
+  });
+
+  it("percent 编码的 token 被识别", () => {
+    const pct = [...Buffer.from(TOKEN)].map((b) => `%${b.toString(16).padStart(2, "0")}`).join("");
+    const body = { input: pct };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.matchedRules).toContain("encoded_secret");
+  });
+
+  it("解码预算耗尽时置 limitExceeded（对应参考实现的 413 语义）", () => {
+    const a = Buffer.from("A".repeat(18)).toString("base64");
+    const b = Buffer.from("B".repeat(18)).toString("base64");
+    const body = { input: `${a} ${b}` };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE, decodeMaxCandidates: 1 });
+
+    expect(r.limitExceeded).toBe(true);
+  });
+
+  it("decodeDepth=0 时不递归解码", () => {
+    const encoded = Buffer.from(TOKEN).toString("base64");
+    const r = inspectRequestBody({ input: encoded }, { mode: "redact", ...BASE, decodeDepth: 0 });
+    expect(r.matchedRules).toEqual([]);
+  });
+});
+
+describe("DLP: 已知密钥（精确匹配）", () => {
+  it("编码后的号池密钥被识别为 known_secret 并整段替换（redact）", () => {
+    const secret = "vendor-private-value-987654321";
+    const encoded = Buffer.from(secret).toString("base64");
+    const body = { input: encoded };
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE, knownSecrets: [secret] });
+
+    expect(r.matchedRules).toContain("known_secret");
+    expect(r.body.input).toBe("[REDACTED:encoded_secret]");
+  });
+
+  it("block 模式下编码的号池密钥上报 known_secret，但不改写", () => {
+    const secret = "vendor-private-value-987654321";
+    const encoded = Buffer.from(secret).toString("base64");
+    const r = inspectRequestBody({ input: encoded }, { mode: "block", ...BASE, knownSecrets: [secret] });
+
+    expect(r.blockedRules).toContain("known_secret");
+    expect(r.body.input).toBe(encoded);
+  });
+
+  it("明文已知密钥直接命中", () => {
+    const secret = "vendor-private-value-987654321";
+    const r = inspectRequestBody({ input: `key=${secret}` }, { mode: "redact", knownSecrets: [secret] });
+    expect(r.matchedRules).toContain("known_secret");
+    expect(r.body.input).toBe("key=[REDACTED:known_secret]");
+  });
+
+  it("短于长度下限的凭据不参与匹配", () => {
+    // 下限为 8（含），故 7 字符不参与、8 字符参与
+    expect(buildKnownSecretPattern(["abc1234"])).toBeNull();
+    const r = inspectRequestBody({ input: "abc1234" }, { mode: "redact", knownSecrets: ["abc1234"] });
+    expect(r.matchedRules).toEqual([]);
+
+    const r8 = inspectRequestBody({ input: "abc12345" }, { mode: "redact", knownSecrets: ["abc12345"] });
+    expect(r8.matchedRules).toContain("known_secret");
+  });
+
+  it("长密钥优先，避免被短密钥前缀截断", () => {
+    const short = "secret-value-aaa";
+    const long = "secret-value-aaa-extended-tail";
+    const pattern = buildKnownSecretPattern([short, long]);
+    const m = [...`x ${long} y`.matchAll(pattern)];
+    expect(m).toHaveLength(1);
+    expect(m[0][0]).toBe(long);
+  });
+
+  it("正则元字符被转义，不会误匹配", () => {
+    const pattern = buildKnownSecretPattern(["a.b*cxyz"]);
+    expect(pattern).not.toBeNull();
+    expect(pattern.test("aXbYcxyz")).toBe(false);
+    expect(pattern.test("zz a.b*cxyz zz")).toBe(true);
+  });
+
+  it("空列表返回 null", () => {
+    expect(buildKnownSecretPattern([])).toBeNull();
+    expect(buildKnownSecretPattern([""])).toBeNull();
+  });
+});
+
+describe("DLP: 豁免标记", () => {
+  const body = { input: "[[ALLOW_SENSITIVE]]" + TOKEN + "[[/ALLOW_SENSITIVE]]" };
+
+  it("默认关闭豁免：标记区间照常检测", () => {
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.redactions).toBe(1);
+  });
+
+  it("启用后区间内跳过检测，且标记被剥除", () => {
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE, allowExemptions: true });
+    expect(r.body.input).toBe(TOKEN);
+    expect(r.exemptions).toBe(1);
+    expect(r.redactions).toBe(0);
+  });
+
+  it("stripExemptMarkers=false 时保留标记", () => {
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE, allowExemptions: true, stripExemptMarkers: false });
+    expect(r.body.input).toBe("[[ALLOW_SENSITIVE]]" + TOKEN + "[[/ALLOW_SENSITIVE]]");
+  });
+
+  it("未配对的标记按普通正文处理，不报错", () => {
+    const r = inspectRequestBody({ input: "[[ALLOW_SENSITIVE]]" + TOKEN }, { mode: "redact", ...BASE, allowExemptions: true });
+    expect(r.redactions).toBe(1); // 未配对 → 不产生豁免
+    expect(r.exemptions).toBe(0);
+  });
+
+  it("嵌套标记按普通正文处理，不产生豁免", () => {
+    const nested = { input: `[[ALLOW_SENSITIVE]]a[[ALLOW_SENSITIVE]]${TOKEN}[[/ALLOW_SENSITIVE]]` };
+    const r = inspectRequestBody(nested, { mode: "redact", ...BASE, allowExemptions: true });
+    expect(r.exemptions).toBe(0);
+    expect(r.redactions).toBe(1);
+  });
+});
+
+describe("DLP: fail-open", () => {
+  it("规则文件不存在时返回原文 + error，不抛出", () => {
+    const body = { messages: [{ role: "user", content: TOKEN }] };
+    const r = inspectRequestBody(body, { mode: "redact", ruleFile: "/nonexistent/nope.yaml" });
+
+    expect(r.error).toBeTruthy();
+    expect(r.body).toBe(body);
+    expect(r.matchedRules).toEqual([]);
+  });
+
+  it("未知 mode 视为关闭", () => {
+    const body = { input: TOKEN };
+    expect(inspectRequestBody(body, { mode: "bogus" }).body).toBe(body);
+  });
+
+  it("非对象 body 原样返回", () => {
+    expect(inspectRequestBody(null, { mode: "redact" }).body).toBeNull();
+    expect(inspectRequestBody("str", { mode: "redact" }).body).toBe("str");
+  });
+
+  it("循环引用不导致抛出（fail-open 兜底）", () => {
+    // 结构识别的短路语义：{input:string} 属已识别形状，self 字段根本不遍历。
+    // 要触发递归兜底的栈溢出，需用未被识别的形状。
+    const body = { weird: {} };
+    body.weird.self = body;
+    const r = inspectRequestBody(body, { mode: "redact", ...BASE });
+    expect(r.error).toBeTruthy();
+    expect(r.body).toBe(body);
+  });
+});
+
+describe("DLP: 并发不串味（正则 lastIndex）", () => {
+  it("同一规则对象被多次/交错调用时结果稳定", () => {
+    const bodies = Array.from({ length: 20 }, (_, i) => ({
+      messages: [{ role: "user", content: `case ${i} ${TOKEN} tail` }],
+    }));
+    const results = bodies.map((b) => inspectRequestBody(b, { mode: "redact", ...BASE }));
+    for (const r of results) {
+      expect(r.redactions).toBe(1);
+      expect(r.body.messages[0].content).toContain("[REDACTED:ai_tokens]");
+    }
+  });
+
+  it("高频交替命中与未命中不丢匹配", () => {
+    for (let i = 0; i < 50; i++) {
+      const hit = inspectRequestBody({ input: TOKEN }, { mode: "redact", ...BASE });
+      expect(hit.redactions).toBe(1);
+      const miss = inspectRequestBody({ input: "plain text nothing here" }, { mode: "redact", ...BASE });
+      expect(miss.redactions).toBe(0);
+    }
+  });
+});
+
+describe("DLP: 校验器与熵", () => {
+  it("身份证校验位：合法号通过，改动任一位后不通过", () => {
+    const valid = "11010519491231002X";
+    expect(validIdCard(valid)).toBe(true);
+    expect(validIdCard("110105194912310021")).toBe(false);
+  });
+
+  it("Luhn：合法卡号通过，连号不通过", () => {
+    expect(validBankCard("4111111111111111")).toBe(true);
+    expect(validBankCard("1111111111111111")).toBe(false);
+    expect(validBankCard("1234")).toBe(false);
+  });
+
+  it("熵：低熵串低于阈值，高熵串高于阈值", () => {
+    expect(entropy("aaaaaaaaaaaaaaaa")).toBe(0);
+    expect(entropy("A1b2C3d4E5f6G7h8")).toBeGreaterThan(3.5);
+  });
+
+  it("身份证规则只放行校验位合法的串", () => {
+    const good = inspectRequestBody({ input: "11010519491231002X" }, { mode: "redact", rules: ["id_card"] });
+    expect(good.matchedRules).toContain("id_card");
+
+    const bad = inspectRequestBody({ input: "110105194912310021" }, { mode: "redact", rules: ["id_card"] });
+    expect(bad.matchedRules).toEqual([]);
+  });
+
+  it("银行卡规则只放行 Luhn 合法的串", () => {
+    const good = inspectRequestBody({ input: "4111111111111111" }, { mode: "redact", rules: ["bank_card"] });
+    expect(good.matchedRules).toContain("bank_card");
+
+    const bad = inspectRequestBody({ input: "4111111111111112" }, { mode: "redact", rules: ["bank_card"] });
+    expect(bad.matchedRules).toEqual([]);
+  });
+
+  it("私钥块被识别", () => {
+    const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----";
+    const r = inspectRequestBody({ input: pem }, { mode: "redact", rules: ["private_key"] });
+    expect(r.matchedRules).toContain("private_key");
+    expect(r.body.input).toBe("[REDACTED:private_key]");
+  });
+
+  it("连接串中的密码被识别", () => {
+    const r = inspectRequestBody({ input: "postgres://user:s3cretpw@db.internal:5432/app" }, { mode: "redact", rules: ["connection_string"] });
+    expect(r.matchedRules).toContain("connection_string");
+  });
+
+  it("JWT 被识别", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+    const r = inspectRequestBody({ input: jwt }, { mode: "redact", rules: ["jwt"] });
+    expect(r.matchedRules).toContain("jwt");
+  });
+});

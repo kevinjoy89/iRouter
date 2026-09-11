@@ -2247,6 +2247,84 @@ async function runSmoke() {
       results.push(`菜单栏多语言动态响应=${i18nOk} (中=[${zhLabels.join(", ")}], 英=[${enLabels.join(", ")}])`);
       ok &&= i18nOk;
 
+      // 面板文案多语言：以「请求脱敏」卡片（ADR 0005）为探针，验证面板字典确实随包分发
+      // 且新增文案已入典。浏览器直连面板被 custom-server 守卫拒绝（连接级掐断），
+      // 故只能在这里驱动真实桌面窗口断言——这也是本检查放在 smoke 而非单测的原因。
+      // 回归背景：该卡片首版全部文案漏入字典，中文界面整片显示英文。
+      try {
+        await win.webContents.session.cookies.set({
+          url: gatewayOrigin(),
+          name: "locale",
+          value: "zh-CN",
+        });
+        await win.webContents.loadURL(`${gatewayOrigin()}/dashboard/profile`);
+        await new Promise((resolve) => {
+          if (!win.webContents.isLoadingMainFrame()) {
+            resolve();
+            return;
+          }
+          const t = setTimeout(resolve, 5000);
+          win.webContents.once("did-finish-load", () => {
+            clearTimeout(t);
+            resolve();
+          });
+        });
+        // 等运行时 i18n 取回字典并完成 DOM 替换
+        await new Promise((r) => setTimeout(r, 2500));
+
+        const panelI18n = await win.webContents.executeJavaScript(
+          `(() => {
+             const body = document.body.innerText;
+             const opts = [...document.querySelectorAll("option")].map((o) => o.textContent.trim());
+             // 豁免标记字面量须可见（曾有版本只留开关，用户无从得知该写什么）；
+             // 用码点构造断言串，避免源码/中间层改写 [[ ]] 字面量
+             const B = String.fromCharCode(91, 91), E2 = String.fromCharCode(93, 93);
+             const OPEN = B + "ALLOW_SENSITIVE" + E2;
+             const CLOSE = B + "/ALLOW_SENSITIVE" + E2;
+             const codes = [...document.querySelectorAll("code")].map((c) => c.textContent.trim());
+             return {
+               card: body.includes("请求脱敏"),
+               knownSecrets: body.includes("匹配本机已存凭据"),
+               exemptions: body.includes("允许豁免标记"),
+               // 四档 mode 文案（option 的直接父元素不在 runtime skipTags 内，故会被翻译）
+               modes: ["关闭 —", "仅告警 —", "改写 —", "拦截 —"].every((p) => opts.some((o) => o.startsWith(p))),
+               markers: codes.includes(OPEN) && codes.includes(CLOSE),
+               // 英文残留即回归（卡片内不应再有整句英文）
+               leaked: body.includes("Request Redaction") || body.includes("forward everything unchanged"),
+             };
+           })()`,
+          true,
+        );
+        const panelOk = panelI18n.card && panelI18n.knownSecrets && panelI18n.exemptions
+          && panelI18n.modes && panelI18n.markers && !panelI18n.leaked;
+        results.push(`面板文案中文=${panelOk} (卡片=${panelI18n.card}, 凭据=${panelI18n.knownSecrets}, 豁免=${panelI18n.exemptions}, 档位=${panelI18n.modes}, 豁免标记可见=${panelI18n.markers}, 英文残留=${panelI18n.leaked})`);
+        ok &&= panelOk;
+
+        // 可选：把面板截图落盘，供人工核对布局（文本断言看不出换行/溢出/对齐问题）。
+        // 用法：IROUTER_SMOKE_SHOT=/tmp/x.png npm run smoke:packaged
+        if (process.env.IROUTER_SMOKE_SHOT) {
+          try {
+            // 滚到 Request Redaction 卡片，再截可视区
+            await win.webContents.executeJavaScript(
+              `(() => { const el = [...document.querySelectorAll("p")].find((p) => p.textContent.trim() === "请求脱敏");
+                        if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
+              true,
+            );
+            await new Promise((r) => setTimeout(r, 600));
+            const img = await win.webContents.capturePage();
+            fs.writeFileSync(process.env.IROUTER_SMOKE_SHOT, img.toPNG());
+            results.push(`面板截图=${process.env.IROUTER_SMOKE_SHOT}`);
+          } catch (e) {
+            results.push(`面板截图失败：${e.message}`);
+          }
+        }
+      } catch (e) {
+        results.push(`面板文案中文检查异常：${e.message}`);
+        ok = false;
+      } finally {
+        await win.webContents.session.cookies.remove(gatewayOrigin(), "locale").catch(() => {});
+      }
+
       // 关窗应隐藏到托盘，且网关继续服务（spec: 关窗最小化到托盘）
       win.close();
       await new Promise((r) => setTimeout(r, 400));

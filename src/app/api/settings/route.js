@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { resetComboRotation } from "open-sse/services/combo.js";
+import { invalidateKnownSecrets } from "@/lib/dlp/index.js";
 import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +86,14 @@ export async function PATCH(request) {
       Object.prototype.hasOwnProperty.call(body, "outboundNoProxy")
     ) {
       applyOutboundProxyEnv(settings);
+    }
+
+    // Invalidate cached known-secret list when redaction settings change
+    if (
+      Object.prototype.hasOwnProperty.call(body, "dlpMode") ||
+      Object.prototype.hasOwnProperty.call(body, "dlpKnownSecrets")
+    ) {
+      invalidateKnownSecrets();
     }
 
     // Invalidate combo rotation state when strategy settings change

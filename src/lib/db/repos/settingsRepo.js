@@ -4,7 +4,7 @@ import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 const DEFAULT_HEADROOM_URL = process.env.HEADROOM_URL || "http://localhost:8787";
 
-const DEFAULT_SETTINGS = {
+export const DEFAULT_SETTINGS = {
   cloudEnabled: false,
   tunnelEnabled: false,
   tunnelUrl: "",
@@ -60,6 +60,13 @@ const DEFAULT_SETTINGS = {
   observabilityBatchSize: 20,
   observabilityFlushIntervalMs: 5000,
   observabilityMaxJsonSize: 5,
+  // 请求脱敏（自维护特性，ADR 0005）：转发前检测并改写请求体中的敏感内容。
+  // 默认 off——升级不改变流量行为。仅覆盖出站字节；本机 requestDetails 落盘
+  // 仍是明文（那是独立的「落盘脱敏」，见 ADR 0005）。
+  dlpMode: "off",
+  dlpRules: [],
+  dlpAllowExemptions: false,
+  dlpKnownSecrets: true,
   outboundProxyEnabled: false,
   outboundProxyUrl: "",
   outboundNoProxy: "",

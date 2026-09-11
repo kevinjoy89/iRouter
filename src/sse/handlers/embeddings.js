@@ -6,6 +6,7 @@ import {
   isValidApiKey,
 } from "../services/auth.js";
 import { getSettings } from "@/lib/localDb";
+import { applyRequestRedaction, blockedResponse, logDlpOutcome } from "@/lib/dlp/index.js";
 import { getModelInfo } from "../services/model.js";
 import { handleEmbeddingsCore } from "open-sse/handlers/embeddingsCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
@@ -53,6 +54,18 @@ export async function handleEmbeddings(request) {
 
   // Enforce API key if enabled in settings
   const settings = await getSettings();
+
+  // 请求脱敏（ADR 0005）：embeddings 的 input 是"批量粘文本"的高风险面
+  const redaction = await applyRequestRedaction(body, settings);
+  if (redaction.error) log.warn("DLP", `inspection failed, forwarding as-is: ${redaction.error}`);
+  if (redaction.blocked) {
+    log.warn("DLP", `blocked rules=${redaction.blockedRules.join(",")}`);
+    return blockedResponse(redaction.blockedRules);
+  }
+  // 每个请求都记一行（含零命中）：见 chat.js logDlpOutcome 的说明
+  logDlpOutcome(log, settings.dlpMode, redaction);
+  body = redaction.body;
+
   if (settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
