@@ -45,7 +45,10 @@ app.setName("iRouter");
 const MULTI_INSTANCE = process.argv.includes("--multi-instance");
 if (MULTI_INSTANCE && !process.env.IROUTER_USER_DATA) {
   const baseUserData = app.getPath("userData");
-  app.setPath("userData", path.join(path.dirname(baseUserData), "iRouter-Multi"));
+  app.setPath(
+    "userData",
+    path.join(path.dirname(baseUserData), "iRouter-Multi"),
+  );
 } else if (process.env.IROUTER_USER_DATA) {
   app.setPath("userData", process.env.IROUTER_USER_DATA);
 }
@@ -172,7 +175,13 @@ function waitHttpReady(port, timeoutMs = 60000) {
     };
     const attempt = () => {
       const req = http.get(
-        { host: "127.0.0.1", port, path: "/login", timeout: 3000, headers: { [PANEL_CLIENT_HEADER]: PANEL_CLIENT_VALUE } },
+        {
+          host: "127.0.0.1",
+          port,
+          path: "/login",
+          timeout: 3000,
+          headers: { [PANEL_CLIENT_HEADER]: PANEL_CLIENT_VALUE },
+        },
         (res) => {
           res.resume();
           if (res.statusCode === 200) return resolve(true);
@@ -1284,7 +1293,11 @@ function createWindow() {
             { role: "cut", label: t.cut, enabled: editable },
             { role: "paste", label: t.paste, enabled: editable },
             { type: "separator" },
-            { role: "selectAll", label: t.selectAll, enabled: editable || hasSel },
+            {
+              role: "selectAll",
+              label: t.selectAll,
+              enabled: editable || hasSel,
+            },
           ];
     Menu.buildFromTemplate(template).popup({ window: win });
   });
@@ -1372,9 +1385,12 @@ function createWindow() {
   win.once("ready-to-show", () => win.show());
 
   // 启动时清一次残留缓存再加载，避免覆盖安装后的旧资源（详见顶部 disable-http-cache）
-  session.defaultSession.clearCache().catch(() => {}).then(() => {
-    win.loadURL(`${gatewayOrigin()}/`);
-  });
+  session.defaultSession
+    .clearCache()
+    .catch(() => {})
+    .then(() => {
+      win.loadURL(`${gatewayOrigin()}/`);
+    });
   return win;
 }
 
@@ -1427,7 +1443,7 @@ const MENU_TRANSLATIONS = {
     copy: "Copy",
     paste: "Paste",
     cut: "Cut",
-    selectAll: "Select All"
+    selectAll: "Select All",
   },
   "zh-CN": {
     view: "视图",
@@ -1457,7 +1473,7 @@ const MENU_TRANSLATIONS = {
     copy: "复制",
     paste: "粘贴",
     cut: "剪切",
-    selectAll: "全选"
+    selectAll: "全选",
   },
   "zh-TW": {
     view: "檢視",
@@ -1487,7 +1503,7 @@ const MENU_TRANSLATIONS = {
     copy: "複製",
     paste: "貼上",
     cut: "剪下",
-    selectAll: "全選"
+    selectAll: "全選",
   },
   ja: {
     view: "表示",
@@ -1517,7 +1533,7 @@ const MENU_TRANSLATIONS = {
     copy: "コピー",
     paste: "貼り付け",
     cut: "切り取り",
-    selectAll: "すべて選択"
+    selectAll: "すべて選択",
   },
   ko: {
     view: "보기",
@@ -1547,7 +1563,7 @@ const MENU_TRANSLATIONS = {
     copy: "복사",
     paste: "붙여넣기",
     cut: "잘라내기",
-    selectAll: "모두 선택"
+    selectAll: "모두 선택",
   },
   es: {
     view: "Ver",
@@ -1577,7 +1593,7 @@ const MENU_TRANSLATIONS = {
     copy: "Copiar",
     paste: "Pegar",
     cut: "Cortar",
-    selectAll: "Seleccionar todo"
+    selectAll: "Seleccionar todo",
   },
   fr: {
     view: "Présentation",
@@ -1607,7 +1623,7 @@ const MENU_TRANSLATIONS = {
     copy: "Copier",
     paste: "Coller",
     cut: "Couper",
-    selectAll: "Tout sélectionner"
+    selectAll: "Tout sélectionner",
   },
   de: {
     view: "Darstellung",
@@ -1637,7 +1653,7 @@ const MENU_TRANSLATIONS = {
     copy: "Kopieren",
     paste: "Einfügen",
     cut: "Ausschneiden",
-    selectAll: "Alles auswählen"
+    selectAll: "Alles auswählen",
   },
   ru: {
     view: "Вид",
@@ -1667,7 +1683,7 @@ const MENU_TRANSLATIONS = {
     copy: "Копировать",
     paste: "Вставить",
     cut: "Вырезать",
-    selectAll: "Выделить всё"
+    selectAll: "Выделить всё",
   },
   "pt-BR": {
     view: "Visualizar",
@@ -1697,7 +1713,7 @@ const MENU_TRANSLATIONS = {
     copy: "Copiar",
     paste: "Colar",
     cut: "Recortar",
-    selectAll: "Selecionar tudo"
+    selectAll: "Selecionar tudo",
   },
   vi: {
     view: "Xem",
@@ -1727,7 +1743,7 @@ const MENU_TRANSLATIONS = {
     copy: "Sao chép",
     paste: "Dán",
     cut: "Cắt",
-    selectAll: "Chọn tất cả"
+    selectAll: "Chọn tất cả",
   },
 };
 
@@ -1945,18 +1961,18 @@ function askImport(legacy) {
   const message = isEn
     ? "Legacy 9Router CLI data detected"
     : isTw
-    ? "檢測到舊版 9Router CLI 資料"
-    : "检测到旧版 9Router CLI 数据";
+      ? "檢測到舊版 9Router CLI 資料"
+      : "检测到旧版 9Router CLI 数据";
   const detail = isEn
     ? `Location: ${legacy}\nDo you want to import configurations, database and keys? (Original files are untouched, only copied)`
     : isTw
-    ? `位置：${legacy}\n是否匯入其中的設定、資料庫與金鑰？（原資料保留不動，僅複製）`
-    : `位置：${legacy}\n是否导入其中的配置、数据库与密钥？（原数据保留不动，仅复制）`;
+      ? `位置：${legacy}\n是否匯入其中的設定、資料庫與金鑰？（原資料保留不動，僅複製）`
+      : `位置：${legacy}\n是否导入其中的配置、数据库与密钥？（原数据保留不动，仅复制）`;
   const buttons = isEn
     ? ["Import", "Skip", "Cancel"]
     : isTw
-    ? ["匯入", "略過", "取消"]
-    : ["导入", "跳过", "取消"];
+      ? ["匯入", "略過", "取消"]
+      : ["导入", "跳过", "取消"];
 
   return dialog.showMessageBoxSync({
     type: "question",
@@ -2007,7 +2023,9 @@ function migrateFromLegacyApplicationSupport(targetDir) {
     const oldDb = path.join(oldSupportDir, "db", "data.sqlite");
     if (!fs.existsSync(oldDb)) return;
 
-    console.log(`[iRouter] 检测到旧应用支持目录数据，正在平滑迁移至 ${targetDir}...`);
+    console.log(
+      `[iRouter] 检测到旧应用支持目录数据，正在平滑迁移至 ${targetDir}...`,
+    );
     fs.mkdirSync(targetDir, { recursive: true });
 
     // 需要迁移的核心条目
@@ -2059,7 +2077,13 @@ async function stopGateway() {
 function httpProbe(pathname) {
   return new Promise((resolve) => {
     const req = http.get(
-      { host: "127.0.0.1", port: gatewayPort, path: pathname, timeout: 5000, headers: { [PANEL_CLIENT_HEADER]: PANEL_CLIENT_VALUE } },
+      {
+        host: "127.0.0.1",
+        port: gatewayPort,
+        path: pathname,
+        timeout: 5000,
+        headers: { [PANEL_CLIENT_HEADER]: PANEL_CLIENT_VALUE },
+      },
       (res) => {
         res.resume();
         resolve(res.statusCode);
@@ -2093,7 +2117,9 @@ async function runSmoke() {
       // （aside/假红绿灯只在那边存在）；仅 smoke 路径执行。
       try {
         const crypto = require("node:crypto");
-        const secretPath = fs.existsSync(path.join(getGatewayDataDir(), "jwt-secret"))
+        const secretPath = fs.existsSync(
+          path.join(getGatewayDataDir(), "jwt-secret"),
+        )
           ? path.join(getGatewayDataDir(), "jwt-secret")
           : path.join(app.getPath("userData"), "jwt-secret");
         const secret = fs.readFileSync(secretPath);
@@ -2221,30 +2247,42 @@ async function runSmoke() {
         ? appMenu.items.filter((i) => i.visible).map((i) => i.label || i.role)
         : [];
       const hasVisibleFile = appMenu
-        ? appMenu.items.some((i) => i.visible && (i.label === "File" || i.role === "filemenu"))
+        ? appMenu.items.some(
+            (i) => i.visible && (i.label === "File" || i.role === "filemenu"),
+          )
         : false;
       const hasVisibleEdit = appMenu
-        ? appMenu.items.some((i) => i.visible && (i.label === "Edit" || i.role === "editmenu"))
+        ? appMenu.items.some(
+            (i) => i.visible && (i.label === "Edit" || i.role === "editmenu"),
+          )
         : false;
       const menuOk = !hasVisibleFile && !hasVisibleEdit;
-      results.push(`菜单栏移除File和Edit=${menuOk} (可见项=[${visibleMenuLabels.join(", ")}])`);
+      results.push(
+        `菜单栏移除File和Edit=${menuOk} (可见项=[${visibleMenuLabels.join(", ")}])`,
+      );
       ok &&= menuOk;
 
       // 校验顶部原生菜单随软件多语言动态响应
       const prevLoc = currentLocale;
       setAppLocale("zh-CN");
       const zhMenu = Menu.getApplicationMenu();
-      const zhLabels = zhMenu ? zhMenu.items.filter((i) => i.visible).map((i) => i.label) : [];
+      const zhLabels = zhMenu
+        ? zhMenu.items.filter((i) => i.visible).map((i) => i.label)
+        : [];
       const zhOk = zhLabels[1] === "视图" && zhLabels[2] === "窗口";
 
       setAppLocale("en");
       const enMenu = Menu.getApplicationMenu();
-      const enLabels = enMenu ? enMenu.items.filter((i) => i.visible).map((i) => i.label) : [];
+      const enLabels = enMenu
+        ? enMenu.items.filter((i) => i.visible).map((i) => i.label)
+        : [];
       const enOk = enLabels[1] === "View" && enLabels[2] === "Window";
 
       setAppLocale(prevLoc);
       const i18nOk = zhOk && enOk;
-      results.push(`菜单栏多语言动态响应=${i18nOk} (中=[${zhLabels.join(", ")}], 英=[${enLabels.join(", ")}])`);
+      results.push(
+        `菜单栏多语言动态响应=${i18nOk} (中=[${zhLabels.join(", ")}], 英=[${enLabels.join(", ")}])`,
+      );
       ok &&= i18nOk;
 
       // 面板文案多语言：以「脱敏策略」卡片（ADR 0005）为探针，验证面板字典确实随包分发
@@ -2272,8 +2310,28 @@ async function runSmoke() {
         // 等运行时 i18n 取回字典并完成 DOM 替换
         await new Promise((r) => setTimeout(r, 2500));
 
+        // 卡片范围 = 「脱敏策略」标题到「网络」标题之间的 DOM 文本。
+        // 这一段的**每个英文源串**都必须已被 runtime i18n 译为中文——不再是抽查
+        // 几个关键词（抽查漏掉新增/漏译文案，恰是上次回归的形态）。
+        // 源串清单由 tests/unit/dlp-i18n-coverage.test.js 钉住并保证与字典同源。
+        const CARD_SOURCES = [
+          "Redaction Policy",
+          "Detect secrets (API keys, private keys, ID/bank cards) in the request body before forwarding upstream. Outbound only — request details stored locally are still kept in plain text.",
+          "Mode",
+          "Off — forward everything unchanged",
+          "Audit — log matches, forward unchanged",
+          "Redact — replace matches with [REDACTED:rule]",
+          "Block — reject the request with HTTP 422",
+          "Match stored credentials",
+          "Exact-match against the API keys and tokens already stored in this app. Zero false positives. Only the rule name is logged, never the value.",
+          "Allow exemption markers",
+          "Everything between the two markers skips inspection and reaches the provider unchanged. Use it to send something a rule keeps flagging by mistake.",
+          "your text",
+          "sent unchanged, markers removed",
+        ];
         const panelI18n = await win.webContents.executeJavaScript(
           `(() => {
+             const srcs = ${JSON.stringify(CARD_SOURCES)};
              const body = document.body.innerText;
              const opts = [...document.querySelectorAll("option")].map((o) => o.textContent.trim());
              // 豁免标记字面量须可见（曾有版本只留开关，用户无从得知该写什么）；
@@ -2282,22 +2340,26 @@ async function runSmoke() {
              const OPEN = B + "ALLOW_SENSITIVE" + E2;
              const CLOSE = B + "/ALLOW_SENSITIVE" + E2;
              const codes = [...document.querySelectorAll("code")].map((c) => c.textContent.trim());
+             // 任一英文源串仍以整串出现 = 该条未入典或未替换
+             const leaked = srcs.filter((s) => body.includes(s));
              return {
                card: body.includes("脱敏策略"),
-               knownSecrets: body.includes("匹配本机已存凭据"),
-               exemptions: body.includes("允许豁免标记"),
                // 四档 mode 文案（option 的直接父元素不在 runtime skipTags 内，故会被翻译）
                modes: ["关闭 —", "仅告警 —", "改写 —", "拦截 —"].every((p) => opts.some((o) => o.startsWith(p))),
                markers: codes.includes(OPEN) && codes.includes(CLOSE),
-               // 英文残留即回归（卡片内不应再有整句英文）
-               leaked: body.includes("Redaction Policy") || body.includes("forward everything unchanged"),
+               leaked,
              };
            })()`,
           true,
         );
-        const panelOk = panelI18n.card && panelI18n.knownSecrets && panelI18n.exemptions
-          && panelI18n.modes && panelI18n.markers && !panelI18n.leaked;
-        results.push(`面板文案中文=${panelOk} (卡片=${panelI18n.card}, 凭据=${panelI18n.knownSecrets}, 豁免=${panelI18n.exemptions}, 档位=${panelI18n.modes}, 豁免标记可见=${panelI18n.markers}, 英文残留=${panelI18n.leaked})`);
+        const panelOk =
+          panelI18n.card &&
+          panelI18n.modes &&
+          panelI18n.markers &&
+          panelI18n.leaked.length === 0;
+        results.push(
+          `面板文案中文=${panelOk} (卡片=${panelI18n.card}, 档位=${panelI18n.modes}, 豁免标记可见=${panelI18n.markers}, 英文残留=${panelI18n.leaked.length}${panelI18n.leaked.length ? ":" + panelI18n.leaked[0].slice(0, 40) : ""})`,
+        );
         ok &&= panelOk;
 
         // 可选：把面板截图落盘，供人工核对布局（文本断言看不出换行/溢出/对齐问题）。
@@ -2322,7 +2384,9 @@ async function runSmoke() {
         results.push(`面板文案中文检查异常：${e.message}`);
         ok = false;
       } finally {
-        await win.webContents.session.cookies.remove(gatewayOrigin(), "locale").catch(() => {});
+        await win.webContents.session.cookies
+          .remove(gatewayOrigin(), "locale")
+          .catch(() => {});
       }
 
       // 关窗应隐藏到托盘，且网关继续服务（spec: 关窗最小化到托盘）
@@ -2403,11 +2467,14 @@ app.whenReady().then(async () => {
   setupApplicationMenu(currentLocale);
 
   // 监听 Cookies 变化，当用户在面板切换语言时即时同步菜单
-  session.defaultSession.cookies.on("changed", (_event, cookie, _cause, removed) => {
-    if (!removed && cookie.name === "locale") {
-      setAppLocale(cookie.value);
-    }
-  });
+  session.defaultSession.cookies.on(
+    "changed",
+    (_event, cookie, _cause, removed) => {
+      if (!removed && cookie.name === "locale") {
+        setAppLocale(cookie.value);
+      }
+    },
+  );
   const dataDir = getGatewayDataDir();
   fs.mkdirSync(dataDir, { recursive: true });
   migrateFromLegacyApplicationSupport(dataDir);
