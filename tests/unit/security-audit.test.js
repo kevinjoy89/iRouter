@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+// 被审计源码一律从**本文件位置**解析，不能用 path.resolve(REPO_ROOT, "src/...")：
+// 后者相对 process.cwd()，而 vitest 默认以 tests/ 为根 —— 于是 13 条断言
+// 全部 ENOENT 假红（且 baseline 门禁会把它报成 regression）。
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+);
 
 // ============================================================
 // AUDIT-002 (#1962): API key masking in usage stats
@@ -8,22 +18,24 @@ import path from "path";
 describe("AUDIT-002: API key masking", () => {
   it("source should contain maskApiKey function", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
+      "utf-8",
     );
     expect(source).toContain("function maskApiKey");
   });
 
   it("getUsageHistory should use apiKeyMasked instead of apiKey", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
+      "utf-8",
     );
     // The REST response should use apiKeyMasked
     expect(source).toContain("apiKeyMasked: maskApiKey(r.apiKey)");
     // The return mapping in getUsageHistory should not have raw apiKey
     // (The internal ring buffer still uses apiKey: r.apiKey for internal state - that's fine)
-    const historyReturn = source.match(/return rows\.map\(\(r\)\s*=>\s*\(\{[\s\S]*?\}\)\);/);
+    const historyReturn = source.match(
+      /return rows\.map\(\(r\)\s*=>\s*\(\{[\s\S]*?\}\)\);/,
+    );
     expect(historyReturn).not.toBeNull();
     expect(historyReturn[0]).toContain("apiKeyMasked");
     expect(historyReturn[0]).not.toContain("apiKey: r.apiKey");
@@ -31,8 +43,8 @@ describe("AUDIT-002: API key masking", () => {
 
   it("getUsageStats should use apiKeyMasked in byApiKey entries", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
+      "utf-8",
     );
     // Both code paths (daily summary + 24h live) should use apiKeyMasked
     const maskedCount = (source.match(/apiKeyMasked/g) || []).length;
@@ -40,18 +52,22 @@ describe("AUDIT-002: API key masking", () => {
 
     // The byApiKey stats entries should use apiKeyMasked, not raw apiKey
     // Check the daily summary path
-    const dailyPath = source.match(/stats\.byApiKey\[akKey\] = \{[^}]*apiKeyMasked[^}]*\}/);
+    const dailyPath = source.match(
+      /stats\.byApiKey\[akKey\] = \{[^}]*apiKeyMasked[^}]*\}/,
+    );
     expect(dailyPath).not.toBeNull();
     // Check the 24h live path
-    const livePath = source.match(/stats\.byApiKey\[akKey\] = \{[^}]*apiKeyMasked[^}]*\}/g);
+    const livePath = source.match(
+      /stats\.byApiKey\[akKey\] = \{[^}]*apiKeyMasked[^}]*\}/g,
+    );
     expect(livePath).not.toBeNull();
     expect(livePath.length).toBeGreaterThanOrEqual(1);
   });
 
   it("byApiKey object keys should use masked key, not raw key", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
+      "utf-8",
     );
     // The 24h path should use apiKeyMasked in the akKey template
     expect(source).toContain("${apiKeyMasked}|${r.model}|${r.provider");
@@ -76,8 +92,8 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("source should contain validateProxyUrl function", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/network/outboundProxy.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/lib/network/outboundProxy.js"),
+      "utf-8",
     );
     expect(source).toContain("function validateProxyUrl");
     expect(source).toContain("ALLOWED_PROXY_SCHEMES");
@@ -85,7 +101,9 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("should accept valid http proxy URLs", async () => {
     vi.resetModules();
-    const { applyOutboundProxyEnv } = await import("../../src/lib/network/outboundProxy.js");
+    const { applyOutboundProxyEnv } = await import(
+      "../../src/lib/network/outboundProxy.js"
+    );
     applyOutboundProxyEnv({
       outboundProxyEnabled: true,
       outboundProxyUrl: "http://proxy.example.com:8080",
@@ -97,7 +115,9 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("should accept valid https proxy URLs", async () => {
     vi.resetModules();
-    const { applyOutboundProxyEnv } = await import("../../src/lib/network/outboundProxy.js");
+    const { applyOutboundProxyEnv } = await import(
+      "../../src/lib/network/outboundProxy.js"
+    );
     applyOutboundProxyEnv({
       outboundProxyEnabled: true,
       outboundProxyUrl: "https://proxy.example.com:443",
@@ -108,7 +128,9 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("should accept valid socks5 proxy URLs", async () => {
     vi.resetModules();
-    const { applyOutboundProxyEnv } = await import("../../src/lib/network/outboundProxy.js");
+    const { applyOutboundProxyEnv } = await import(
+      "../../src/lib/network/outboundProxy.js"
+    );
     applyOutboundProxyEnv({
       outboundProxyEnabled: true,
       outboundProxyUrl: "socks5://proxy.example.com:1080",
@@ -118,7 +140,9 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("should reject URLs with shell metacharacters (newline)", async () => {
     vi.resetModules();
-    const { applyOutboundProxyEnv } = await import("../../src/lib/network/outboundProxy.js");
+    const { applyOutboundProxyEnv } = await import(
+      "../../src/lib/network/outboundProxy.js"
+    );
     applyOutboundProxyEnv({
       outboundProxyEnabled: true,
       outboundProxyUrl: "http://proxy.example.com:8080\nmalicious",
@@ -128,7 +152,9 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("should reject URLs with shell metacharacters (backtick)", async () => {
     vi.resetModules();
-    const { applyOutboundProxyEnv } = await import("../../src/lib/network/outboundProxy.js");
+    const { applyOutboundProxyEnv } = await import(
+      "../../src/lib/network/outboundProxy.js"
+    );
     applyOutboundProxyEnv({
       outboundProxyEnabled: true,
       outboundProxyUrl: "http://`whoami`.example.com:8080",
@@ -138,7 +164,9 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("should reject URLs with shell metacharacters (dollar)", async () => {
     vi.resetModules();
-    const { applyOutboundProxyEnv } = await import("../../src/lib/network/outboundProxy.js");
+    const { applyOutboundProxyEnv } = await import(
+      "../../src/lib/network/outboundProxy.js"
+    );
     applyOutboundProxyEnv({
       outboundProxyEnabled: true,
       outboundProxyUrl: "http://$(whoami).example.com:8080",
@@ -148,7 +176,9 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("should reject non-allowed schemes (file://)", async () => {
     vi.resetModules();
-    const { applyOutboundProxyEnv } = await import("../../src/lib/network/outboundProxy.js");
+    const { applyOutboundProxyEnv } = await import(
+      "../../src/lib/network/outboundProxy.js"
+    );
     applyOutboundProxyEnv({
       outboundProxyEnabled: true,
       outboundProxyUrl: "file:///etc/passwd",
@@ -158,7 +188,9 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("should reject non-allowed schemes (javascript:)", async () => {
     vi.resetModules();
-    const { applyOutboundProxyEnv } = await import("../../src/lib/network/outboundProxy.js");
+    const { applyOutboundProxyEnv } = await import(
+      "../../src/lib/network/outboundProxy.js"
+    );
     applyOutboundProxyEnv({
       outboundProxyEnabled: true,
       outboundProxyUrl: "javascript:alert(1)",
@@ -173,16 +205,16 @@ describe("AUDIT-003: Proxy URL validation", () => {
 describe("AUDIT-018: XSS escaping in OAuth callback", () => {
   it("source should contain escapeHtml function", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/oauth/utils/server.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/lib/oauth/utils/server.js"),
+      "utf-8",
     );
     expect(source).toContain("function escapeHtml");
   });
 
   it("should escape ampersand, angle brackets, and quotes", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/oauth/utils/server.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/lib/oauth/utils/server.js"),
+      "utf-8",
     );
     expect(source).toContain("&amp;");
     expect(source).toContain("&lt;");
@@ -193,8 +225,8 @@ describe("AUDIT-018: XSS escaping in OAuth callback", () => {
 
   it("should use safeMessage in rendered HTML, not raw message", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/oauth/utils/server.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/lib/oauth/utils/server.js"),
+      "utf-8",
     );
     expect(source).toContain("safeMessage");
     expect(source).toContain("${safeMessage}");
@@ -209,8 +241,8 @@ describe("AUDIT-018: XSS escaping in OAuth callback", () => {
 describe("AUDIT-004: Atomic lock file for MITM startup", () => {
   it("manager.js should define LOCK_FILE constant", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
+      "utf-8",
     );
     expect(source).toContain("LOCK_FILE");
     expect(source).toContain(".mitm.lock");
@@ -218,8 +250,8 @@ describe("AUDIT-004: Atomic lock file for MITM startup", () => {
 
   it("should use O_EXCL flag (wx) for atomic creation", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
+      "utf-8",
     );
     expect(source).toContain('"wx"');
     expect(source).toContain("EEXIST");
@@ -227,8 +259,8 @@ describe("AUDIT-004: Atomic lock file for MITM startup", () => {
 
   it("should clean up lock file on all exit paths", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
+      "utf-8",
     );
     const matches = source.match(/unlinkSync\(LOCK_FILE\)/g);
     expect(matches).not.toBeNull();
@@ -242,8 +274,8 @@ describe("AUDIT-004: Atomic lock file for MITM startup", () => {
 describe("AUDIT-001: Synchronous restart guard", () => {
   it("mitmIsRestarting should be set before first await expression", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
+      "utf-8",
     );
 
     const funcStart = source.indexOf("async function scheduleMitmRestart");
@@ -273,8 +305,8 @@ describe("AUDIT-001: Synchronous restart guard", () => {
 
   it("mitmIsRestarting should be reset on max-restarts early return", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
-      "utf-8"
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
+      "utf-8",
     );
 
     const funcStart = source.indexOf("async function scheduleMitmRestart");
