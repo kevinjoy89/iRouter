@@ -2,7 +2,14 @@
 // 构建内嵌网关：9router 源码已并入仓库根目录（原 submodule 已废弃），
 // 在根目录产出 Next standalone，复制进 desktop/build/server。
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, rmSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  rmSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +23,18 @@ const OUT = join(DESKTOP_ROOT, "build", "gateway", "server");
 // 产品版本号真源 = desktop/package.json（见 docs/adr/0004）。
 // 面板可见版本号由此注入：config.js 被客户端组件导入，运行时读文件不可用，
 // NEXT_PUBLIC_* 是 Next 构建期内联到客户端 bundle 的唯一直通路径。
-const APP_VERSION = JSON.parse(readFileSync(join(DESKTOP_ROOT, "package.json"), "utf8")).version;
+// 读不到或解析不了自己的 package.json 就是构建环境坏了，立即终止（勿静默降级）
+let APP_VERSION;
+try {
+  APP_VERSION = JSON.parse(
+    readFileSync(join(DESKTOP_ROOT, "package.json"), "utf8"),
+  ).version;
+} catch (err) {
+  console.error(
+    `[build-server] 读不到 desktop/package.json 的版本号：${err.message}`,
+  );
+  process.exit(1);
+}
 
 function log(msg) {
   console.log(`[build-server] ${msg}`);
@@ -90,7 +108,18 @@ rmSync(OUT, { recursive: true, force: true });
 mkdirSync(dirname(OUT), { recursive: true });
 cpSync(STANDALONE, OUT, { recursive: true });
 
-// 4. 剔除 better-sqlite3 原生模块：node_modules 里的 .node 按开发机 Node 编译
+// 4. 复制 DLP 规则文件：`open-sse/dlp/dlp_rules.yaml` 是运行时用 fs 读的数据文件，
+//    Next 的 tracing 只看 import 图，不会把它带进 standalone——缺了它的后果是
+//    loadPolicy 抛 ENOENT → 引擎 fail-open → 面板显示已开启而实际从不脱敏
+//    （最坏失败模式：看起来在工作）。引擎按 cwd 相对路径探测，故放 open-sse/dlp/。
+const dlpRulesSrc = join(UPSTREAM, "open-sse", "dlp", "dlp_rules.yaml");
+assertDir(dlpRulesSrc, "DLP 规则文件");
+const dlpRulesDst = join(OUT, "open-sse", "dlp");
+mkdirSync(dlpRulesDst, { recursive: true });
+cpSync(dlpRulesSrc, join(dlpRulesDst, "dlp_rules.yaml"));
+log("已复制 dlp_rules.yaml（请求脱敏规则，运行时读取）");
+
+// 5. 剔除 better-sqlite3 原生模块：node_modules 里的 .node 按开发机 Node 编译
 //    （实测 dev Node MODULE_VERSION 147，Electron 44 内嵌 Node 24.20 为 149，二者不兼容），
 //    且 electron-builder.yml 设置了 npmRebuild: false（打包不重编译），带上必是坏二进制。
 //    运行时走驱动链下一级 node:sqlite（Node ≥22.5 内置的真 SQLite，Electron 的 Node 24 自带），
@@ -98,10 +127,12 @@ cpSync(STANDALONE, OUT, { recursive: true });
 const nativeSqlite = join(OUT, "node_modules", "better-sqlite3");
 if (existsSync(nativeSqlite)) {
   rmSync(nativeSqlite, { recursive: true, force: true });
-  log("已移除 better-sqlite3（原生模块 ABI 不兼容 Electron，运行时走 node:sqlite）");
+  log(
+    "已移除 better-sqlite3（原生模块 ABI 不兼容 Electron，运行时走 node:sqlite）",
+  );
 }
 
-// 5. 剔除 .env：Next standalone 会把仓库根的 .env 一并拷进来（含 .env.example 的
+// 6. 剔除 .env：Next standalone 会把仓库根的 .env 一并拷进来（含 .env.example 的
 //    占位密钥）。留着的后果是「密钥取自公开文件」：
 //    · JWT_SECRET → dashboardSession.js 走 env 提前返回，永不生成随机 jwt-secret 文件，
 //      壳层 main.js 读不到该文件 → smoke 登录注入失败、面板停在 /login；
@@ -115,12 +146,16 @@ for (const name of readdirSync(OUT)) {
   }
 }
 
-// 6. 产物自检
+// 7. 产物自检
 for (const [p, what] of [
   [join(OUT, "custom-server.js"), "custom-server.js"],
   [join(OUT, "server.js"), "server.js"],
   [join(OUT, ".next", "static"), ".next/static"],
   [join(OUT, "public"), "public"],
+  [
+    join(OUT, "open-sse", "dlp", "dlp_rules.yaml"),
+    "open-sse/dlp/dlp_rules.yaml",
+  ],
 ]) {
   assertDir(p, what);
 }

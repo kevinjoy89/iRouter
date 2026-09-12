@@ -7,32 +7,47 @@ const { execSync } = require("child_process");
 const cliDir = path.resolve(__dirname, "..");
 const appDir = path.resolve(cliDir, "..");
 const rootDir = path.resolve(appDir, "..");
-const cliAppDir = process.env.NINEROUTER_CLI_APP_DIR || path.join(cliDir, "app");
+const cliAppDir =
+  process.env.NINEROUTER_CLI_APP_DIR || path.join(cliDir, "app");
 const buildHomeDir = path.join(cliDir, ".build-home");
 const buildDistDirName = ".next-cli-build";
 const buildDistDir = path.join(appDir, buildDistDirName);
 
 // Exclude patterns for files/folders we don't want to copy
 const EXCLUDE_PATTERNS = [
-  "@img",           // Sharp image processing (not needed with unoptimized images)
-  "sharp",          // Sharp core lib (not needed with unoptimized images)
-  "detect-libc",    // Sharp dependency
-  ".env",           // Environment files
+  "@img", // Sharp image processing (not needed with unoptimized images)
+  "sharp", // Sharp core lib (not needed with unoptimized images)
+  "detect-libc", // Sharp dependency
+  ".env", // Environment files
   ".env.local",
   ".env.*.local",
-  "*.log",          // Log files
-  "tmp",            // Temp files
-  ".DS_Store",      // macOS files
+  "*.log", // Log files
+  "tmp", // Temp files
+  ".DS_Store", // macOS files
 ];
 
 function shouldExclude(name) {
-  return EXCLUDE_PATTERNS.some(pattern => {
+  return EXCLUDE_PATTERNS.some((pattern) => {
     if (pattern.includes("*")) {
-      const regex = new RegExp("^" + pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$");
+      const regex = new RegExp(
+        "^" +
+          pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") +
+          "$",
+      );
       return regex.test(name);
     }
     return name === pattern;
   });
+}
+
+// A package.json we cannot read is a broken build environment, not a warning.
+function readJson(file, label) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    console.error(`❌ Cannot read ${label || file}: ${error.message}`);
+    process.exit(1);
+  }
 }
 
 function copyRecursive(src, dest) {
@@ -40,7 +55,7 @@ function copyRecursive(src, dest) {
     console.warn(`Warning: Source ${src} does not exist`);
     return;
   }
-  
+
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(dest, { recursive: true });
   }
@@ -92,7 +107,10 @@ function resolveStandaloneBuild(appDir, buildDistDir) {
   // NEXT_TRACING_ROOT_MODE=workspace, e.g. standalone/9router/server.js.
   const pkgName = path.basename(appDir);
   const nestedRoot = path.join(standaloneRoot, pkgName);
-  if (fs.existsSync(path.join(nestedRoot, "server.js")) && !fs.existsSync(path.join(standaloneRoot, "server.js"))) {
+  if (
+    fs.existsSync(path.join(nestedRoot, "server.js")) &&
+    !fs.existsSync(path.join(standaloneRoot, "server.js"))
+  ) {
     console.log(`ℹ️  Detected nested standalone output: ${pkgName}/`);
     standaloneRoot = nestedRoot;
   }
@@ -103,7 +121,7 @@ function resolveStandaloneBuild(appDir, buildDistDir) {
   if (!fs.existsSync(standaloneApp)) {
     throw new Error(
       "Next.js standalone build not found under .next/standalone; " +
-      "expected either .next/standalone/server.js or .next/standalone/app/",
+        "expected either .next/standalone/server.js or .next/standalone/app/",
     );
   }
 
@@ -111,12 +129,18 @@ function resolveStandaloneBuild(appDir, buildDistDir) {
 }
 
 function copyStandaloneBuild(appDir, buildDistDir, cliAppDir) {
-  const { standaloneApp, standaloneRoot } = resolveStandaloneBuild(appDir, buildDistDir);
+  const { standaloneApp, standaloneRoot } = resolveStandaloneBuild(
+    appDir,
+    buildDistDir,
+  );
   copyRecursive(standaloneApp, cliAppDir);
 
   // Older nested-app layout stores traced node_modules at standalone root.
   const standaloneNodeModules = path.join(standaloneRoot, "node_modules");
-  if (standaloneApp !== standaloneRoot && fs.existsSync(standaloneNodeModules)) {
+  if (
+    standaloneApp !== standaloneRoot &&
+    fs.existsSync(standaloneNodeModules)
+  ) {
     copyRecursive(standaloneNodeModules, path.join(cliAppDir, "node_modules"));
   }
 }
@@ -143,7 +167,30 @@ function assertRequiredApiArtifacts(cliAppDir) {
   if (missingArtifacts.length > 0) {
     throw new Error(
       `Required CLI API route artifact${missingArtifacts.length === 1 ? " is" : "s are"} missing:\n` +
-      missingArtifacts.join("\n"),
+        missingArtifacts.join("\n"),
+    );
+  }
+}
+
+/**
+ * App-root files the runtime reads directly, outside Next's import graph.
+ * Kept separate from assertRequiredApiArtifacts: that one asserts traced route
+ * modules, this one asserts hand-copied files. Mixing them would make the route
+ * check fail for reasons that have nothing to do with routes.
+ *
+ * Without dlp_rules.yaml the redaction engine throws ENOENT on every request and
+ * fails open — the dashboard shows redaction enabled while nothing is scanned.
+ */
+function assertRequiredAppFiles(cliAppDir) {
+  const required = ["custom-server.js", "open-sse/dlp/dlp_rules.yaml"];
+  const missing = required
+    .map((file) => path.join(cliAppDir, file))
+    .filter((file) => !fs.existsSync(file));
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Required CLI app file${missing.length === 1 ? " is" : "s are"} missing:\n` +
+        missing.join("\n"),
     );
   }
 }
@@ -152,20 +199,27 @@ function buildCliPackage() {
   console.log("📦 Building 9Router CLI package with Next.js...\n");
 
   fs.mkdirSync(buildHomeDir, { recursive: true });
-  fs.mkdirSync(path.join(buildHomeDir, "AppData", "Roaming"), { recursive: true });
-  fs.mkdirSync(path.join(buildHomeDir, "AppData", "Local"), { recursive: true });
+  fs.mkdirSync(path.join(buildHomeDir, "AppData", "Roaming"), {
+    recursive: true,
+  });
+  fs.mkdirSync(path.join(buildHomeDir, "AppData", "Local"), {
+    recursive: true,
+  });
 
   // Step 0: Sync version from app/cli/package.json to app/package.json
   console.log("0️⃣  Syncing version to app/package.json...");
-  const cliPkg = JSON.parse(fs.readFileSync(path.join(cliDir, "package.json"), "utf8"));
+  const cliPkg = readJson(
+    path.join(cliDir, "package.json"),
+    "cli/package.json",
+  );
   const appPkgPath = path.join(appDir, "package.json");
-  const appPkg = JSON.parse(fs.readFileSync(appPkgPath, "utf8"));
-  if (appPkg.version !== cliPkg.version) {
+  const appPkg = readJson(appPkgPath, "package.json");
+  if (appPkg.version === cliPkg.version) {
+    console.log(`✅ Version already synced: ${cliPkg.version}\n`);
+  } else {
     appPkg.version = cliPkg.version;
     fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + "\n");
     console.log(`✅ Version synced: ${cliPkg.version}\n`);
-  } else {
-    console.log(`✅ Version already synced: ${cliPkg.version}\n`);
   }
 
   // Step 1: Build app with Next.js (workspace tracing root → traced node_modules in standalone).
@@ -182,11 +236,11 @@ function buildCliPackage() {
         LOCALAPPDATA: path.join(buildHomeDir, "AppData", "Local"),
         NEXT_DIST_DIR: buildDistDirName,
         NEXT_TRACING_ROOT_MODE: "workspace",
-      }
+      },
     });
     console.log("✅ Next.js build completed\n");
   } catch (error) {
-    console.error("❌ Next.js build failed");
+    console.error(`❌ Next.js build failed: ${error.message}`);
     process.exit(1);
   }
 
@@ -204,8 +258,10 @@ function buildCliPackage() {
   try {
     copyStandaloneBuild(appDir, buildDistDir, cliAppDir);
   } catch (error) {
-    console.error("❌ Next.js standalone build not found under .next/standalone");
-    console.error("Expected either .next/standalone/server.js or .next/standalone/app/");
+    console.error(
+      "❌ Next.js standalone build not found under .next/standalone",
+    );
+    console.error(`   ${error.message}`);
     process.exit(1);
   }
   console.log("✅ Copied standalone build\n");
@@ -216,10 +272,35 @@ function buildCliPackage() {
     fs.copyFileSync(customServerSrc, path.join(cliAppDir, "custom-server.js"));
     console.log("✅ Copied custom-server.js\n");
   } else {
-    console.error("❌ custom-server.js not found — without it no request can be proven local,");
-    console.error("   so the packaged CLI would demand an API key for its own dashboard and /v1.");
+    console.error(
+      "❌ custom-server.js not found — without it no request can be proven local,",
+    );
+    console.error(
+      "   so the packaged CLI would demand an API key for its own dashboard and /v1.",
+    );
     process.exit(1);
   }
+
+  // Step 3c: Copy the DLP rule file. The engine reads it with fs at request time,
+  // so it is not in Next's import graph and tracing never collects it. Without it
+  // loadPolicy throws ENOENT → the engine fails open → the dashboard shows
+  // redaction enabled while every request is scanned by nothing (worst failure
+  // mode: appears to be working). The engine probes <cwd>/open-sse/dlp/, and the
+  // server runs with cwd=cliAppDir, so the file must land there.
+  const dlpRulesSrc = path.join(appDir, "open-sse", "dlp", "dlp_rules.yaml");
+  const dlpRulesDst = path.join(cliAppDir, "open-sse", "dlp", "dlp_rules.yaml");
+  if (!fs.existsSync(dlpRulesSrc)) {
+    console.error(
+      "❌ open-sse/dlp/dlp_rules.yaml not found — request redaction would silently",
+    );
+    console.error(
+      "   fail open (dashboard shows it enabled, no request ever gets scanned).",
+    );
+    process.exit(1);
+  }
+  fs.mkdirSync(path.dirname(dlpRulesDst), { recursive: true });
+  fs.copyFileSync(dlpRulesSrc, dlpRulesDst);
+  console.log("✅ Copied open-sse/dlp/dlp_rules.yaml\n");
 
   // Step 3b: Ensure sql.js (pure JS fallback) bundled in app/cli/app/node_modules.
   // Strip better-sqlite3 (native) — it lives in ~/.9router/runtime to avoid
@@ -238,7 +319,9 @@ function buildCliPackage() {
     ];
     const src = candidates.find((p) => fs.existsSync(p));
     if (!src) {
-      console.warn(`⚠️  ${pkg} not found locally — bundle will rely on node:sqlite or runtime install`);
+      console.warn(
+        `⚠️  ${pkg} not found locally — bundle will rely on node:sqlite or runtime install`,
+      );
       return;
     }
     fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -263,7 +346,10 @@ function buildCliPackage() {
   const staticSrcResolved = path.join(buildDistDir, "static");
   const staticDest = path.join(cliAppDir, buildDistDirName, "static");
   if (fs.existsSync(staticSrcResolved) || fs.existsSync(staticSrc)) {
-    copyRecursive(fs.existsSync(staticSrcResolved) ? staticSrcResolved : staticSrc, staticDest);
+    copyRecursive(
+      fs.existsSync(staticSrcResolved) ? staticSrcResolved : staticSrc,
+      staticDest,
+    );
     console.log("✅ Copied static files\n");
   } else {
     console.log("⏭️  No static files found\n");
@@ -283,10 +369,27 @@ function buildCliPackage() {
   // Step 6: Copy vendor-chunks (required for production)
   console.log("6️⃣  Copying vendor-chunks...");
   const vendorChunksSrc = path.join(appDir, ".next", "server", "vendor-chunks");
-  const vendorChunksSrcResolved = path.join(buildDistDir, "server", "vendor-chunks");
-  const vendorChunksDest = path.join(cliAppDir, buildDistDirName, "server", "vendor-chunks");
-  if (fs.existsSync(vendorChunksSrcResolved) || fs.existsSync(vendorChunksSrc)) {
-    copyRecursive(fs.existsSync(vendorChunksSrcResolved) ? vendorChunksSrcResolved : vendorChunksSrc, vendorChunksDest);
+  const vendorChunksSrcResolved = path.join(
+    buildDistDir,
+    "server",
+    "vendor-chunks",
+  );
+  const vendorChunksDest = path.join(
+    cliAppDir,
+    buildDistDirName,
+    "server",
+    "vendor-chunks",
+  );
+  if (
+    fs.existsSync(vendorChunksSrcResolved) ||
+    fs.existsSync(vendorChunksSrc)
+  ) {
+    copyRecursive(
+      fs.existsSync(vendorChunksSrcResolved)
+        ? vendorChunksSrcResolved
+        : vendorChunksSrc,
+      vendorChunksDest,
+    );
     console.log("✅ Copied vendor-chunks\n");
   } else {
     console.log("⏭️  No vendor-chunks found\n");
@@ -297,6 +400,7 @@ function buildCliPackage() {
   console.log("6️⃣ b Copying complete server artifacts...");
   mergeServerArtifacts(buildDistDir, cliAppDir);
   assertRequiredApiArtifacts(cliAppDir);
+  assertRequiredAppFiles(cliAppDir);
   console.log("✅ Copied complete server artifacts\n");
 
   // Step 7: Copy MITM server files (not bundled by Next.js standalone)
@@ -327,7 +431,7 @@ function buildCliPackage() {
     execSync("node scripts/buildMitm.js", { stdio: "inherit", cwd: cliDir });
     console.log("✅ MITM server build completed\n");
   } catch (error) {
-    console.error("❌ MITM build failed");
+    console.error(`❌ MITM build failed: ${error.message}`);
     process.exit(1);
   }
 
@@ -340,11 +444,13 @@ function buildCliPackage() {
     console.log(`📊 Package size: ${size.split("\t")[0]}`);
   } catch (e) {
     // Silent fail on size check
+    void e;
   }
 }
 
 module.exports = {
   assertRequiredApiArtifacts,
+  assertRequiredAppFiles,
   copyStandaloneBuild,
   mergeServerArtifacts,
 };
