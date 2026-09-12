@@ -46,7 +46,9 @@ describe("DLP: 规则文件随产物分发", () => {
     );
     // 自检项：产物路径（构造方式不限写法）与它的可读名必须同时在场
     const selfCheck = src.slice(src.indexOf("for (const [p, what] of ["));
-    expect(selfCheck).toContain('join(OUT, "open-sse", "dlp", "dlp_rules.yaml")');
+    expect(selfCheck).toContain(
+      'join(OUT, "open-sse", "dlp", "dlp_rules.yaml")',
+    );
     expect(selfCheck).toContain('"open-sse/dlp/dlp_rules.yaml"');
   });
 
