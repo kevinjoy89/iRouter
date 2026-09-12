@@ -6,9 +6,22 @@
 import { inspectRequestBody } from "open-sse/dlp/index.js";
 import { getProviderConnections } from "@/lib/db/repos/connectionsRepo.js";
 
+// 豁免标记：引擎不内置标记值（对齐参考实现的 DLP_EXEMPT_START/END 环境变量语义），
+// 由调用方注入。面板文案已向用户展示这一对字面量，两边必须同源。
+// 用码点构造而非字面量：避免源码改写/中间层处理 [[ ]] 时静默改变实际标记。
+const B = String.fromCharCode(91, 91);
+const E = String.fromCharCode(93, 93);
+export const EXEMPT_START = `${B}ALLOW_SENSITIVE${E}`;
+export const EXEMPT_END = `${B}/ALLOW_SENSITIVE${E}`;
+
 // 已知密钥：connections 里的上游凭据。命中即判泄漏、零误报。
 // 排序去重后按长度降序交给引擎（长匹配优先，避免被短密钥前缀截断）。
-const KNOWN_SECRET_FIELDS = ["apiKey", "accessToken", "refreshToken", "idToken"];
+const KNOWN_SECRET_FIELDS = [
+  "apiKey",
+  "accessToken",
+  "refreshToken",
+  "idToken",
+];
 const KNOWN_SECRET_MIN_LENGTH = 8;
 const KNOWN_SECRET_CACHE_TTL_MS = 30000;
 
@@ -20,14 +33,19 @@ let cachedSecretsAt = 0;
  * 30 秒缓存：凭据变更不频繁，而它位于每个请求的路径上。
  */
 export async function collectKnownSecrets() {
-  if (cachedSecrets && Date.now() - cachedSecretsAt < KNOWN_SECRET_CACHE_TTL_MS) return cachedSecrets;
+  if (cachedSecrets && Date.now() - cachedSecretsAt < KNOWN_SECRET_CACHE_TTL_MS)
+    return cachedSecrets;
   try {
     const connections = await getProviderConnections();
     const secrets = new Set();
     for (const conn of connections || []) {
       for (const field of KNOWN_SECRET_FIELDS) {
         const value = conn?.[field];
-        if (typeof value === "string" && value.length >= KNOWN_SECRET_MIN_LENGTH) secrets.add(value);
+        if (
+          typeof value === "string" &&
+          value.length >= KNOWN_SECRET_MIN_LENGTH
+        )
+          secrets.add(value);
       }
     }
     cachedSecrets = [...secrets];
@@ -55,19 +73,32 @@ export function invalidateKnownSecrets() {
  */
 export async function applyRequestRedaction(body, settings) {
   const result = {
-    body, blocked: false, matchedRules: [], blockedRules: [],
-    redactions: 0, exemptions: 0, scannedFields: 0, scannedChars: 0,
-    limitExceeded: false, error: null,
+    body,
+    blocked: false,
+    matchedRules: [],
+    blockedRules: [],
+    redactions: 0,
+    exemptions: 0,
+    scannedFields: 0,
+    scannedChars: 0,
+    limitExceeded: false,
+    error: null,
   };
   const mode = settings?.dlpMode || "off";
   if (mode === "off") return result;
 
-  const knownSecrets = settings.dlpKnownSecrets === false ? [] : await collectKnownSecrets();
+  const knownSecrets =
+    settings.dlpKnownSecrets === false ? [] : await collectKnownSecrets();
   const out = inspectRequestBody(body, {
     mode,
-    rules: Array.isArray(settings.dlpRules) && settings.dlpRules.length ? settings.dlpRules : undefined,
+    rules:
+      Array.isArray(settings.dlpRules) && settings.dlpRules.length
+        ? settings.dlpRules
+        : undefined,
     knownSecrets,
     allowExemptions: settings.dlpAllowExemptions === true,
+    exemptStart: EXEMPT_START,
+    exemptEnd: EXEMPT_END,
   });
 
   result.body = out.body;
@@ -89,16 +120,22 @@ export async function applyRequestRedaction(body, settings) {
  * 便于客户端按 error.type 识别；额外带 rules 便于用户定位是哪条规则命中。
  */
 export function blockedResponse(blockedRules) {
-  return new Response(JSON.stringify({
-    error: {
-      type: "sensitive_data_blocked",
-      message: "Request blocked by sensitive data policy",
-      rules: blockedRules,
+  return new Response(
+    JSON.stringify({
+      error: {
+        type: "sensitive_data_blocked",
+        message: "Request blocked by sensitive data policy",
+        rules: blockedRules,
+      },
+    }),
+    {
+      status: 422,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
     },
-  }), {
-    status: 422,
-    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-  });
+  );
 }
 
 /**
@@ -114,8 +151,21 @@ export function logDlpOutcome(logger, mode, redaction) {
   if (!mode || mode === "off") return; // 关闭状态不留痕，避免误导
   const scanned = `scanned=${redaction.scannedFields}field/${redaction.scannedChars}char`;
   const rules = redaction.matchedRules.join(",");
+  // 解码预算耗尽 → 编码层扫描被截断，本次判定不完整。必须能看出来：
+  // 漏扫与「扫了没命中」否则在日志里完全同形，用户会误以为「开着且干净」。
+  // 影响面仅限编码层（base64/hex/percent）——明文规则先跑完，不受预算影响。
+  if (redaction.limitExceeded) {
+    logger.warn(
+      "DLP",
+      `incomplete partial=decode-budget-exhausted rules=${rules || "none"} count=${redaction.redactions} ${scanned}`,
+    );
+    return;
+  }
   if (redaction.redactions > 0) {
-    logger.warn("DLP", `redacted rules=${rules} count=${redaction.redactions} ${scanned}`);
+    logger.warn(
+      "DLP",
+      `redacted rules=${rules} count=${redaction.redactions} ${scanned}`,
+    );
   } else if (redaction.matchedRules.length) {
     logger.info("DLP", `matched(no-rewrite) rules=${rules} ${scanned}`);
   } else {

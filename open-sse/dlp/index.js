@@ -48,7 +48,9 @@ function resolveDefaultRuleFile({
   for (const candidate of candidates) {
     try {
       if (fs.existsSync(candidate)) return candidate;
-    } catch { /* 探测失败继续下一个候选 */ }
+    } catch {
+      /* 探测失败继续下一个候选 */
+    }
   }
   // 全都不存在：返回最后一个候选，交由 loadPolicy 抛错 → 调用方 fail-open 并记录 error
   return candidates[candidates.length - 1] || RULE_FILE_NAME;
@@ -67,14 +69,23 @@ const VALIDATORS = new Set(["", "cn_id_checksum", "luhn"]);
 
 // 这些字段名下的值若像内联二进制（data URI 或长 base64），跳过扫描：
 // 图片/音频载荷里命中「看起来像密钥」的子串纯属噪声，且扫描成本高。
-const BINARY_KEYS = new Set(["image", "image_url", "audio", "file_data", "data", "blob"]);
+const BINARY_KEYS = new Set([
+  "image",
+  "image_url",
+  "audio",
+  "file_data",
+  "data",
+  "blob",
+]);
 
 // 整串是否像 base64（用于上面的内联二进制判定）
 const BASE64_FULL = /^[A-Za-z0-9+/]+={0,2}$/;
 // 候选编码片段：分别用于 hex / percent / base64 的递归解码
-const BASE64_CANDIDATE = /(?<![A-Za-z0-9_+/-])[A-Za-z0-9_+/-]{16,}={0,2}(?![A-Za-z0-9_+/-])/g;
+const BASE64_CANDIDATE =
+  /(?<![A-Za-z0-9_+/-])[A-Za-z0-9_+/-]{16,}={0,2}(?![A-Za-z0-9_+/-])/g;
 const HEX_CANDIDATE = /(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}){16,}(?![0-9A-Fa-f])/g;
-const PERCENT_CANDIDATE = /(?<![A-Za-z0-9._~%-])(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}){16,}(?![A-Za-z0-9._~%-])/g;
+const PERCENT_CANDIDATE =
+  /(?<![A-Za-z0-9._~%-])(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}){16,}(?![A-Za-z0-9._~%-])/g;
 // 控制字符（可打印性判定，近似 Python str.isprintable）
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/;
 
@@ -133,7 +144,9 @@ export function entropy(value) {
 function stringList(value, field, ruleName = "") {
   if (value == null) return [];
   if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
-    const prefix = ruleName ? `DLP rule ${JSON.stringify(ruleName)} ` : "DLP policy ";
+    const prefix = ruleName
+      ? `DLP rule ${JSON.stringify(ruleName)} `
+      : "DLP policy ";
     throw new Error(`${prefix}${field} must be a string array`);
   }
   return value;
@@ -145,59 +158,103 @@ function stringList(value, field, ruleName = "") {
  * （见 inspectRequestBody 的 fail-open）。
  */
 export function loadPolicy(ruleFile = DEFAULT_RULE_FILE) {
-  const raw = ruleFile.toLowerCase().endsWith(".json")
-    ? JSON.parse(fs.readFileSync(ruleFile, "utf8"))
-    : parseYAML(fs.readFileSync(ruleFile, "utf8"));
+  let raw;
+  try {
+    const text = fs.readFileSync(ruleFile, "utf8");
+    raw = ruleFile.toLowerCase().endsWith(".json")
+      ? JSON.parse(text)
+      : parseYAML(text);
+  } catch (err) {
+    // 保留抛出（这是加载期契约），但补上文件名：调用方只记 err.message，
+    // 没有文件名时 ENOENT 与「规则写错」在日志里长得一模一样。
+    throw new Error(`DLP rule file ${ruleFile}: ${err?.message}`);
+  }
 
-  if (!raw || typeof raw !== "object" || (raw.version !== 1 && raw.version !== 2)) {
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    (raw.version !== 1 && raw.version !== 2)
+  ) {
     throw new Error("unsupported or malformed DLP rule file");
   }
   if (!raw.rules || typeof raw.rules !== "object") {
     throw new Error("DLP rule file has no rules object");
   }
   const defaults = raw.version === 2 ? raw.defaults || {} : {};
-  if (typeof defaults !== "object") throw new Error("DLP defaults must be an object");
+  if (typeof defaults !== "object")
+    throw new Error("DLP defaults must be an object");
 
   const defaultAction = defaults.action || "redact";
   const defaultPlaceholder = defaults.placeholder || "[REDACTED:{rule}]";
-  if (!ACTIONS.has(defaultAction)) throw new Error(`unknown default DLP action ${JSON.stringify(defaultAction)}`);
-  if (typeof defaultPlaceholder !== "string" || !defaultPlaceholder.includes("{rule}")) {
+  if (!ACTIONS.has(defaultAction))
+    throw new Error(
+      `unknown default DLP action ${JSON.stringify(defaultAction)}`,
+    );
+  if (
+    typeof defaultPlaceholder !== "string" ||
+    !defaultPlaceholder.includes("{rule}")
+  ) {
     throw new Error("DLP default placeholder must contain {rule}");
   }
 
   const rules = new Map();
   for (const [name, def] of Object.entries(raw.rules)) {
-    if (!def || typeof def !== "object") throw new Error(`DLP rule ${JSON.stringify(name)} must be an object`);
+    if (!def || typeof def !== "object")
+      throw new Error(`DLP rule ${JSON.stringify(name)} must be an object`);
 
     let flags = "g"; // g 用于 matchAll 迭代；d 用于取捕获组偏移
     for (const flag of stringList(def.flags, "flags", name)) {
-      if (!FLAG_MAP[flag]) throw new Error(`DLP rule ${JSON.stringify(name)} uses unknown regex flag ${JSON.stringify(flag)}`);
+      if (!FLAG_MAP[flag])
+        throw new Error(
+          `DLP rule ${JSON.stringify(name)} uses unknown regex flag ${JSON.stringify(flag)}`,
+        );
       flags += FLAG_MAP[flag];
     }
 
-    const jsonKeys = new Set(stringList(def.json_keys, "json_keys", name).map((k) => k.toLowerCase()));
+    const jsonKeys = new Set(
+      stringList(def.json_keys, "json_keys", name).map((k) => k.toLowerCase()),
+    );
     const patternText = def.pattern;
-    if (!patternText && jsonKeys.size === 0) throw new Error(`DLP rule ${JSON.stringify(name)} needs pattern or json_keys`);
+    if (!patternText && jsonKeys.size === 0)
+      throw new Error(
+        `DLP rule ${JSON.stringify(name)} needs pattern or json_keys`,
+      );
     if (patternText != null && typeof patternText !== "string") {
-      throw new Error(`DLP rule ${JSON.stringify(name)} pattern must be a string`);
+      throw new Error(
+        `DLP rule ${JSON.stringify(name)} pattern must be a string`,
+      );
     }
 
     const validator = def.validator || "";
-    if (!VALIDATORS.has(validator)) throw new Error(`DLP rule ${JSON.stringify(name)} uses unknown validator ${JSON.stringify(validator)}`);
+    if (!VALIDATORS.has(validator))
+      throw new Error(
+        `DLP rule ${JSON.stringify(name)} uses unknown validator ${JSON.stringify(validator)}`,
+      );
 
     const action = def.action || "";
-    if (action && !ACTIONS.has(action)) throw new Error(`DLP rule ${JSON.stringify(name)} uses unknown action ${JSON.stringify(action)}`);
+    if (action && !ACTIONS.has(action))
+      throw new Error(
+        `DLP rule ${JSON.stringify(name)} uses unknown action ${JSON.stringify(action)}`,
+      );
 
     const placeholder = def.placeholder || "";
-    if (placeholder && (typeof placeholder !== "string" || !placeholder.includes("{rule}"))) {
-      throw new Error(`DLP rule ${JSON.stringify(name)} placeholder must contain {rule}`);
+    if (
+      placeholder &&
+      (typeof placeholder !== "string" || !placeholder.includes("{rule}"))
+    ) {
+      throw new Error(
+        `DLP rule ${JSON.stringify(name)} placeholder must contain {rule}`,
+      );
     }
 
     const minEntropy = Number(def.min_entropy ?? 0);
     const maxMatches = Number(def.max_matches ?? 100);
     const secretGroup = Number(def.secret_group ?? 0);
     const enabled = def.enabled ?? true;
-    if (typeof enabled !== "boolean") throw new Error(`DLP rule ${JSON.stringify(name)} enabled must be boolean`);
+    if (typeof enabled !== "boolean")
+      throw new Error(
+        `DLP rule ${JSON.stringify(name)} enabled must be boolean`,
+      );
     if (!(minEntropy >= 0) || !(maxMatches > 0) || !(secretGroup >= 0)) {
       throw new Error(`DLP rule ${JSON.stringify(name)} has invalid limits`);
     }
@@ -206,18 +263,24 @@ export function loadPolicy(ruleFile = DEFAULT_RULE_FILE) {
     // 不共享 lastIndex（模块级正则的 lastIndex 会在并发请求间互相污染——移植时的头号坑）。
     const pattern = patternText ? new RegExp(patternText, flags + "d") : null;
     if (pattern && secretGroup > countGroups(patternText)) {
-      throw new Error(`DLP rule ${JSON.stringify(name)} secret_group does not exist`);
+      throw new Error(
+        `DLP rule ${JSON.stringify(name)} secret_group does not exist`,
+      );
     }
 
     rules.set(name, {
       name,
       pattern,
       validator,
-      keywords: stringList(def.keywords, "keywords", name).map((k) => k.toLowerCase()),
+      keywords: stringList(def.keywords, "keywords", name).map((k) =>
+        k.toLowerCase(),
+      ),
       minEntropy,
       action,
       placeholder,
-      allowlist: stringList(def.allowlist, "allowlist", name).map((k) => k.toLowerCase()),
+      allowlist: stringList(def.allowlist, "allowlist", name).map((k) =>
+        k.toLowerCase(),
+      ),
       maxMatches,
       secretGroup,
       enabled,
@@ -226,12 +289,24 @@ export function loadPolicy(ruleFile = DEFAULT_RULE_FILE) {
   }
 
   if (raw.version === 1) {
-    const legacyKeys = stringList(raw.sensitive_json_keys, "sensitive_json_keys");
+    const legacyKeys = stringList(
+      raw.sensitive_json_keys,
+      "sensitive_json_keys",
+    );
     if (legacyKeys.length) {
       rules.set("structured_secret", {
-        name: "structured_secret", pattern: null, validator: "", keywords: [],
-        minEntropy: 0, action: "", placeholder: "", allowlist: [], maxMatches: 100,
-        secretGroup: 0, enabled: true, jsonKeys: new Set(legacyKeys.map((k) => k.toLowerCase())),
+        name: "structured_secret",
+        pattern: null,
+        validator: "",
+        keywords: [],
+        minEntropy: 0,
+        action: "",
+        placeholder: "",
+        allowlist: [],
+        maxMatches: 100,
+        secretGroup: 0,
+        enabled: true,
+        jsonKeys: new Set(legacyKeys.map((k) => k.toLowerCase())),
       });
     }
   }
@@ -255,7 +330,9 @@ function getPolicy(ruleFile) {
   let key = ruleFile;
   try {
     key = `${ruleFile}:${fs.statSync(ruleFile).mtimeMs}`;
-  } catch { /* 文件不存在等情形交给 loadPolicy 抛错 */ }
+  } catch {
+    /* 文件不存在等情形交给 loadPolicy 抛错 */
+  }
   if (cachedPolicy && cachedPolicyKey === key) return cachedPolicy;
   const policy = loadPolicy(ruleFile);
   cachedPolicy = policy;
@@ -317,7 +394,11 @@ function decodePercent(candidate) {
  * 调用方在 redact/block 模式下据此返回 413，避免攻击者用伪候选挤掉真实秘密。
  */
 function* decodeCandidates(value, budget) {
-  for (const [kind, pattern] of [["hex", HEX_CANDIDATE], ["percent", PERCENT_CANDIDATE], ["base64", BASE64_CANDIDATE]]) {
+  for (const [kind, pattern] of [
+    ["hex", HEX_CANDIDATE],
+    ["percent", PERCENT_CANDIDATE],
+    ["base64", BASE64_CANDIDATE],
+  ]) {
     // 关键：带 g 的正则用 matchAll 迭代（每次调用新建迭代器，不共享 lastIndex）
     for (const match of value.matchAll(pattern)) {
       const candidate = match[0];
@@ -372,6 +453,29 @@ function ruleAction(rule, mode, policy) {
   return rule.action || (ACTIONS.has(mode) ? mode : policy.defaultAction);
 }
 
+/**
+ * 写回一个键，保留 own 的 "__proto__" 键。
+ *
+ * 客户端可发送 own 的 "__proto__"（JSON.parse 把它建成 own 属性，Object.entries
+ * 能枚举到），而 `obj[key] = v` 走的是 [[Set]] —— 命中 Object.prototype 上的
+ * __proto__ setter：字段静默消失，值反而挂到结果对象的原型上。
+ * defineProperty 建的是 own 数据属性，与 spread（CreateDataProperty）一致。
+ *
+ * 只对这一个键走慢路径，其余键保持普通赋值。
+ */
+function defineKey(target, key, value) {
+  if (key === "__proto__") {
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  } else {
+    target[key] = value;
+  }
+}
+
 function candidateAllowed(candidate, rule) {
   const lowered = candidate.toLowerCase();
   return rule.allowlist.some((item) => lowered.includes(item));
@@ -391,10 +495,21 @@ export function buildKnownSecretPattern(knownSecrets, minLength = 8) {
     .filter((s) => typeof s === "string" && s.length >= minLength)
     .sort((a, b) => b.length - a.length);
   if (!secrets.length) return null;
-  return new RegExp(secrets.map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gd");
+  return new RegExp(
+    secrets.map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "gd",
+  );
 }
 
-function collectSpans(value, enabledRules, mode, policy, knownSecretPattern, decodeDepth, budget) {
+function collectSpans(
+  value,
+  enabledRules,
+  mode,
+  policy,
+  knownSecretPattern,
+  decodeDepth,
+  budget,
+) {
   const spans = [];
   const matched = new Set();
   const blocked = new Set();
@@ -405,14 +520,18 @@ function collectSpans(value, enabledRules, mode, policy, knownSecretPattern, dec
     const rule = policy.rules.get(name);
     if (!rule || !rule.enabled || !rule.pattern) continue;
     // keywords 预筛：缺席时零正则开销，这是性能的主要来源
-    if (rule.keywords.length && !rule.keywords.some((k) => lowered.includes(k))) continue;
+    if (rule.keywords.length && !rule.keywords.some((k) => lowered.includes(k)))
+      continue;
 
     let count = 0;
     for (const match of value.matchAll(rule.pattern)) {
       const candidate = match[rule.secretGroup] ?? match[0];
       if (!candidateValid(candidate, rule)) continue;
       const action = ruleAction(rule, mode, policy);
-      const [start, end] = match.indices[rule.secretGroup] || [match.index, match.index + match[0].length];
+      const [start, end] = match.indices[rule.secretGroup] || [
+        match.index,
+        match.index + match[0].length,
+      ];
       spans.push([start, end, name, action, rule]);
       matched.add(name);
       if (action === "block") blocked.add(name);
@@ -427,7 +546,13 @@ function collectSpans(value, enabledRules, mode, policy, knownSecretPattern, dec
   if (knownSecretPattern) {
     let count = 0;
     for (const match of value.matchAll(knownSecretPattern)) {
-      spans.push([match.index, match.index + match[0].length, "known_secret", knownAction, knownRule]);
+      spans.push([
+        match.index,
+        match.index + match[0].length,
+        "known_secret",
+        knownAction,
+        knownRule,
+      ]);
       matched.add("known_secret");
       if (knownAction === "block") blocked.add("known_secret");
       if (knownAction === "audit") audited.add("known_secret");
@@ -439,11 +564,20 @@ function collectSpans(value, enabledRules, mode, policy, knownSecretPattern, dec
   if (decodeDepth > 0) {
     const encodedRule = { name: "encoded_secret", placeholder: "" };
     for (const [start, end, decoded] of decodeCandidates(value, budget)) {
-      const nested = collectSpans(decoded, enabledRules, mode, policy, knownSecretPattern, decodeDepth - 1, budget);
+      const nested = collectSpans(
+        decoded,
+        enabledRules,
+        mode,
+        policy,
+        knownSecretPattern,
+        decodeDepth - 1,
+        budget,
+      );
       if (!nested.spans.length) continue;
       const action = nested.spans.reduce(
-        (best, span) => (ACTION_PRIORITY[span[3]] > ACTION_PRIORITY[best] ? span[3] : best),
-        "audit"
+        (best, span) =>
+          ACTION_PRIORITY[span[3]] > ACTION_PRIORITY[best] ? span[3] : best,
+        "audit",
       );
       spans.push([start, end, "encoded_secret", action, encodedRule]);
       for (const n of nested.matched) matched.add(n);
@@ -459,9 +593,23 @@ function collectSpans(value, enabledRules, mode, policy, knownSecretPattern, dec
 }
 
 /** span 选择（重叠时按 起点 → 动作优先级 → 长度 排序取先到者）并替换 */
-function inspectText(value, enabledRules, mode, policy, knownSecretPattern, decodeDepth, budget) {
+function inspectText(
+  value,
+  enabledRules,
+  mode,
+  policy,
+  knownSecretPattern,
+  decodeDepth,
+  budget,
+) {
   const { spans, matched, blocked, audited } = collectSpans(
-    value, enabledRules, mode, policy, knownSecretPattern, decodeDepth, budget
+    value,
+    enabledRules,
+    mode,
+    policy,
+    knownSecretPattern,
+    decodeDepth,
+    budget,
   );
   if (!spans.length) return { value, matched, redactions: 0, blocked, audited };
 
@@ -469,8 +617,9 @@ function inspectText(value, enabledRules, mode, policy, knownSecretPattern, deco
   const occupied = [];
   const ordered = [...spans].sort((a, b) => {
     if (a[0] !== b[0]) return a[0] - b[0];
-    if (ACTION_PRIORITY[a[3]] !== ACTION_PRIORITY[b[3]]) return ACTION_PRIORITY[b[3]] - ACTION_PRIORITY[a[3]];
-    return (b[1] - b[0]) - (a[1] - a[0]);
+    if (ACTION_PRIORITY[a[3]] !== ACTION_PRIORITY[b[3]])
+      return ACTION_PRIORITY[b[3]] - ACTION_PRIORITY[a[3]];
+    return b[1] - b[0] - (a[1] - a[0]);
   });
   for (const span of ordered) {
     const [start, end] = span;
@@ -479,8 +628,11 @@ function inspectText(value, enabledRules, mode, policy, knownSecretPattern, deco
     occupied.push([start, end]);
   }
 
-  const transforms = selected.filter((s) => s[3] === "redact").sort((a, b) => a[0] - b[0]);
-  if (!transforms.length) return { value, matched, redactions: 0, blocked, audited };
+  const transforms = selected
+    .filter((s) => s[3] === "redact")
+    .sort((a, b) => a[0] - b[0]);
+  if (!transforms.length)
+    return { value, matched, redactions: 0, blocked, audited };
 
   const out = [];
   let position = 0;
@@ -491,14 +643,29 @@ function inspectText(value, enabledRules, mode, policy, knownSecretPattern, deco
     position = end;
   }
   out.push(value.slice(position));
-  return { value: out.join(""), matched, redactions: transforms.length, blocked, audited };
+  return {
+    value: out.join(""),
+    matched,
+    redactions: transforms.length,
+    blocked,
+    audited,
+  };
 }
 
 /**
  * 按豁免标记切分文本：标记区间内跳过检测，标记本身在转发前剥除。
  * 未配对或嵌套（区间内再现起始标记）按普通正文处理——不报错、不中断链路。
  */
-function processText(value, opts, enabledRules, mode, policy, knownSecretPattern, decodeDepth, budget) {
+function processText(
+  value,
+  opts,
+  enabledRules,
+  mode,
+  policy,
+  knownSecretPattern,
+  decodeDepth,
+  budget,
+) {
   const { exemptStart, exemptEnd, stripExemptMarkers, allowExemptions } = opts;
   const matched = new Set();
   const blocked = new Set();
@@ -507,7 +674,15 @@ function processText(value, opts, enabledRules, mode, policy, knownSecretPattern
   let redactions = 0;
 
   const inspect = (segment) => {
-    const r = inspectText(segment, enabledRules, mode, policy, knownSecretPattern, decodeDepth, budget);
+    const r = inspectText(
+      segment,
+      enabledRules,
+      mode,
+      policy,
+      knownSecretPattern,
+      decodeDepth,
+      budget,
+    );
     for (const n of r.matched) matched.add(n);
     for (const n of r.blocked) blocked.add(n);
     for (const n of r.audited) audited.add(n);
@@ -515,8 +690,20 @@ function processText(value, opts, enabledRules, mode, policy, knownSecretPattern
     return r.value;
   };
 
-  if (!allowExemptions || !exemptStart || !exemptEnd || exemptStart === exemptEnd) {
-    return { value: inspect(value), matched, exemptions: 0, redactions, blocked, audited };
+  if (
+    !allowExemptions ||
+    !exemptStart ||
+    !exemptEnd ||
+    exemptStart === exemptEnd
+  ) {
+    return {
+      value: inspect(value),
+      matched,
+      exemptions: 0,
+      redactions,
+      blocked,
+      audited,
+    };
   }
 
   const out = [];
@@ -544,12 +731,22 @@ function processText(value, opts, enabledRules, mode, policy, knownSecretPattern
     out.push(stripExemptMarkers ? content : exemptStart + content + exemptEnd);
     position = end + exemptEnd.length;
   }
-  return { value: out.join(""), matched, exemptions, redactions, blocked, audited };
+  return {
+    value: out.join(""),
+    matched,
+    exemptions,
+    redactions,
+    blocked,
+    audited,
+  };
 }
 
 /** Responses/Chat 风格里承载用户与工具内容的字段名 */
 const SENSITIVE_ITEM_TYPES = new Set([
-  "function_call_output", "computer_call_output", "local_shell_call_output", "mcp_call_output",
+  "function_call_output",
+  "computer_call_output",
+  "local_shell_call_output",
+  "mcp_call_output",
 ]);
 
 /**
@@ -561,7 +758,17 @@ const SENSITIVE_ITEM_TYPES = new Set([
  * 刻意不扫：system/developer 指令、assistant 内容、JSON Schema、协议字段
  * （id / call_id / tool_call_id / type / status）——这些命中只会造成误伤。
  */
-function inspectJson(value, opts, enabledRules, mode, policy, knownSecretPattern, decodeDepth, budget, acc) {
+function inspectJson(
+  value,
+  opts,
+  enabledRules,
+  mode,
+  policy,
+  knownSecretPattern,
+  decodeDepth,
+  budget,
+  acc,
+) {
   const visit = (node) => {
     if (typeof node === "string") {
       // 统计实际扫描过的字符串字段数：用于区分「跑了但没命中」与「根本没跑」。
@@ -569,7 +776,16 @@ function inspectJson(value, opts, enabledRules, mode, policy, knownSecretPattern
       // 在日志里长得一模一样。
       acc.scannedFields += 1;
       acc.scannedChars += node.length;
-      const r = processText(node, opts, enabledRules, mode, policy, knownSecretPattern, decodeDepth, budget);
+      const r = processText(
+        node,
+        opts,
+        enabledRules,
+        mode,
+        policy,
+        knownSecretPattern,
+        decodeDepth,
+        budget,
+      );
       for (const n of r.matched) acc.matched.add(n);
       for (const n of r.blocked) acc.blocked.add(n);
       for (const n of r.audited) acc.audited.add(n);
@@ -583,29 +799,46 @@ function inspectJson(value, opts, enabledRules, mode, policy, knownSecretPattern
       const structured = policy.rules.get("structured_secret");
       for (const [key, item] of Object.entries(node)) {
         // 内联二进制（data URI 或长 base64）跳过扫描
-        if (BINARY_KEYS.has(key.toLowerCase()) && typeof item === "string"
-            && (item.startsWith("data:") || (item.length > 4096 && BASE64_FULL.test(item)))) {
-          out[key] = item;
+        if (
+          BINARY_KEYS.has(key.toLowerCase()) &&
+          typeof item === "string" &&
+          (item.startsWith("data:") ||
+            (item.length > 4096 && BASE64_FULL.test(item)))
+        ) {
+          defineKey(out, key, item);
           continue;
         }
         let cleaned = visit(item);
         // json_keys 规则：按字段名判定（值仍需过熵阈值与 allowlist）
-        if (structured && enabledRules.includes("structured_secret") && structured.enabled
-            && structured.jsonKeys.has(key.toLowerCase()) && typeof item === "string" && item
-            && candidateValid(item, structured)) {
+        if (
+          structured &&
+          enabledRules.includes("structured_secret") &&
+          structured.enabled &&
+          structured.jsonKeys.has(key.toLowerCase()) &&
+          typeof item === "string" &&
+          item &&
+          candidateValid(item, structured)
+        ) {
           const trimmed = item.trim();
-          if (!(trimmed.startsWith(opts.exemptStart) && trimmed.endsWith(opts.exemptEnd))) {
+          if (
+            !(
+              trimmed.startsWith(opts.exemptStart) &&
+              trimmed.endsWith(opts.exemptEnd)
+            )
+          ) {
             const action = ruleAction(structured, mode, policy);
             acc.matched.add("structured_secret");
             if (action === "block") acc.blocked.add("structured_secret");
             else if (action === "audit") acc.audited.add("structured_secret");
             else if (!cleaned.includes("[REDACTED:")) {
-              cleaned = (structured.placeholder || policy.defaultPlaceholder).replace("{rule}", "structured_secret");
+              cleaned = (
+                structured.placeholder || policy.defaultPlaceholder
+              ).replace("{rule}", "structured_secret");
               acc.redactions += 1;
             }
           }
         }
-        out[key] = cleaned;
+        defineKey(out, key, cleaned);
       }
       return out;
     }
@@ -616,7 +849,8 @@ function inspectJson(value, opts, enabledRules, mode, policy, knownSecretPattern
     const out = { ...item };
     let fields = [];
     if (item.role === "user" || item.role === "tool") fields = ["content"];
-    else if (SENSITIVE_ITEM_TYPES.has(item.type)) fields = ["output", "content"];
+    else if (SENSITIVE_ITEM_TYPES.has(item.type))
+      fields = ["output", "content"];
     for (const field of fields) {
       if (field in item) out[field] = visit(item[field]);
     }
@@ -625,10 +859,20 @@ function inspectJson(value, opts, enabledRules, mode, policy, knownSecretPattern
 
   const visitSensitiveItems = (items) => {
     const indexes = items
-      .map((item, i) => (item && typeof item === "object"
-        && (item.role === "user" || item.role === "tool" || SENSITIVE_ITEM_TYPES.has(item.type)) ? i : -1))
+      .map((item, i) =>
+        item &&
+        typeof item === "object" &&
+        (item.role === "user" ||
+          item.role === "tool" ||
+          SENSITIVE_ITEM_TYPES.has(item.type))
+          ? i
+          : -1,
+      )
       .filter((i) => i >= 0);
-    if (!indexes.length) return items.map((item) => (typeof item === "string" ? visit(item) : item));
+    if (!indexes.length)
+      return items.map((item) =>
+        typeof item === "string" ? visit(item) : item,
+      );
     const out = [...items];
     for (const i of indexes) out[i] = visitSensitiveItem(items[i]);
     return out;
@@ -644,7 +888,9 @@ function inspectJson(value, opts, enabledRules, mode, policy, knownSecretPattern
     recognized = true;
   }
   if ("input" in value) {
-    cleaned.input = Array.isArray(value.input) ? visitSensitiveItems(value.input) : visit(value.input);
+    cleaned.input = Array.isArray(value.input)
+      ? visitSensitiveItems(value.input)
+      : visit(value.input);
     recognized = true;
   }
   for (const key of ["prompt", "query"]) {
@@ -678,13 +924,34 @@ function inspectJson(value, opts, enabledRules, mode, policy, knownSecretPattern
  */
 export function inspectRequestBody(body, options = {}) {
   const empty = {
-    body, matchedRules: [], blockedRules: [], auditedRules: [],
-    redactions: 0, exemptions: 0, scannedFields: 0, scannedChars: 0,
-    limitExceeded: false, error: null,
+    body,
+    matchedRules: [],
+    blockedRules: [],
+    auditedRules: [],
+    redactions: 0,
+    exemptions: 0,
+    scannedFields: 0,
+    scannedChars: 0,
+    limitExceeded: false,
+    error: null,
   };
   const mode = options.mode || "off";
   if (mode === "off" || !ACTIONS.has(mode)) return empty;
   if (!body || typeof body !== "object") return empty;
+
+  // 对齐参考实现（dlp.py:474）：开了豁免却没给可用的标记对 → **整请求不可检视**。
+  // 静默零扫描是这个功能最坏的失败形态（面板显示已开启、每条请求却零扫描），
+  // 故这里显式报错。调用方会把 error 打进日志（fail-open 的常规路径）。
+  if (options.allowExemptions === true) {
+    const start = options.exemptStart || "";
+    const end = options.exemptEnd || "";
+    if (!start || !end || start === end) {
+      const msg =
+        "allowExemptions=true requires distinct exemptStart/exemptEnd";
+      console.warn(`[DLP] ${msg}, passing through uninspected`);
+      return { ...empty, error: msg };
+    }
+  }
 
   try {
     const ruleFile = options.ruleFile || DEFAULT_RULE_FILE;
@@ -707,12 +974,30 @@ export function inspectRequestBody(body, options = {}) {
     };
     const knownSecretPattern = buildKnownSecretPattern(
       options.knownSecrets || [],
-      options.knownSecretMinLength ?? 8
+      options.knownSecretMinLength ?? 8,
     );
 
-    const acc = { matched: new Set(), blocked: new Set(), audited: new Set(), redactions: 0, exemptions: 0, scannedFields: 0, scannedChars: 0 };
+    const acc = {
+      matched: new Set(),
+      blocked: new Set(),
+      audited: new Set(),
+      redactions: 0,
+      exemptions: 0,
+      scannedFields: 0,
+      scannedChars: 0,
+    };
     const decodeDepth = Math.max(0, options.decodeDepth ?? 2);
-    const cleaned = inspectJson(body, opts, enabledRules, mode, policy, knownSecretPattern, decodeDepth, budget, acc);
+    const cleaned = inspectJson(
+      body,
+      opts,
+      enabledRules,
+      mode,
+      policy,
+      knownSecretPattern,
+      decodeDepth,
+      budget,
+      acc,
+    );
 
     return {
       body: cleaned,
