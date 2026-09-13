@@ -679,6 +679,21 @@ export default function ProfilePage() {
     }
   };
 
+  const updateVerboseErrorLog = async (enabled) => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verboseErrorLog: enabled }),
+      });
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, verboseErrorLog: enabled }));
+      }
+    } catch (err) {
+      console.error("Failed to update verboseErrorLog:", err);
+    }
+  };
+
   // 请求脱敏（ADR 0005）：4 个字段共用一个 PATCH 助手
   const updateDlpSetting = async (patch) => {
     try {
@@ -784,6 +799,7 @@ export default function ProfilePage() {
   };
 
   const observabilityEnabled = settings.enableObservability === true;
+  const verboseErrorLog = settings.verboseErrorLog === true;
   const dlpMode = settings.dlpMode || "off";
   const dlpKnownSecrets = settings.dlpKnownSecrets !== false;
   const dlpAllowExemptions = settings.dlpAllowExemptions === true;
@@ -1789,6 +1805,19 @@ export default function ProfilePage() {
             <Toggle
               checked={observabilityEnabled}
               onChange={updateObservabilityEnabled}
+              disabled={loading}
+            />
+          </div>
+          <div className="flex items-start sm:items-center justify-between gap-4 pt-4 mt-4 border-t border-border">
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm sm:text-base">Print Full Error Logs</p>
+              <p className="text-xs sm:text-sm text-text-muted">
+                Include the full upstream error body in the console log (off by default)
+              </p>
+            </div>
+            <Toggle
+              checked={verboseErrorLog}
+              onChange={updateVerboseErrorLog}
               disabled={loading}
             />
           </div>

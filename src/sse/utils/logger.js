@@ -43,6 +43,20 @@ export function errorLine(tag, symbol, message) {
   console.log(`[${formatTime()}] ${tag} ${symbol} ${message}`);
 }
 
+// 完整异常日志开关（设置项 settings.verboseErrorLog，默认关）。由请求入口按
+// 当次请求的 settings 刷新，因此改动下一次请求即生效，无需重启。
+let verboseErrors = false;
+
+export function setVerboseErrors(on) {
+  verboseErrors = on === true;
+}
+
+// Like errorLine() but only when the verbose switch is on: 上游原始报文等大段内容
+export function errorDetail(tag, symbol, message) {
+  if (!verboseErrors) return;
+  console.log(`[${formatTime()}] ${tag} ${symbol} ${message}`);
+}
+
 // Format thinking intent for the request line ("high(10k)" / "off" / "auto")
 export function fmtThink(intent) {
   if (!intent || !intent.mode) return null;

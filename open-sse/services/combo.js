@@ -429,6 +429,8 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       lastError = errorText || String(result.status);
       if (!lastStatus) lastStatus = result.status;
       log.warn("COMBO", `Model ${modelStr} failed, trying next`, { status: result.status });
+      // 完整异常日志（settings.verboseErrorLog，默认关）：成员级失败原文
+      log.errorDetail?.("COMBO", "✗", `Model ${modelStr} failed (${result.status}): ${errorText}`);
     } catch (error) {
       // Catch unexpected exceptions to ensure fallback continues
       lastError = error.message || String(error);

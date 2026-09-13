@@ -9,7 +9,7 @@ import { createRequestLogger } from "../utils/requestLogger.js";
 import { getModelTargetFormat, getModelSupportedFormats, getModelStrip, getModelUpstreamId, getModelType, PROVIDER_ID_TO_ALIAS } from "../config/providerModels.js";
 import { PROVIDERS } from "../config/providers.js";
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
-import { HTTP_STATUS, TOKEN_SAVER_HEADER } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, TOKEN_SAVER_HEADER, VERBOSE_ERROR_BODY_MAX_BYTES } from "../config/runtimeConfig.js";
 import { handleBypassRequest } from "../utils/bypassHandler.js";
 import { trackPendingRequest, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { getExecutor } from "../executors/index.js";
@@ -452,7 +452,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // Provider returned error
   if (!providerResponse.ok) {
     trackPendingRequest(model, provider, connectionId, false, true);
-    const { statusCode, message, resetsAtMs } = await parseUpstreamError(providerResponse, executor);
+    const { statusCode, message, resetsAtMs, rawBody } = await parseUpstreamError(providerResponse, executor);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
       provider, model, connectionId,
@@ -469,6 +469,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     if (log?.errorLine) {
       const urlStr = providerUrl ? `\n    URL: ${providerUrl}` : "";
       log.errorLine(reqTag, "✗", `ERROR ${statusCode} · ${provider}/${model} · ${Date.now() - requestStartTime}ms${urlStr}\n    ${errMsg}`);
+    }
+    // 完整异常日志（settings.verboseErrorLog，默认关）：上游原始报文全文，
+    // 供定位「上游到底回了什么」（如内容审核 400 的原始 body）。
+    if (rawBody) {
+      log?.errorDetail?.(
+        reqTag, "✗",
+        `DETAIL ${statusCode} · ${provider}/${model}${providerUrl ? ` · ${providerUrl}` : ""} · upstream body ${rawBody.length}B:\n    ${rawBody.slice(0, VERBOSE_ERROR_BODY_MAX_BYTES)}`
+      );
     }
     reqLogger.logError(new Error(message), finalBody || translatedBody);
     return createErrorResult(statusCode, errMsg, resetsAtMs);

@@ -56,6 +56,9 @@ export const DEFAULT_SETTINGS = {
   samlAttributeEmail: "email",
   samlAttributeName: "name",
   enableObservability: false,
+  // 完整异常日志：开启后上游失败的原始报文（截断至 VERBOSE_ERROR_BODY_MAX_BYTES）
+  // 才写入控制台日志。默认关，避免正常运行时刷屏。
+  verboseErrorLog: false,
   observabilityMaxRecords: 1000,
   observabilityBatchSize: 20,
   observabilityFlushIntervalMs: 5000,

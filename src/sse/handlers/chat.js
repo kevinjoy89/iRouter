@@ -49,6 +49,8 @@ function effortAwareRouteFor(settings, comboName) {
  */
 export async function handleChat(request, clientRawRequest = null) {
   const settings = await getSettings();
+  // 完整异常日志开关：每次请求按最新设置刷新，开关改动即时生效
+  log.setVerboseErrors(settings.verboseErrorLog);
   const cfg = resolveAutoRetry(settings);
 
   // 请求体只能读一次：`request.json()` 消费流，重试闭包内再读会抛

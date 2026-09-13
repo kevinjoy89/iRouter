@@ -940,6 +940,8 @@
   "Recheck": "重新检查",
   "Recommended for most users. Free AWS account required.": "推荐给大多数用户。需要免费 AWS 帐户。",
   "Record request details for inspection in the logs view": "记录请求详细信息以便在日志视图中分析",
+  "Print Full Error Logs": "打印完整异常日志",
+  "Include the full upstream error body in the console log (off by default)": "把上游完整异常报文写入控制台日志（默认关闭）",
   "Redirect URI": "重定向 URI",
   "Ref Image (URL)": "参考图像 (URL)",
   "Refresh": "刷新",
