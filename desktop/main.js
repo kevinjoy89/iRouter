@@ -115,19 +115,6 @@ function iconPath() {
     : path.join(__dirname, "resources", "icon.png");
 }
 
-let cachedLogoDataUrl = null;
-function getLogoDataUrl() {
-  if (cachedLogoDataUrl) return cachedLogoDataUrl;
-  const p = iconPath();
-  if (fs.existsSync(p)) {
-    const img = nativeImage.createFromPath(p);
-    // 渲染在 36x36 容器中，用 72x72 在 Retina 屏幕下呈现 2x 细腻度
-    cachedLogoDataUrl = img.resize({ width: 72, height: 72 }).toDataURL();
-    return cachedLogoDataUrl;
-  }
-  return "";
-}
-
 // ---------------------------------------------------------------- 端口
 function isPortFree(port) {
   // 用“能否连上”判定占用：macOS 下 SO_REUSEADDR 会让 listen(127.0.0.1:N) 在已有 *:N
@@ -396,68 +383,13 @@ function showWindow() {
   mainWindow.focus();
 }
 
-// 壳层隐藏与定制的上游 UI（纯表现层，无功能影响；上游源码零改动，见 ADR-0002）：
-// 1. 侧栏顶部仿 macOS 红绿灯装饰 —— 与窗口真标题栏重复
-// 2. 9Remote / 9English 入口 —— 产品化时不想暴露的入口；9Remote 无 href，
-//    用相邻兄弟选择器（它正好在 9English 链接前面）；上游小改结构时
-//    选择器失效仅是“恢复显示”，优雅降级
-// 3. 顶部栏捐赠入口 —— 纯赞助入口，壳层予以隐藏
-// 4. 侧栏品牌与版本 —— 9Router Proxy 替换为 iRouter Proxy，版本号与桌面端当前版本保持一致
-// 5. 顶部栏右侧工具按钮 —— 主题切换、语言切换、四宫格菜单，壳层予以隐藏
-// 6. 侧栏 Logo —— 原 hub 图标容器替换为 iRouter 官方应用图标
-// 7. 侧栏 Skills 入口 —— 壳层予以隐藏
+/**
+ * 壳层基础样式：
+ * 默认禁用全页面文字拖选（仅对输入框与日志区开放），保护桌面端原生体验
+ * @return {string} 注入的 CSS 样式代码
+ */
 function getShellCss() {
-  const version = app.getVersion();
-  const logoUrl = getLogoDataUrl();
   return `
-  aside > div.flex.items-center.gap-2.px-6.pt-5 { display: none !important; }
-  aside > div.px-6.py-4 { padding-top: 18px !important; }
-  aside > nav a[href="https://9english.net/"],
-  aside > nav button:has(+ a[href="https://9english.net/"]) { display: none !important; }
-  aside > nav a[href="/dashboard/skills"] { display: none !important; }
-  header button[aria-label="Donate"],
-  header button[aria-label*="mode"],
-  header button[title*="mode"],
-  header button[title="Language"],
-  header button[data-i18n-skip="true"],
-  header div.relative:has(> button[title="Menu"]),
-  header button[title="Menu"],
-  header div.flex.items-center.gap-1.shrink-0 > button,
-  header div.flex.items-center.gap-1.shrink-0 > div.relative:not(:has(input)) { display: none !important; }
-  div.fixed.inset-0.z-50[data-i18n-skip="true"],
-  button[data-irouter-legacy-lang-btn="true"],
-  div[data-irouter-lang-card="true"] > button:not([data-irouter-lang-switcher="true"] button) { display: none !important; }
-  aside a[href="/dashboard"] > div:first-child {
-    background-image: url("${logoUrl}") !important;
-    background-color: transparent !important;
-    background-size: contain !important;
-    background-position: center !important;
-    background-repeat: no-repeat !important;
-    box-shadow: none !important;
-  }
-  aside a[href="/dashboard"] > div:first-child > span { display: none !important; }
-  aside a[href="/dashboard"] h1 { font-size: 0 !important; }
-  aside a[href="/dashboard"] h1::after {
-    content: "iRouter Proxy" !important;
-    font-size: 1.125rem !important;
-    line-height: 1.75rem !important;
-  }
-  aside a[href="/dashboard"] h1 + span { font-size: 0 !important; }
-  aside a[href="/dashboard"] h1 + span::after {
-    content: "v${version}" !important;
-    font-size: 0.75rem !important;
-    line-height: 1rem !important;
-  }
-  div.text-center.py-4 > p:first-child,
-  div.text-center.text-text-muted.py-4 > p:first-child {
-    font-size: 0 !important;
-  }
-  div.text-center.py-4 > p:first-child::after,
-  div.text-center.text-text-muted.py-4 > p:first-child::after {
-    content: "iRouter Proxy v${version}" !important;
-    font-size: 0.875rem !important;
-    line-height: 1.25rem !important;
-  }
   /* 应用形态：默认禁文本选中（复制只发生在输入类与显式可复制区域）。
      Next 的 CSS 优化器会吞掉 globals.css 里的 body user-select 规则，
      故由壳层运行时注入（insertCSS 不走优化管线）。 */
@@ -483,50 +415,11 @@ function applyShellCss(win) {
 
 // ---------------------------------------------------------------- 深浅色与多语言跟随
 // 监听面板内深浅色模式（<html> class）与语言设定（document.cookie 中的 locale），
-// 通过 console-message 通知主进程，同步切换 macOS 系统标题栏外观与顶部原生菜单语言；
-// 同时全面补足上游未处理的 placeholder、title、aria-label 属性、select 下拉选项与 skipped 节点翻译
+// 通过 console-message 通知主进程，同步切换 macOS 系统标题栏外观与顶部原生菜单语言
 const SHELL_SYNC_SCRIPT = `
 (() => {
   if (window.__irouter_shell_sync_injected) return;
   window.__irouter_shell_sync_injected = true;
-  const DESKTOP_VERSION = "${app.getVersion()}";
-
-  // 拦截下载文件名，将 9router 前缀自动转换为 irouter 前缀
-  try {
-    const desc = Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, "download");
-    if (desc && desc.set) {
-      const origSet = desc.set;
-      Object.defineProperty(HTMLAnchorElement.prototype, "download", {
-        get: desc.get,
-        set: function(val) {
-          if (typeof val === "string" && /^9router-(.+)$/i.test(val)) {
-            val = val.replace(/^9router-/i, "irouter-");
-          }
-          return origSet.call(this, val);
-        },
-        configurable: true,
-        enumerable: desc.enumerable,
-      });
-    }
-
-    const origSetAttribute = HTMLAnchorElement.prototype.setAttribute;
-    HTMLAnchorElement.prototype.setAttribute = function(name, val) {
-      if (name === "download" && typeof val === "string" && /^9router-(.+)$/i.test(val)) {
-        val = val.replace(/^9router-/i, "irouter-");
-      }
-      return origSetAttribute.call(this, name, val);
-    };
-
-    const origClick = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function() {
-      if (typeof this.download === "string" && /^9router-(.+)$/i.test(this.download)) {
-        this.download = this.download.replace(/^9router-/i, "irouter-");
-      }
-      return origClick.call(this);
-    };
-  } catch (e) {
-    /* 忽略拦截异常 */
-  }
 
   // 1. 深浅色模式侦听与同步
   function reportTheme() {
@@ -544,693 +437,22 @@ const SHELL_SYNC_SCRIPT = `
   });
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
-  // 2. 多语言字典与 DOM 补全翻译
+  // 2. 语言设定侦听与同步（通知主进程刷新原生菜单栏与托盘文案）
   function getLocale() {
     const m = document.cookie.match(/(?:^|;\\s*)locale=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : "";
   }
-
-  let currentLocale = getLocale() || "zh-CN";
-  let currentDict = {};
-
-  async function loadDict(loc) {
-    if (!loc || loc === "en") {
-      currentDict = {};
-      return;
-    }
-    try {
-      const res = await fetch("/i18n/literals/" + encodeURIComponent(loc) + ".json");
-      if (res.ok) {
-        currentDict = await res.json();
-      }
-    } catch (e) {
-      // 忽略字典加载异常
-    }
-  }
-
-  // 翻译 input / textarea placeholder 属性
-  function translatePlaceholders() {
-    const inputs = document.querySelectorAll("input[placeholder], textarea[placeholder]");
-    for (const el of inputs) {
-      if (el._i18nOrigPlaceholder === undefined) {
-        el._i18nOrigPlaceholder = el.placeholder;
-      }
-      const orig = el._i18nOrigPlaceholder;
-      if (!orig) continue;
-      if (currentLocale === "en" || !currentDict) {
-        if (el.placeholder !== orig) el.placeholder = orig;
-      } else if (currentDict[orig]) {
-        const target = currentDict[orig];
-        if (el.placeholder !== target) el.placeholder = target;
-      }
-    }
-  }
-
-  // 仅精准处理设置页中被 data-i18n-skip 阻断的显示语言文案与图标
-  function translateSkippedElements() {
-    const skippedButtons = document.querySelectorAll("button[data-i18n-skip='true']");
-    for (const btn of skippedButtons) {
-      const spans = btn.querySelectorAll("span");
-      for (const s of spans) {
-        if (s._i18nOrigText === undefined) {
-          s._i18nOrigText = s.textContent.trim();
-        }
-        const orig = s._i18nOrigText;
-        if (orig === "Display language") {
-          if (currentLocale === "en" || !currentDict) {
-            if (s.textContent !== orig) s.textContent = orig;
-          } else if (currentDict[orig]) {
-            const target = currentDict[orig];
-            if (s.textContent !== target) s.textContent = target;
-          }
-        } else if (s.textContent === "🇹🇼") {
-          // 替换设置页按钮上的繁体国旗，防止渲染为方框缺失字符
-          s.textContent = "🇭🇰";
-        }
-      }
-    }
-  }
-
-  // 动态模式匹配翻译器（处理分页组件与配额计数的动态数字拼接文本）
-  function translateDynamicPatterns() {
-    const isZh = currentLocale === "zh-CN";
-    const isTw = currentLocale === "zh-TW";
-    if (!isZh && !isTw) return;
-
-    const targets = document.querySelectorAll(".text-sm, .text-xs, span, p, h1, h2, h3, h4");
-    for (const el of targets) {
-      if (el.children.length > 0) continue;
-      const txt = el.textContent.trim();
-      if (!txt) continue;
-
-      // 0. 替换旧品牌名称与版本号
-      if (/^9Router\\s+Proxy(?:\\s+v[\\d.]+)?/i.test(txt)) {
-        el.textContent = "iRouter Proxy v" + DESKTOP_VERSION;
-        continue;
-      }
-      if (txt === "9Router Proxy") {
-        el.textContent = "iRouter Proxy";
-        continue;
-      }
-      // 替换个人设置页数据库实际持久化路径
-      if (txt === "~/.9router/db/data.sqlite") {
-        el.textContent = "~/.irouter/db/data.sqlite";
-        continue;
-      }
-
-      // 1. 分页 "Showing 0-0 of 0" / "Showing 1-20 of 35"
-      const showingMatch = txt.match(/^Showing\\s+(\\d+-\\d+)\\s+of\\s+(\\d+)(?:\\s+results)?$/i);
-      if (showingMatch) {
-        el.textContent = isTw
-          ? "顯示 " + showingMatch[1] + " / 共 " + showingMatch[2] + " 條"
-          : "显示 " + showingMatch[1] + " / 共 " + showingMatch[2] + " 条";
-        continue;
-      }
-
-      // 2. 每页条数 "20 / page"
-      const perPageMatch = txt.match(/^(\\d+)\\s*[/]\\s*page$/i);
-      if (perPageMatch) {
-        el.textContent = isTw
-          ? perPageMatch[1] + " 條 / 頁"
-          : perPageMatch[1] + " 条 / 页";
-        continue;
-      }
-
-      // 3. 页码 "Page 1 / 1"
-      const pageMatch = txt.match(/^Page\\s+(\\d+)\\s*[/]\\s*(\\d+)$/i);
-      if (pageMatch) {
-        el.textContent = isTw
-          ? "第 " + pageMatch[1] + " / " + pageMatch[2] + " 頁"
-          : "第 " + pageMatch[1] + " / " + pageMatch[2] + " 页";
-        continue;
-      }
-
-      // 4. 配额计数 "1 quota", "2 quotas"
-      const quotaMatch = txt.match(/^(\\d+)\\s+quotas?$/i);
-      if (quotaMatch) {
-        el.textContent = isTw
-          ? quotaMatch[1] + " 個配額"
-          : quotaMatch[1] + " 个配额";
-        continue;
-      }
-
-      // 5. 供应商凭据弹窗标题 "Add <provider> API Key" 等
-      const addKeyMatch = txt.match(/^Add\\s+(.+?)\\s+API\\s+Key$/i);
-      if (addKeyMatch) {
-        el.textContent = isTw
-          ? "新增 " + addKeyMatch[1] + " API 金鑰"
-          : "添加 " + addKeyMatch[1] + " API 密钥";
-        continue;
-      }
-      const addCookieMatch = txt.match(/^Add\\s+(.+?)\\s+Cookie\\s+Value$/i);
-      if (addCookieMatch) {
-        el.textContent = isTw
-          ? "新增 " + addCookieMatch[1] + " Cookie 值"
-          : "添加 " + addCookieMatch[1] + " Cookie 值";
-        continue;
-      }
-      const addPatMatch = txt.match(/^Add\\s+(.+?)\\s+Personal\\s+Access\\s+Token\\s*\\(PAT\\)$/i);
-      if (addPatMatch) {
-        el.textContent = isTw
-          ? "新增 " + addPatMatch[1] + " 個人存取權杖 (PAT)"
-          : "添加 " + addPatMatch[1] + " 个人访问令牌 (PAT)";
-        continue;
-      }
-
-      // 6. 代理绑定数量 "Apply Proxy (1 connection)" / "Apply Proxy (3 connections)"
-      const applyProxyMatch = txt.match(/^Apply\\s+Proxy\\s*\\(\\s*(\\d+)\\s+connections?\\s*\\)$/i);
-      if (applyProxyMatch) {
-        el.textContent = isTw
-          ? "套用代理（" + applyProxyMatch[1] + " 個連線）"
-          : "应用代理（" + applyProxyMatch[1] + " 个连接）";
-        continue;
-      }
-
-      // 7. 社交登录连接 "Connect Kiro via <provider>"
-      const kiroViaMatch = txt.match(/^Connect\\s+Kiro\\s+via\\s+(.+)$/i);
-      if (kiroViaMatch) {
-        el.textContent = isTw
-          ? "透過 " + kiroViaMatch[1] + " 連線 Kiro"
-          : "通过 " + kiroViaMatch[1] + " 连接 Kiro";
-        continue;
-      }
-
-      // 8. 兼容节点编辑 "Edit Anthropic Compatible Node" / "Edit OpenAI Compatible Node"
-      const editCompatMatch = txt.match(/^Edit\\s+(Anthropic|OpenAI)\\s+Compatible\\s+Node$/i);
-      if (editCompatMatch) {
-        el.textContent = isTw
-          ? "編輯 " + editCompatMatch[1] + " 相容節點"
-          : "编辑 " + editCompatMatch[1] + " 兼容节点";
-        continue;
-      }
-
-      // 9. 代理池轮换动态提示
-      const rotatePoolsMatch = txt.match(/^Rotating\\s+through\\s+all\\s+(\\d+)\\s+active\\s+pools\\s+in\\s+order\\.\\s+State\\s+is\\s+in-memory\\s*\\(resets\\s+on\\s+restart\\)\\.$/i);
-      if (rotatePoolsMatch) {
-        el.textContent = isTw
-          ? "按順序在全部 " + rotatePoolsMatch[1] + " 個活躍代理池間輪換。狀態儲存在記憶體中（重啟後重設）。"
-          : "按顺序在全部 " + rotatePoolsMatch[1] + " 个活跃代理池间轮换。状态保存在内存中（重启后重置）。";
-        continue;
-      }
-      const randomPoolMatch = txt.match(/^Picking\\s+a\\s+random\\s+pool\\s+from\\s+(\\d+)\\s+active\\s+pools\\s+each\\s+request\\.$/i);
-      if (randomPoolMatch) {
-        el.textContent = isTw
-          ? "每次請求從 " + randomPoolMatch[1] + " 個活躍代理池中隨機選取一個。"
-          : "每次请求从 " + randomPoolMatch[1] + " 个活跃代理池中随机选择一个。";
-        continue;
-      }
-
-      // 10. 媒体类型配置卡片标题 "类别 Config"
-      const mediaConfigMatch = txt.match(/^(.+?)\\s+Config$/i);
-      if (mediaConfigMatch) {
-        const rawKind = mediaConfigMatch[1];
-        const kindDict = {
-          "Text To Speech": isTw ? "文字轉語音設定" : "文本转语音配置",
-          "Speech To Text": isTw ? "語音轉文字設定" : "语音转文本配置",
-          "Text to Image": isTw ? "文字轉影像設定" : "文本转图像配置",
-          "Image to Text": isTw ? "影像轉文字設定" : "图像转文本配置",
-          "Embedding": isTw ? "嵌入設定" : "嵌入配置",
-          "Web Search": isTw ? "Web 搜尋設定" : "Web 搜索配置",
-          "Web Fetch": isTw ? "Web 擷取設定" : "Web 抓取配置",
-          "Video": isTw ? "影片設定" : "视频配置",
-          "Music": isTw ? "音樂設定" : "音乐配置"
-        };
-        if (kindDict[rawKind]) {
-          el.textContent = kindDict[rawKind];
-          continue;
-        }
-      }
-
-      // 11. 媒体提供商卡片连接统计状态 "1 Connected" / "2 Error" / "3 Added"
-      const connStatMatch = txt.match(/^(\\d+)\\s+(Connected|Error|Added)$/i);
-      if (connStatMatch) {
-        const count = connStatMatch[1];
-        const statType = connStatMatch[2].toLowerCase();
-        if (statType === "connected") {
-          el.textContent = isTw ? count + " 個已連線" : count + " 个已连接";
-        } else if (statType === "error") {
-          el.textContent = isTw ? count + " 個錯誤" : count + " 个错误";
-        } else if (statType === "added") {
-          el.textContent = isTw ? count + " 個已新增" : count + " 个已添加";
-        }
-        continue;
-      }
-
-      // 12. 媒体提供商统计摘要 "(X providers · Y combos)"
-      const comboSummaryMatch = txt.match(/^\\((\\d+)\\s+providers\\s+·\\s+(\\d+)\\s+combos\\)$/i);
-      if (comboSummaryMatch) {
-        el.textContent = isTw
-          ? "（" + comboSummaryMatch[1] + " 個供應商 · " + comboSummaryMatch[2] + " 個組合）"
-          : "（" + comboSummaryMatch[1] + " 个供应商 · " + comboSummaryMatch[2] + " 个组合）";
-        continue;
-      }
-
-      // 13. 添加模型模态框标题 "Add <kind> Model" / "Add <kind> Model to Combo"
-      const addModelMatch = txt.match(/^Add\\s+(.+?)\\s+Model(\\s+to\\s+Combo)?$/i);
-      if (addModelMatch) {
-        const targetKind = addModelMatch[1];
-        const isToCombo = !!addModelMatch[2];
-        el.textContent = isTw
-          ? (isToCombo ? "新增 " + targetKind + " 模型至組合" : "新增 " + targetKind + " 模型")
-          : (isToCombo ? "添加 " + targetKind + " 模型到组合" : "添加 " + targetKind + " 模型");
-        continue;
-      }
-    }
-  }
-
-  // 常用操作按钮与开关的 title 悬停提示翻译
-  function translateActionTitles() {
-    const isZh = currentLocale === "zh-CN";
-    const isTw = currentLocale === "zh-TW";
-    if (!isZh && !isTw) return;
-    const titleDict = {
-      "Enable provider": isTw ? "啟用供應商" : "启用供应商",
-      "Disable provider": isTw ? "禁用供應商" : "禁用供应商",
-      "Move up": isTw ? "上移" : "上移",
-      "Move down": isTw ? "下移" : "下移",
-      "Remove": isTw ? "移除" : "移除",
-      "Click to edit": isTw ? "點擊編輯" : "点击编辑"
-    };
-    const titledElements = document.querySelectorAll("[title]");
-    for (const el of titledElements) {
-      const orig = el.getAttribute("title");
-      if (orig && titleDict[orig]) {
-        el.setAttribute("title", titleDict[orig]);
-      }
-    }
-  }
-
-  // 动态节点与异步状态翻译（处理表格表头与动态状态 Chip）
-  function translateDynamicNodes() {
-    const isZh = currentLocale === "zh-CN";
-    const isTw = currentLocale === "zh-TW";
-    if (!isZh && !isTw || !currentDict) return;
-
-    // 1. 使用统计表格表头 <th> 翻译
-    const ths = document.querySelectorAll("table thead th");
-    for (const th of ths) {
-      for (const node of th.childNodes) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const raw = node.nodeValue;
-          const trimmed = raw.trim();
-          if (trimmed && currentDict[trimmed]) {
-            const translated = currentDict[trimmed];
-            const space = raw.endsWith(" ") ? " " : "";
-            if (node.nodeValue !== translated + space) {
-              node.nodeValue = translated + space;
-            }
-          }
-        }
-      }
-    }
-
-    // 2. 异步状态与弹窗动态状态（Token 节省器卡片与 Headroom/PXPIPE 弹窗等）
-    const stateElements = document.querySelectorAll("span, p");
-    const stateDict = {
-      "Not installed": isTw ? "未安裝" : "未安装",
-      "Checking…": isTw ? "正在檢查…" : "正在检查…",
-      "Checking...": isTw ? "正在檢查…" : "正在检查…",
-      "Installing…": isTw ? "正在安裝…" : "正在安装…",
-      "Installing...": isTw ? "正在安裝…" : "正在安装…",
-      "Uninstalling…": isTw ? "正在卸載…" : "正在卸载…",
-      "Uninstalling...": isTw ? "正在卸載…" : "正在卸载…",
-      "Stopping…": isTw ? "正在停止…" : "正在停止…",
-      "Stopping...": isTw ? "正在停止…" : "正在停止…",
-      "Running": isTw ? "運行中" : "运行中",
-      "Stopped": isTw ? "已停止" : "已停止",
-      "External": isTw ? "外部服務" : "外部服务",
-      "Healthy": isTw ? "健康" : "健康",
-      "PXPIPE is not installed.": isTw ? "未安裝 PXPIPE。" : "未安装 PXPIPE。"
-    };
-    for (const el of stateElements) {
-      if (el.children.length > 0) continue;
-      const txt = el.textContent.trim();
-      if (stateDict[txt] && el.textContent !== stateDict[txt]) {
-        el.textContent = stateDict[txt];
-      }
-    }
-
-    // 3. 动态描述文本与模态框标题（Caveman / Ponytail 压缩模式说明、供应商提示横幅、弹窗标题等）
-    const descElements = document.querySelectorAll("h1, h2, h3, h4, p.text-xs.text-primary, p.text-xs, p.text-sm, span.text-sm, span.text-xs");
-    for (const el of descElements) {
-      if (el.children.length > 0) continue;
-      const txt = el.textContent.trim();
-      if (currentDict && currentDict[txt] && el.textContent !== currentDict[txt]) {
-        el.textContent = currentDict[txt];
-      }
-    }
-  }
-
-  // 检查跟随系统偏好，自动对齐系统语言
-  function checkSystemLocaleSync() {
-    try {
-      const pref = localStorage.getItem("irouter_locale_preference");
-      if (pref === "system") {
-        const navLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
-        let expected = "en";
-        if (navLang.includes("tw") || navLang.includes("hk") || navLang.includes("hant")) {
-          expected = "zh-TW";
-        } else if (navLang.startsWith("zh")) {
-          expected = "zh-CN";
-        }
-        const cur = getLocale();
-        if (cur && cur !== expected) {
-          document.cookie = "locale=" + encodeURIComponent(expected) + "; path=/; max-age=31536000";
-          fetch("/api/locale", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ locale: expected }),
-          }).catch(() => {});
-          window.location.reload();
-        }
-      }
-    } catch (e) {
-      /* 忽略异常 */
-    }
-  }
-  checkSystemLocaleSync();
-
-  // 重构个人设置页多语言卡片：移除弹出面板，内嵌跟随系统、英文、简体中文、繁体中文切换项
-  function renderLanguageSettingsSwitcher() {
-    // 1. 全局将繁体中文旗帜 🇹🇼 安全替换为 🇭🇰，消灭在 macOS 上的方框缺失乱码
-    const flagSpans = document.querySelectorAll("span");
-    for (const sp of flagSpans) {
-      if (sp.children.length === 0 && sp.textContent === "🇹🇼") {
-        sp.textContent = "🇭🇰";
-      }
-    }
-
-    // 2. 彻底隐藏并移除上游全量模态弹窗（若意外挂载）
-    const legacyModals = document.querySelectorAll(".fixed.inset-0.z-50[data-i18n-skip='true']");
-    for (const m of legacyModals) {
-      m.style.setProperty("display", "none", "important");
-      try { m.remove(); } catch (e) {}
-    }
-
-    // 3. 寻找个人设置页包含地球图标与语言标题的卡片容器
-    const icons = document.querySelectorAll("span.material-symbols-outlined");
-    let targetHeader = null;
-    let targetCard = null;
-    for (const icon of icons) {
-      if (icon.textContent.trim() === "language") {
-        const iconBox = icon.parentElement;
-        const candidateHeader = iconBox ? iconBox.parentElement : null;
-        if (!candidateHeader) continue;
-        const h3 = candidateHeader.querySelector("h3");
-        if (h3 && /^(?:Language|语言|語言)$/i.test(h3.textContent.trim())) {
-          targetHeader = candidateHeader;
-          targetCard = candidateHeader.parentElement || candidateHeader.closest(".rounded-xl, .bg-surface, div");
-          break;
-        }
-      }
-    }
-    if (!targetHeader || !targetCard) return;
-
-    targetCard.setAttribute("data-irouter-lang-card", "true");
-
-    // 4. 彻底隐藏并拦截卡片内原有的显示语言单行按钮
-    const legacyBtn = targetCard.querySelector("button[data-i18n-skip='true']");
-    if (legacyBtn) {
-      legacyBtn.setAttribute("data-irouter-legacy-lang-btn", "true");
-      legacyBtn.style.setProperty("display", "none", "important");
-      legacyBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      };
-    }
-
-    // 5. 彻底清理任何已存在的多余 switcher，保证全局唯一
-    const existingSwitchers = targetCard.querySelectorAll("[data-irouter-lang-switcher='true']");
-    for (let i = 1; i < existingSwitchers.length; i++) {
-      existingSwitchers[i].remove();
-    }
-
-    // 6. 调整头部容器样式：保持横向并允许自适应
-    targetHeader.className = "flex items-center gap-3 mb-4 flex-wrap sm:flex-nowrap";
-
-    // 7. 注入或复用 Segmented Control 分段切换容器（靠右对齐且不缩小）
-    let switcher = targetHeader.querySelector("[data-irouter-lang-switcher='true']");
-    if (!switcher) {
-      switcher = document.createElement("div");
-      switcher.setAttribute("data-irouter-lang-switcher", "true");
-      targetHeader.appendChild(switcher);
-    }
-    switcher.className = "inline-flex items-center p-1 rounded-lg bg-black/5 dark:bg-white/5 ml-auto shrink-0";
-    switcher.style.whiteSpace = "nowrap";
-
-    // 8. 获取当前用户偏好设置（默认为跟随系统）
-    let pref = localStorage.getItem("irouter_locale_preference");
-    if (!pref) {
-      pref = "system";
-      localStorage.setItem("irouter_locale_preference", "system");
-    }
-
-    // 9. 依据当前生效语言渲染选项文本
-    const isTw = currentLocale === "zh-TW";
-    const isZh = currentLocale === "zh-CN";
-    const options = [
-      { id: "system", label: isTw ? "跟隨系統" : isZh ? "跟随系统" : "System" },
-      { id: "en", label: isTw ? "英文" : isZh ? "英文" : "English" },
-      { id: "zh-CN", label: isTw ? "簡體中文" : isZh ? "简体中文" : "Simplified Chinese" },
-      { id: "zh-TW", label: isTw ? "繁體中文" : isZh ? "繁体中文" : "Traditional Chinese" },
-    ];
-
-    // 解析宿主系统当前语言
-    function resolveSystemLocale() {
-      const navLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
-      if (navLang.includes("tw") || navLang.includes("hk") || navLang.includes("hant")) {
-        return "zh-TW";
-      }
-      if (navLang.startsWith("zh")) {
-        return "zh-CN";
-      }
-      return "en";
-    }
-
-    // 执行多语言切换与生效
-    async function applyLocaleSelection(selectedId) {
-      localStorage.setItem("irouter_locale_preference", selectedId);
-      const targetLocale = selectedId === "system" ? resolveSystemLocale() : selectedId;
-      try {
-        await fetch("/api/locale", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ locale: targetLocale }),
-        });
-      } catch (err) {
-        /* 忽略网络异常 */
-      }
-      document.cookie = "locale=" + encodeURIComponent(targetLocale) + "; path=/; max-age=31536000";
-      window.location.reload();
-    }
-
-    // 10. 渲染并更新切换项状态（强制横向不换行）
-    options.forEach((opt) => {
-      let btn = switcher.querySelector("button[data-lang='" + opt.id + "']");
-      if (!btn) {
-        btn = document.createElement("button");
-        btn.type = "button";
-        btn.setAttribute("data-lang", opt.id);
-        btn.addEventListener("click", () => {
-          if (pref === opt.id) return;
-          applyLocaleSelection(opt.id);
-        });
-        switcher.appendChild(btn);
-      }
-      btn.textContent = opt.label;
-      btn.style.whiteSpace = "nowrap";
-      const isSelected = pref === opt.id;
-      btn.className = isSelected
-        ? "flex items-center justify-center px-3 py-1.5 rounded-md font-medium text-xs sm:text-sm whitespace-nowrap shrink-0 bg-white dark:bg-white/10 text-text-main shadow-sm transition-all cursor-pointer"
-        : "flex items-center justify-center px-3 py-1.5 rounded-md font-medium text-xs sm:text-sm whitespace-nowrap shrink-0 text-text-muted hover:text-text-main transition-all cursor-pointer";
-    });
-  }
-
-  // 替换设置页底部及各处遗留的产品名称与版本号为桌面端真实名称与版本
-  function replaceAppBrandAndVersion() {
-    const sideVer = document.querySelector("aside a[href='/dashboard'] h1 + span");
-    if (sideVer && sideVer.textContent.trim() !== "v" + DESKTOP_VERSION) {
-      sideVer.textContent = "v" + DESKTOP_VERSION;
-    }
-
-    const profileAppInfoP = document.querySelector("div.text-center.py-4 > p:first-child, div.text-center.text-text-muted.py-4 > p:first-child");
-    if (profileAppInfoP && profileAppInfoP.textContent.trim() !== "iRouter Proxy v" + DESKTOP_VERSION) {
-      profileAppInfoP.textContent = "iRouter Proxy v" + DESKTOP_VERSION;
-    }
-
-    const targets = document.querySelectorAll("p, span, h1");
-    for (const el of targets) {
-      if (el.children.length > 0) continue;
-      const txt = el.textContent.trim();
-      if (!txt) continue;
-      if (/^9Router\\s+Proxy(?:\\s+v[\\d.]+)?/i.test(txt)) {
-        if (el.textContent !== "iRouter Proxy v" + DESKTOP_VERSION) {
-          el.textContent = "iRouter Proxy v" + DESKTOP_VERSION;
-        }
-      } else if (txt === "9Router Proxy") {
-        if (el.textContent !== "iRouter Proxy") {
-          el.textContent = "iRouter Proxy";
-        }
-      } else if (txt === "~/.9router/db/data.sqlite") {
-        if (el.textContent !== "~/.irouter/db/data.sqlite") {
-          el.textContent = "~/.irouter/db/data.sqlite";
-        }
-      }
-    }
-
-    // 修正已有下载链接的文件名前缀
-    const downloadAnchors = document.querySelectorAll("a[download]");
-    for (const a of downloadAnchors) {
-      const dl = a.getAttribute("download");
-      if (dl && /^9router-/i.test(dl)) {
-        a.setAttribute("download", dl.replace(/^9router-/i, "irouter-"));
-      }
-    }
-  }
-
-  // 换算大数值指标为万/亿单位，仅大于 10000 时生效
-  function formatLargeMetricNumber(rawText, locale) {
-    if (typeof rawText !== "string") return rawText;
-    const cleaned = rawText.replace(/,/g, "").trim();
-    const num = Number(cleaned);
-    if (isNaN(num) || !isFinite(num)) return rawText;
-
-    // 仅大于 10000 时才换算
-    if (num <= 10000) {
-      return rawText;
-    }
-
-    const isTw = locale === "zh-TW";
-    const isZh = locale === "zh-CN" || (!isTw && locale !== "en");
-
-    if (isZh || isTw) {
-      const wanUnit = isTw ? " 萬" : " 万";
-      const yiUnit = isTw ? " 億" : " 亿";
-
-      // 大于等于 1 亿 (100,000,000)
-      if (num >= 100000000) {
-        const val = num / 100000000;
-        return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + yiUnit;
-      }
-
-      // 大于 1 万
-      const val = num / 10000;
-      // 进位检查：若四舍五入后达到 10000.00 万，进位至 1.00 亿
-      const roundedStr = val.toFixed(2);
-      if (roundedStr === "10000.00") {
-        return "1.00" + yiUnit;
-      }
-      return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + wanUnit;
-    }
-
-    // 英文模式 (en)
-    if (locale === "en") {
-      if (num >= 1000000000) {
-        const val = num / 1000000000;
-        return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "B";
-      }
-      if (num >= 1000000) {
-        const val = num / 1000000;
-        const rounded = val.toFixed(2);
-        if (rounded === "1000.00") return "1.00B";
-        return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "M";
-      }
-      const val = num / 1000;
-      const rounded = val.toFixed(2);
-      if (rounded === "1000.00") return "1.00M";
-      return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "K";
-    }
-
-    return rawText;
-  }
-
-  // 对使用情况页面的统计卡片大数值进行万/亿换算
-  function formatUsageOverviewNumbers() {
-    const candidateSpans = document.querySelectorAll("span.truncate.text-2xl.font-bold");
-    for (const el of candidateSpans) {
-      if (el.classList.contains("text-warning")) continue;
-
-      const currentText = el.textContent.trim();
-      if (!currentText || currentText.includes("$") || currentText.includes("~")) continue;
-
-      const isPureNumber = /^\\d{1,3}(?:,\\d{3})*$/.test(currentText);
-
-      if (isPureNumber) {
-        el._irouterRawNumber = currentText;
-        el.setAttribute("title", currentText);
-        const formatted = formatLargeMetricNumber(currentText, currentLocale);
-        if (el.textContent !== formatted) {
-          el.textContent = formatted;
-          el._irouterFormattedText = formatted;
-          el._irouterFormattedLocale = currentLocale;
-        }
-      } else if (el._irouterRawNumber && el._irouterFormattedLocale !== currentLocale) {
-        const formatted = formatLargeMetricNumber(el._irouterRawNumber, currentLocale);
-        if (el.textContent !== formatted) {
-          el.textContent = formatted;
-          el._irouterFormattedText = formatted;
-          el._irouterFormattedLocale = currentLocale;
-        }
-      }
-    }
-  }
-
-  let updateTimer = null;
-  function triggerDomTranslate() {
-    if (updateTimer) return;
-    updateTimer = setTimeout(() => {
-      updateTimer = null;
-      replaceAppBrandAndVersion();
-      formatUsageOverviewNumbers();
-      translatePlaceholders();
-      translateSkippedElements();
-      translateDynamicPatterns();
-      translateDynamicNodes();
-      renderLanguageSettingsSwitcher();
-      translateActionTitles();
-    }, 50);
-  }
-
-  async function updateLocale(newLocale) {
-    currentLocale = newLocale;
-    await loadDict(newLocale);
-    triggerDomTranslate();
-  }
-
   let lastLocale = getLocale();
   if (lastLocale) {
     console.log("__IROUTER_LOCALE__:" + lastLocale);
-    updateLocale(lastLocale);
   }
-
   setInterval(() => {
     const current = getLocale();
     if (current && current !== lastLocale) {
       lastLocale = current;
       console.log("__IROUTER_LOCALE__:" + current);
-      updateLocale(current);
     }
   }, 500);
-
-  const domObserver = new MutationObserver(() => {
-    triggerDomTranslate();
-  });
-  const observeConfig = {
-    childList: true,
-    subtree: true,
-    characterData: true,
-    attributes: true,
-    attributeFilter: ["placeholder"]
-  };
-  if (document.body) {
-    domObserver.observe(document.body, observeConfig);
-  } else {
-    document.addEventListener("DOMContentLoaded", () => {
-      domObserver.observe(document.body, observeConfig);
-      triggerDomTranslate();
-    });
-  }
-  triggerDomTranslate();
 })();
 `;
 
@@ -2165,30 +1387,40 @@ async function runSmoke() {
       });
       results.push("窗口 did-finish-load ✓");
 
-      // 壳层 CSS 应已隐藏的上游 UI 元素（假红绿灯 / 9Remote / 9English / 捐赠按钮 / 顶部三工具 / Skills 入口），不许回归
+      // 源码应已彻底移除的冗余 UI 元素（假红绿灯 / 9Remote / 9English / 捐赠按钮 / 顶部三工具），不许回归
       const win = mainWindow;
-      const checks = {
+      const removedChecks = {
         假红绿灯: "aside > div.flex.items-center.gap-2.px-6.pt-5",
         九Remote: "aside > nav button:has(+ a[href='https://9english.net/'])",
         九English: "aside > nav a[href='https://9english.net/']",
-        技能入口: "aside > nav a[href='/dashboard/skills']",
         捐赠按钮: "header button[aria-label='Donate']",
         主题切换: "header button[aria-label*='mode']",
         语言切换: "header button[title='Language']",
         四宫格菜单: "header button[title='Menu']",
       };
-      const hiddenState = await win.webContents.executeJavaScript(
-        `(() => { const q = ${JSON.stringify(checks)};
+      const removedState = await win.webContents.executeJavaScript(
+        `(() => { const q = ${JSON.stringify(removedChecks)};
                   return Object.fromEntries(Object.entries(q).map(([k, sel]) => {
                     const el = document.querySelector(sel);
-                    return [k, el ? getComputedStyle(el).display === "none" : "no-element"];
+                    return [k, !el];
                   })); })()`,
         true,
       );
-      for (const [k, v] of Object.entries(hiddenState)) {
-        results.push(`${k}已隐藏=${v}`);
+      for (const [k, v] of Object.entries(removedState)) {
+        results.push(`${k}已移除=${v}`);
         ok &&= v === true;
       }
+
+      // 校验 Skills 技能入口存在且正常展示（保留并取消隐藏）
+      const skillsVisible = await win.webContents.executeJavaScript(
+        `(() => {
+          const el = document.querySelector("aside > nav a[href='/dashboard/skills']");
+          return el ? getComputedStyle(el).display !== "none" : false;
+        })()`,
+        true,
+      );
+      results.push(`技能入口可见=${skillsVisible}`);
+      ok &&= skillsVisible;
 
       // 校验窗口标题已移除所有字样（保持标题栏纯净无文字）
       const title = win.getTitle();
@@ -2196,40 +1428,37 @@ async function runSmoke() {
       results.push(`窗口标题无字样=${titleOk} ("${title}")`);
       ok &&= titleOk;
 
-      // 校验侧栏品牌名与版本号已改为 iRouter Proxy 与桌面端当前版本
+      // 校验侧栏品牌名与版本号已原生展示为 iRouter Proxy 与桌面端当前版本
       const brandText = await win.webContents.executeJavaScript(
         `(() => {
           const h1 = document.querySelector('aside a[href="/dashboard"] h1');
-          return h1 ? window.getComputedStyle(h1, '::after').content : "";
+          return h1 ? h1.textContent.trim() : "";
         })()`,
         true,
       );
       const versionText = await win.webContents.executeJavaScript(
         `(() => {
           const span = document.querySelector('aside a[href="/dashboard"] h1 + span');
-          return span ? window.getComputedStyle(span, '::after').content : "";
+          return span ? span.textContent.trim() : "";
         })()`,
         true,
       );
-      const brandOk = brandText === '"iRouter Proxy"';
-      const versionOk = versionText === `"v${app.getVersion()}"`;
+      const brandOk = brandText === "iRouter Proxy";
+      const versionOk = versionText === `v${app.getVersion()}`;
       results.push(`品牌名iRouter Proxy=${brandOk}`);
       results.push(`版本号v${app.getVersion()}=${versionOk}`);
       ok &&= brandOk && versionOk;
 
-      // 校验侧栏 Logo 容器已替换为官方应用图标且原 hub 图标已隐藏
-      const logoReplaced = await win.webContents.executeJavaScript(
+      // 校验侧栏 Logo 容器已替换为官方应用图标原生 img 标签
+      const logoLoaded = await win.webContents.executeJavaScript(
         `(() => {
-          const container = document.querySelector('aside a[href="/dashboard"] > div:first-child');
-          const span = container ? container.querySelector('span') : null;
-          const bg = container ? getComputedStyle(container).backgroundImage : "";
-          const spanHidden = span ? getComputedStyle(span).display === "none" : false;
-          return bg.startsWith('url("data:image/png') && spanHidden;
+          const img = document.querySelector('aside a[href="/dashboard"] img');
+          return img && img.getAttribute("src") === "/logo.png";
         })()`,
         true,
       );
-      results.push(`侧栏Logo替换为应用图标=${logoReplaced}`);
-      ok &&= logoReplaced;
+      results.push(`侧栏Logo加载官方图标=${logoLoaded}`);
+      ok &&= logoLoaded;
 
       // 校验深浅色模式与系统标题栏外观跟随
       const isDarkInPage = await win.webContents.executeJavaScript(

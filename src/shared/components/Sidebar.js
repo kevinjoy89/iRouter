@@ -7,7 +7,6 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
 import { MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
-import NineRemotePromoModal from "./NineRemotePromoModal";
 
 // const VISIBLE_MEDIA_KINDS = ["embedding", "image", "imageToText", "tts", "stt", "webSearch", "webFetch", "video", "music"];
 const VISIBLE_MEDIA_KINDS = ["embedding", "image", "video", "tts", "stt"];
@@ -39,7 +38,6 @@ const systemItems = [
 export default function Sidebar({ onClose }) {
   const pathname = usePathname();
   const [mediaOpen, setMediaOpen] = useState(false);
-  const [showRemoteModal, setShowRemoteModal] = useState(false);
   const [enableTranslator, setEnableTranslator] = useState(false);
 
   useEffect(() => {
@@ -59,18 +57,12 @@ export default function Sidebar({ onClose }) {
   return (
     <>
       <aside className="flex w-72 flex-col border-r border-border-subtle bg-vibrancy backdrop-blur-xl transition-colors duration-300 min-h-full">
-        {/* Traffic lights */}
-        <div className="flex items-center gap-2 px-6 pt-5 pb-2">
-          <div className="w-3 h-3 rounded-full bg-[#FF5F56]" />
-          <div className="w-3 h-3 rounded-full bg-[#FFBD2E]" />
-          <div className="w-3 h-3 rounded-full bg-[#27C93F]" />
-        </div>
-
         {/* Logo */}
-        <div className="px-6 py-4 flex flex-col gap-2">
+        <div className="px-6 pt-5 pb-3 flex flex-col gap-2">
           <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="flex items-center justify-center size-9 rounded-[10px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-[var(--shadow-warm)]">
-              <span className="material-symbols-outlined text-white text-[20px]">hub</span>
+            <div className="flex items-center justify-center size-9 rounded-[10px] overflow-hidden bg-surface shadow-[var(--shadow-warm)]">
+              {/* 官方应用图标 */}
+              <img src="/logo.png" alt="iRouter" className="size-9 object-contain" />
             </div>
             <div className="flex flex-col">
               <h1 className="text-lg font-semibold tracking-tight text-text-main">
@@ -216,37 +208,6 @@ export default function Sidebar({ onClose }) {
               ) : null;
             })}
 
-            {/* Remote */}
-            <button
-              onClick={() => setShowRemoteModal(true)}
-              className={cn(
-                "flex items-center gap-3 px-3 py-1 rounded-lg transition-all group w-full",
-                "text-text-muted hover:bg-surface-2 hover:text-text-main"
-              )}
-            >
-              <span className="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">
-                computer
-              </span>
-              <span className="text-[13px] font-medium">9Remote</span>
-            </button>
-
-            {/* 9English */}
-            <a
-              href="https://9english.net/"
-              target="_blank"
-              rel="noreferrer"
-              onClick={onClose}
-              className={cn(
-                "flex items-center gap-3 px-3 py-1 rounded-lg transition-all group w-full",
-                "text-text-muted hover:bg-surface-2 hover:text-text-main"
-              )}
-            >
-              <span className="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">
-                translate
-              </span>
-              <span className="text-[13px] font-medium">9English</span>
-            </a>
-
             {/* Settings */}
             <Link
               href="/dashboard/profile"
@@ -272,9 +233,6 @@ export default function Sidebar({ onClose }) {
         </nav>
 
       </aside>
-
-      {/* Remote Promo Modal */}
-      <NineRemotePromoModal isOpen={showRemoteModal} onClose={() => setShowRemoteModal(false)} />
     </>
   );
 }

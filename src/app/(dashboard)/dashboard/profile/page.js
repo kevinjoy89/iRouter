@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, Button, Toggle, Input, Select } from "@/shared/components";
+import { Card, Button, Toggle, Input, Select, SegmentedControl } from "@/shared/components";
 import Modal from "@/shared/components/Modal";
 import PricingModal from "@/shared/components/PricingModal";
-import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
 import { useTheme } from "@/shared/hooks/useTheme";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { cn } from "@/shared/utils/cn";
@@ -22,11 +21,32 @@ function getLocaleFromCookie() {
   return normalizeLocale(value);
 }
 
+/**
+ * 解析系统宿主当前语言代码
+ * @return {string} 规范化后的语言代码 ('en' | 'zh-CN' | 'zh-TW')
+ */
+function resolveSystemLocale() {
+  if (typeof navigator === "undefined") return "en";
+  const navLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+  if (navLang.includes("tw") || navLang.includes("hk") || navLang.includes("hant")) {
+    return "zh-TW";
+  }
+  if (navLang.startsWith("zh")) {
+    return "zh-CN";
+  }
+  return "en";
+}
+
 export default function ProfilePage() {
   const { theme, setTheme } = useTheme();
   const { copied, copy } = useCopyToClipboard();
   const [locale, setLocale] = useState(() => getLocaleFromCookie());
-  const [langOpen, setLangOpen] = useState(false);
+  const [localePreference, setLocalePreference] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("irouter_locale_preference") || "system";
+    }
+    return "system";
+  });
   const [pricingOpen, setPricingOpen] = useState(false);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
@@ -53,6 +73,46 @@ export default function ProfilePage() {
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const oidcRedirectUri = origin ? `${origin}/api/auth/oidc/callback` : "/api/auth/oidc/callback";
+
+  // 检查并同步跟随系统语言偏好
+  useEffect(() => {
+    if (localePreference === "system") {
+      const expected = resolveSystemLocale();
+      const current = getLocaleFromCookie();
+      if (current !== expected) {
+        document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(expected)}; path=/; max-age=31536000`;
+        fetch("/api/locale", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ locale: expected }),
+        }).catch(() => {});
+        setLocale(expected);
+        window.location.reload();
+      }
+    }
+  }, [localePreference]);
+
+  /**
+   * 切换语言偏好设置
+   * @param {string} selectedId 选中的偏好ID ('system' | 'en' | 'zh-CN' | 'zh-TW')
+   */
+  const applyLocalePreference = async (selectedId) => {
+    setLocalePreference(selectedId);
+    try {
+      localStorage.setItem("irouter_locale_preference", selectedId);
+    } catch {}
+    const targetLocale = selectedId === "system" ? resolveSystemLocale() : selectedId;
+    try {
+      await fetch("/api/locale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locale: targetLocale }),
+      });
+    } catch {}
+    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(targetLocale)}; path=/; max-age=31536000`;
+    setLocale(targetLocale);
+    window.location.reload();
+  };
   const samlAcsUrl = origin ? `${origin}/api/auth/saml/acs` : "/api/auth/saml/acs";
   const samlMetadataUrl = origin ? `${origin}/api/auth/saml/metadata` : "/api/auth/saml/metadata";
   
@@ -738,7 +798,7 @@ export default function ProfilePage() {
       const anchor = document.createElement("a");
       const stamp = new Date().toISOString().replace(/[.:]/g, "-");
       anchor.href = url;
-      anchor.download = `9router-backup-${stamp}.json`;
+      anchor.download = `irouter-backup-${stamp}.json`;
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
@@ -844,7 +904,7 @@ export default function ProfilePage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg bg-bg border border-border gap-2">
               <div>
                 <p className="font-medium text-sm sm:text-base">Database Location</p>
-                <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.9router/db/data.sqlite</p>
+                <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.irouter/db/data.sqlite</p>
               </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -884,20 +944,28 @@ export default function ProfilePage() {
 
         {/* Language */}
         <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="size-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-[20px]">language</span>
+          <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-[20px]">language</span>
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-semibold">{translate("Language")}</h3>
+                <p className="text-xs sm:text-sm text-text-muted">{translate("Display language preference")}</p>
+              </div>
             </div>
-            <h3 className="text-base sm:text-lg font-semibold">Language</h3>
+            <SegmentedControl
+              options={[
+                { value: "system", label: locale === "zh-TW" ? "跟隨系統" : locale === "zh-CN" ? "跟随系统" : "System" },
+                { value: "en", label: "English" },
+                { value: "zh-CN", label: "简体中文" },
+                { value: "zh-TW", label: "繁體中文" },
+              ]}
+              value={localePreference}
+              onChange={applyLocalePreference}
+              className="w-full sm:w-auto shrink-0"
+            />
           </div>
-          <button
-            onClick={() => setLangOpen(true)}
-            className="flex items-center justify-between w-full p-3 rounded-lg bg-bg border border-border hover:border-primary/50 transition-colors"
-            data-i18n-skip="true"
-          >
-            <span className="text-sm text-text-muted">Display language</span>
-            <span className="text-2xl">{LOCALE_FLAGS[locale] || "🌐"}</span>
-          </button>
         </Card>
 
         {/* Security */}
@@ -1341,7 +1409,7 @@ export default function ProfilePage() {
                         href={samlMetadataUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        download="9router-sp-metadata.xml"
+                        download="irouter-sp-metadata.xml"
                         className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                       >
                         <span className="material-symbols-outlined text-[16px]">download</span>
@@ -1400,7 +1468,7 @@ export default function ProfilePage() {
                     <div className="flex flex-col gap-2">
                       <label className="font-medium text-sm sm:text-base">Client ID</label>
                       <Input
-                        placeholder="9router-dashboard"
+                        placeholder="irouter-dashboard"
                         value={oidcForm.oidcClientId}
                         onChange={(e) => updateOidcForm("oidcClientId", e.target.value)}
                         disabled={loading || oidcLoading}
@@ -1850,14 +1918,6 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <LanguageSwitcher
-        hideTrigger
-        isOpen={langOpen}
-        onClose={(next) => {
-          setLangOpen(false);
-          setLocale(next);
-        }}
-      />
       <PricingModal isOpen={pricingOpen} onClose={() => setPricingOpen(false)} />
 
       <Modal
