@@ -1494,8 +1494,8 @@ export default function ProviderLimits() {
               ) : resetCreditsState.data?.credits?.length ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between rounded-xl border border-black/10 bg-black/[0.02] px-3 py-2 text-xs text-text-muted dark:border-white/10 dark:bg-white/[0.03]">
-                    <span>{resetCreditsState.data.credits.length} reset credit{resetCreditsState.data.credits.length === 1 ? "" : "s"}</span>
-                    <span>{resetCreditsState.data.availableCount ?? 0} available</span>
+                    <span>{`${resetCreditsState.data.credits.length} ${resetCreditsState.data.credits.length === 1 ? "reset credit" : "reset credits"}`}</span>
+                    <span>{`${resetCreditsState.data.availableCount ?? 0} available`}</span>
                   </div>
                   <div className="overflow-x-auto rounded-xl border border-black/10 dark:border-white/10">
                     <table className="w-full min-w-[560px] text-left text-sm">

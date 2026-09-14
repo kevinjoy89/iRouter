@@ -616,7 +616,7 @@ export default function ProvidersPage() {
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-2.5 text-sm font-medium text-primary transition-colors hover:border-primary hover:bg-primary/5"
           >
             <span className="material-symbols-outlined text-[16px]">expand_more</span>
-            Show all {apikeyEntries.length} providers
+            {`Show all ${apikeyEntries.length} providers`}
           </button>
         )}
       </div>

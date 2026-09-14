@@ -139,7 +139,7 @@ export default function QuotaTable({
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[10px] text-text-muted">
-          {sortedQuotas.length} quota{sortedQuotas.length > 1 ? "s" : ""}
+          {`${sortedQuotas.length} ${sortedQuotas.length > 1 ? "quotas" : "quota"}`}
         </div>
         {showSortLabel && (
           <div className="rounded-md border border-black/10 bg-black/[0.02] px-2 py-1 text-[10px] text-text-muted dark:border-white/10 dark:bg-white/[0.03]">

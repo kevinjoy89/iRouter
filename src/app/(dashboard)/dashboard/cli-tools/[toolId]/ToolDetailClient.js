@@ -191,7 +191,7 @@ export default function ToolDetailClient({ toolId, machineId }) {
         Back to CLI Tools
       </Link>
       <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-text-main sm:text-2xl">{tool.name}</h1>
+        <h1 className="text-xl font-semibold text-text-main sm:text-2xl" data-i18n-skip>{tool.name}</h1>
         <p className="text-sm text-text-muted">{tool.description}</p>
       </div>
       {loading ? <CardSkeleton /> : renderToolCard()}

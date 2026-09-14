@@ -276,7 +276,7 @@ export function TtsExampleCard({ providerId }) {
               {apiKey
                 ? `${apiKey.slice(0, 8)}${"•".repeat(Math.min(20, Math.max(0, apiKey.length - 8)))}`
                 : connectionCount > 0
-                  ? <span className="text-text-muted italic">Using stored key(s) · {connectionCount} connection{connectionCount > 1 ? "s" : ""}</span>
+                  ? <span className="text-text-muted italic">{`Using stored key(s) · ${connectionCount} ${connectionCount > 1 ? "connections" : "connection"}`}</span>
                   : <span className="text-text-muted italic">No key configured</span>}
             </span>
           </Row>

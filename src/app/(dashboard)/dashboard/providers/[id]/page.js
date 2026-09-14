@@ -1395,7 +1395,7 @@ export default function ProviderDetailPage() {
               )}
             </div>
             <p className="text-text-muted">
-              {connections.length} connection{connections.length === 1 ? "" : "s"}
+              {`${connections.length} ${connections.length === 1 ? "connection" : "connections"}`}
             </p>
           </div>
         </div>

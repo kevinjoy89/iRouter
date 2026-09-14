@@ -780,7 +780,9 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
             <div className="space-y-4">
               <div>
                 <p className="text-sm font-medium mb-2">
-                  Step 1: Open this {isXaiProvider ? "Grok Build OAuth URL" : "URL"} in your browser
+                  {isXaiProvider
+                    ? "Step 1: Open this Grok Build OAuth URL in your browser"
+                    : "Step 1: Open this URL in your browser"}
                 </p>
                 <div className="flex gap-2">
                   <Input value={authData?.authUrl || ""} readOnly className="flex-1 font-mono text-xs" />
@@ -792,7 +794,11 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
 
               <div>
                 <p className="text-sm font-medium mb-2">
-                  Step 2: Paste the {provider === "xai" ? "callback URL or copied code" : isKimchiProvider ? "callback URL or copied token" : "callback URL"} here
+                  {provider === "xai"
+                    ? "Step 2: Paste the callback URL or copied code here"
+                    : isKimchiProvider
+                      ? "Step 2: Paste the callback URL or copied token here"
+                      : "Step 2: Paste the callback URL here"}
                 </p>
                 <p className="text-xs text-text-muted mb-2">
                   {provider === "xai"

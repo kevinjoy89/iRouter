@@ -68,10 +68,34 @@ function translateDynamicPatterns(text, locale) {
     return isTw ? `第 ${pageMatch[1]} / ${pageMatch[2]} 頁` : `第 ${pageMatch[1]} / ${pageMatch[2]} 页`;
   }
 
-  // 4. 配额计数 "1 quota", "2 quotas"
+  // 4. 配额与连接计数 "1 quota", "2 quotas", "0 connections", "1 connection"
   const quotaMatch = text.match(/^(\d+)\s+quotas?$/i);
   if (quotaMatch) {
     return isTw ? `${quotaMatch[1]} 個配額` : `${quotaMatch[1]} 个配额`;
+  }
+  const connectionCountMatch = text.match(/^(\d+)\s+connections?$/i);
+  if (connectionCountMatch) {
+    return isTw ? `${connectionCountMatch[1]} 個連線` : `${connectionCountMatch[1]} 个连接`;
+  }
+  const usingStoredKeysMatch = text.match(/^Using\s+stored\s+key\(s\)\s+·\s+(\d+)\s+connections?$/i);
+  if (usingStoredKeysMatch) {
+    return isTw
+      ? `使用已儲存的金鑰 · ${usingStoredKeysMatch[1]} 個連線`
+      : `使用已保存的密钥 · ${usingStoredKeysMatch[1]} 个连接`;
+  }
+  const resetCreditMatch = text.match(/^(\d+)\s+reset\s+credits?$/i);
+  if (resetCreditMatch) {
+    return isTw ? `${resetCreditMatch[1]} 次重設額度` : `${resetCreditMatch[1]} 次重置额度`;
+  }
+  const availableMatch = text.match(/^(\d+)\s+available$/i);
+  if (availableMatch) {
+    return isTw ? `${availableMatch[1]} 個可用` : `${availableMatch[1]} 个可用`;
+  }
+
+  // 4.1 展开提供商 "Show all 39 providers"
+  const showAllProvidersMatch = text.match(/^Show\s+all\s+(\d+)\s+providers$/i);
+  if (showAllProvidersMatch) {
+    return isTw ? `顯示全部 ${showAllProvidersMatch[1]} 個提供商` : `显示全部 ${showAllProvidersMatch[1]} 个提供商`;
   }
 
   // 5. 供应商凭据弹窗标题 "Add <provider> API Key" 等
@@ -88,16 +112,36 @@ function translateDynamicPatterns(text, locale) {
     return isTw ? `新增 ${addPatMatch[1]} 個人存取權杖 (PAT)` : `添加 ${addPatMatch[1]} 个人访问令牌 (PAT)`;
   }
 
-  // 6. 代理绑定数量 "Apply Proxy (1 connection)"
+  // 6. 代理绑定数量 "Apply Proxy (1 connection)" 与删除连接确认
   const applyProxyMatch = text.match(/^Apply\s+Proxy\s*\(\s*(\d+)\s+connections?\s*\)$/i);
   if (applyProxyMatch) {
     return isTw ? `套用代理（${applyProxyMatch[1]} 個連線）` : `应用代理（${applyProxyMatch[1]} 个连接）`;
   }
+  const deleteConnsTitleMatch = text.match(/^Delete\s+(\d+)\s+connections?$/i);
+  if (deleteConnsTitleMatch) {
+    return isTw ? `刪除 ${deleteConnsTitleMatch[1]} 個連線` : `删除 ${deleteConnsTitleMatch[1]} 个连接`;
+  }
+  const deleteConnsMsgMatch = text.match(/^Delete\s+(\d+)\s+connections?\?\s+This\s+cannot\s+be\s+undone\.$/i);
+  if (deleteConnsMsgMatch) {
+    return isTw
+      ? `刪除這 ${deleteConnsMsgMatch[1]} 個連線？此操作無法復原。`
+      : `删除这 ${deleteConnsMsgMatch[1]} 个连接？此操作无法撤销。`;
+  }
 
-  // 7. 社交登录连接 "Connect Kiro via <provider>"
+  // 7. 社交登录连接 "Connect Kiro via <provider>" 及通用 "Connect <provider>"
   const kiroViaMatch = text.match(/^Connect\s+Kiro\s+via\s+(.+)$/i);
   if (kiroViaMatch) {
     return isTw ? `透過 ${kiroViaMatch[1]} 連線 Kiro` : `通过 ${kiroViaMatch[1]} 连接 Kiro`;
+  }
+  const connectProviderMatch = text.match(/^Connect\s+(.+)$/i);
+  if (connectProviderMatch) {
+    return isTw ? `連接 ${connectProviderMatch[1]}` : `连接 ${connectProviderMatch[1]}`;
+  }
+
+  // 7.1 账号已连接动态提示 "Your <provider> account has been connected."
+  const accountConnectedMatch = text.match(/^Your\s+(.+?)\s+account\s+has\s+been\s+connected\.$/i);
+  if (accountConnectedMatch) {
+    return isTw ? `您的 ${accountConnectedMatch[1]} 帳號已成功連線。` : `您的 ${accountConnectedMatch[1]} 账号已成功连接。`;
   }
 
   // 8. 兼容节点编辑 "Edit Anthropic Compatible Node" / "Edit OpenAI Compatible Node"
