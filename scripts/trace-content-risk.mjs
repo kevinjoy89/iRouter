@@ -47,8 +47,9 @@ function apiKey() {
 const KEY = apiKey();
 
 /** 发一次探针；返回 {verdict, status, message} */
-export async function probe({ system = MINIMAL_SYSTEM, tools = null, text = null, messages = null, maxTokens = 1 }) {
-  const msgs = messages || [];
+export async function probe(opts, attempt = 0) {
+  const { system = MINIMAL_SYSTEM, tools = null, text = null, messages = null, maxTokens = 1 } = opts;
+  const msgs = (messages || []).map((m) => ({ ...m }));
   if (system) msgs.unshift({ role: "system", content: system });
   if (text != null) msgs.push({ role: "user", content: text });
   const body = { model: PROBE_MODEL, messages: msgs, max_tokens: maxTokens, stream: false };
@@ -62,8 +63,20 @@ export async function probe({ system = MINIMAL_SYSTEM, tools = null, text = null
   const raw = await res.text();
   let message = raw.slice(0, 300);
   try { message = JSON.parse(raw)?.error?.message || message; } catch { /* keep raw */ }
-  if (res.ok) return { verdict: "ok", status: res.status, message: "" };
+
+  // 400 会让网关把该账号冷却 30s（errorConfig 的瞬时冷却）；冷却期内的 503 携带的是
+  // 「上一次」的错误文本，不是本次请求的结果——必须等冷却结束再发，否则二分全是假命中。
+  const cooling = /\(reset after (\d+)s\)/.exec(message);
+  if (cooling && attempt < 3) {
+    const waitMs = Math.min(Number(cooling[1]) + 1, 60) * 1000;
+    process.stderr.write(`\r[probe] 账号冷却中，等待 ${waitMs / 1000}s 后重试   `);
+    await new Promise((r) => setTimeout(r, waitMs));
+    return probe(opts, attempt + 1);
+  }
+
+  // 只有直连 400 才是真命中；其余一律按原文判定，避免把冷却回显当成命中
   if (res.status === 400 && /Content Exists Risk/i.test(raw)) return { verdict: "flagged", status: res.status, message };
+  if (res.ok) return { verdict: "ok", status: res.status, message: "" };
   return { verdict: "other", status: res.status, message };
 }
 
