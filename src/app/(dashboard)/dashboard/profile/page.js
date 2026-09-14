@@ -8,7 +8,7 @@ import { useTheme } from "@/shared/hooks/useTheme";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
-import { translate } from "@/i18n/runtime";
+import { translate, reloadTranslations } from "@/i18n/runtime";
 import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
 import { LOCALE_FLAGS } from "@/shared/constants/locales";
 
@@ -41,12 +41,7 @@ export default function ProfilePage() {
   const { theme, setTheme } = useTheme();
   const { copied, copy } = useCopyToClipboard();
   const [locale, setLocale] = useState(() => getLocaleFromCookie());
-  const [localePreference, setLocalePreference] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("irouter_locale_preference") || "system";
-    }
-    return "system";
-  });
+  const [localePreference, setLocalePreference] = useState("system");
   const [pricingOpen, setPricingOpen] = useState(false);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
@@ -74,26 +69,30 @@ export default function ProfilePage() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const oidcRedirectUri = origin ? `${origin}/api/auth/oidc/callback` : "/api/auth/oidc/callback";
 
-  // 检查并同步跟随系统语言偏好
+  // 客户端挂载后读取本地持久化的偏好设置，若有必要则无刷新同步语言
   useEffect(() => {
-    if (localePreference === "system") {
-      const expected = resolveSystemLocale();
-      const current = getLocaleFromCookie();
-      if (current !== expected) {
-        document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(expected)}; path=/; max-age=31536000`;
-        fetch("/api/locale", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ locale: expected }),
-        }).catch(() => {});
-        setLocale(expected);
-        window.location.reload();
-      }
+    let saved = "system";
+    try {
+      saved = localStorage.getItem("irouter_locale_preference") || "system";
+    } catch {}
+    setLocalePreference(saved);
+
+    const targetLocale = saved === "system" ? resolveSystemLocale() : saved;
+    const current = getLocaleFromCookie();
+    if (current !== targetLocale) {
+      document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(targetLocale)}; path=/; max-age=31536000`;
+      fetch("/api/locale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locale: targetLocale }),
+      }).catch(() => {});
+      setLocale(targetLocale);
+      reloadTranslations();
     }
-  }, [localePreference]);
+  }, []);
 
   /**
-   * 切换语言偏好设置
+   * 切换语言偏好设置并平滑热重载界面多语言文本
    * @param {string} selectedId 选中的偏好ID ('system' | 'en' | 'zh-CN' | 'zh-TW')
    */
   const applyLocalePreference = async (selectedId) => {
@@ -101,7 +100,11 @@ export default function ProfilePage() {
     try {
       localStorage.setItem("irouter_locale_preference", selectedId);
     } catch {}
+
     const targetLocale = selectedId === "system" ? resolveSystemLocale() : selectedId;
+    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(targetLocale)}; path=/; max-age=31536000`;
+    setLocale(targetLocale);
+
     try {
       await fetch("/api/locale", {
         method: "POST",
@@ -109,9 +112,9 @@ export default function ProfilePage() {
         body: JSON.stringify({ locale: targetLocale }),
       });
     } catch {}
-    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(targetLocale)}; path=/; max-age=31536000`;
-    setLocale(targetLocale);
-    window.location.reload();
+
+    // 热重载多语言词典并就地重渲染 DOM 文本，零整页刷新，完全不干扰主题状态
+    await reloadTranslations();
   };
   const samlAcsUrl = origin ? `${origin}/api/auth/saml/acs` : "/api/auth/saml/acs";
   const samlMetadataUrl = origin ? `${origin}/api/auth/saml/metadata` : "/api/auth/saml/metadata";
