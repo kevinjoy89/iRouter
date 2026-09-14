@@ -8,8 +8,8 @@
 
 iRouter 桌面端采用 **双层解耦架构**（网关源码基于上游 v0.5.69 定制，位于仓库根目录）：
 
-- **内嵌网关层（仓库根目录 `src/` + `open-sse/`）**：基于 Next.js 16 Standalone 服务端，集成 SQLite 数据存储与多语言补丁；
-- **桌面壳层 (`desktop/`)**：基于 Electron 44 容器，负责系统托盘、多实例管理、原生菜单、无闪烁 UI 注入与数据目录持久化。
+- **内嵌网关层（仓库根目录 `src/` + `open-sse/`）**：基于 Next.js 16 Standalone 服务端，集成 SQLite 数据存储与原生多语言支持；
+- **桌面壳层 (`desktop/`)**：基于 Electron 44 容器，负责系统托盘、多实例管理、原生菜单、系统深浅色/语言跟随与数据目录持久化。
 
 ```mermaid
 flowchart TD
@@ -17,8 +17,7 @@ flowchart TD
     B --> B1[Next.js 生产包编译 next build]
     B1 --> B2[拷贝静态资源与 custom-server.js]
     B2 --> B3[移除原生模块 better-sqlite3]
-    B3 --> B4[合并多语言补丁字典 zh-CN / zh-TW]
-    B4 --> C[输出至 desktop/build/gateway/server]
+    B3 --> C[输出至 desktop/build/gateway/server]
     C --> D[第二阶段: Electron 应用打包 electron-builder]
     D --> D1[装配 extraResources 资源]
     D1 --> D2[生成 macOS .app 与 .dmg]
@@ -80,8 +79,7 @@ npm run build-server
 1. **环境净化**：清理宿主机泄漏的 `__NEXT_PRIVATE_*`、`PORT`、`HOSTNAME` 等环境变量，防止 Next.js 读取泄漏配置导致编译崩溃；
 2. **Next.js 独立包构建**：在仓库根目录执行 `npm install` 并运行 `next build --webpack`，生成 `.next/standalone` 生产输出；
 3. **资产与入口同步**：将 `.next/static`、`public` 资源以及 `custom-server.js` 统一归集至独立包目录；
-4. **便携化处理（剥离原生依赖）**：从 `node_modules` 中剔除依赖宿主 Node ABI 版本的 C++ 原生模块 `better-sqlite3`，确保运行时平滑走 Node 内建 `node:sqlite` 或便携式 `sql.js`；
-5. **多语言字典补丁合并**：将 `desktop/resources/i18n/` 下定制的 `zh-CN.json` 与 `zh-TW.json` 覆盖合并至独立网关的 `public/i18n/literals/` 目录，确保多语言字典生效。
+4. **便携化处理（剥离原生依赖）**：从 `node_modules` 中剔除依赖宿主 Node ABI 版本的 C++ 原生模块 `better-sqlite3`，确保运行时平滑走 Node 内建 `node:sqlite` 或便携式 `sql.js`。
 
 ---
 

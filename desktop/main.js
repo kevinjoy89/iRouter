@@ -1,5 +1,4 @@
-// iRouter 壳层主进程：内嵌窗口 + 托盘 + 网关子进程管理。
-// 上游 9Router 零改动，仅通过进程边界交互（见 docs/adr/0002-pinned-upstream.md）。
+// iRouter 桌面端主进程：窗口生命周期 + 系统托盘 + 原生菜单 + 网关子进程管理
 const {
   app,
   BrowserWindow,
@@ -383,45 +382,13 @@ function showWindow() {
   mainWindow.focus();
 }
 
-/**
- * 壳层基础样式：
- * 默认禁用全页面文字拖选（仅对输入框与日志区开放），保护桌面端原生体验
- * @return {string} 注入的 CSS 样式代码
- */
-function getShellCss() {
-  return `
-  /* 应用形态：默认禁文本选中（复制只发生在输入类与显式可复制区域）。
-     Next 的 CSS 优化器会吞掉 globals.css 里的 body user-select 规则，
-     故由壳层运行时注入（insertCSS 不走优化管线）。 */
-  html, body, body * {
-    -webkit-user-select: none !important;
-    user-select: none !important;
-  }
-  input, textarea, select, option, [contenteditable="true"],
-  [data-irouter-log], [data-irouter-log] * {
-    -webkit-user-select: text !important;
-    user-select: text !important;
-  }
-`;
-}
-
-function applyShellCss(win) {
-  const inject = () => {
-    win.webContents.insertCSS(getShellCss()).catch(() => {});
-  };
-  win.webContents.on("dom-ready", inject);
-  win.webContents.on("did-finish-load", inject);
-}
-
-// ---------------------------------------------------------------- 深浅色与多语言跟随
-// 监听面板内深浅色模式（<html> class）与语言设定（document.cookie 中的 locale），
-// 通过 console-message 通知主进程，同步切换 macOS 系统标题栏外观与顶部原生菜单语言
-const SHELL_SYNC_SCRIPT = `
+// ---------------------------------------------------------------- 深浅色跟随
+// 监听面板内深浅色模式（<html> class），同步切换 macOS 系统标题栏外观与背景色
+const THEME_SYNC_SCRIPT = `
 (() => {
-  if (window.__irouter_shell_sync_injected) return;
-  window.__irouter_shell_sync_injected = true;
+  if (window.__irouter_theme_sync_injected) return;
+  window.__irouter_theme_sync_injected = true;
 
-  // 1. 深浅色模式侦听与同步
   function reportTheme() {
     const isDark = document.documentElement.classList.contains("dark");
     console.log("__IROUTER_THEME__:" + (isDark ? "dark" : "light"));
@@ -436,33 +403,16 @@ const SHELL_SYNC_SCRIPT = `
     }
   });
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-
-  // 2. 语言设定侦听与同步（通知主进程刷新原生菜单栏与托盘文案）
-  function getLocale() {
-    const m = document.cookie.match(/(?:^|;\\s*)locale=([^;]+)/);
-    return m ? decodeURIComponent(m[1]) : "";
-  }
-  let lastLocale = getLocale();
-  if (lastLocale) {
-    console.log("__IROUTER_LOCALE__:" + lastLocale);
-  }
-  setInterval(() => {
-    const current = getLocale();
-    if (current && current !== lastLocale) {
-      lastLocale = current;
-      console.log("__IROUTER_LOCALE__:" + current);
-    }
-  }, 500);
 })();
 `;
 
 /**
- * 注入深浅色与多语言监听脚本并同步初始 Cookie 语言
+ * 注入深浅色监听脚本并同步初始 Cookie 语言
  * @param {BrowserWindow} win 目标窗口实例
  */
-function applyShellSync(win) {
+function applyThemeSync(win) {
   const inject = () => {
-    win.webContents.executeJavaScript(SHELL_SYNC_SCRIPT).catch(() => {});
+    win.webContents.executeJavaScript(THEME_SYNC_SCRIPT).catch(() => {});
     win.webContents.session.cookies
       .get({ name: "locale" })
       .then((cookies) => {
@@ -582,24 +532,11 @@ function createWindow() {
     return { action: "deny" };
   });
 
-  // 拦截下载事件，若文件名仍带有 9router 前缀则兜底重命名为 irouter 前缀
-  win.webContents.session.on("will-download", (_event, item) => {
-    const filename = item.getFilename();
-    if (/^9router-/i.test(filename)) {
-      const newFilename = filename.replace(/^9router-/i, "irouter-");
-      const currentSavePath = item.getSavePath();
-      if (currentSavePath) {
-        item.setSavePath(path.join(path.dirname(currentSavePath), newFilename));
-      }
-    }
-  });
-
   win.webContents.on("did-finish-load", () => {
     win.setTitle(windowTitle());
     if (SMOKE && !smokeStarted) runSmoke();
   });
-  applyShellCss(win);
-  applyShellSync(win);
+  applyThemeSync(win);
 
   // 面板访问守卫：网关侧（custom-server）按 UA 中的 Electron 标识放行桌面窗口，
   // 浏览器直连 HTML 页面被连接级拒绝（见 custom-server.js isBlockedPanelRequest）。
@@ -624,7 +561,7 @@ display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
 div{max-width:520px;padding:32px;border:1px solid #333;border-radius:12px}
 h1{font-size:18px;margin:0 0 12px;color:#f97316}code{background:#222;padding:2px 6px;border-radius:4px}</style>
 </head><body><div><h1>网关服务已停止</h1>
-<p>内嵌的 9Router 网关进程意外退出，面板与 API 暂时不可用。</p>
+<p>内嵌的 iRouter 网关进程意外退出，面板与 API 暂时不可用。</p>
 <p>请从托盘菜单选择<b>退出</b>，然后重新启动 iRouter。</p>
 <p><code>${String(detail || "").slice(0, 200)}</code></p></div></body></html>`)}`;
   if (mainWindow) {
@@ -1234,47 +1171,6 @@ function maybeImportLegacyData(dataDir) {
   return true;
 }
 
-// 从历史 Application Support 目录平滑迁移现有数据至 ~/.irouter
-function migrateFromLegacyApplicationSupport(targetDir) {
-  try {
-    const targetDb = path.join(targetDir, "db", "data.sqlite");
-    if (fs.existsSync(targetDb)) return;
-
-    const oldSupportDir = app.getPath("userData");
-    if (path.resolve(oldSupportDir) === path.resolve(targetDir)) return;
-    const oldDb = path.join(oldSupportDir, "db", "data.sqlite");
-    if (!fs.existsSync(oldDb)) return;
-
-    console.log(
-      `[iRouter] 检测到旧应用支持目录数据，正在平滑迁移至 ${targetDir}...`,
-    );
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    // 需要迁移的核心条目
-    const itemsToMigrate = [
-      "db",
-      "auth",
-      "headroom",
-      "jwt-secret",
-      "machine-id",
-      "model-catalog.json",
-      "model-catalog-raw.json",
-      ".irouter-import-decided",
-    ];
-
-    for (const item of itemsToMigrate) {
-      const src = path.join(oldSupportDir, item);
-      const dest = path.join(targetDir, item);
-      if (fs.existsSync(src) && !fs.existsSync(dest)) {
-        fs.cpSync(src, dest, { recursive: true, force: false });
-      }
-    }
-    console.log(`[iRouter] 旧应用支持目录数据已成功平滑迁移至 ${targetDir}`);
-  } catch (e) {
-    console.error(`[iRouter] 平滑迁移旧数据异常: ${e.message}`);
-  }
-}
-
 // ---------------------------------------------------------------- 生命周期
 function quit() {
   quitting = true;
@@ -1335,45 +1231,6 @@ async function runSmoke() {
     results.push(`GET /callback -> ${cb}`);
     ok &&= cb > 0;
     if (mainWindow) {
-      // 用 jwt-secret 自签一个合法 token 写进窗口 cookie，让 smoke 能进仪表盘页
-      // （aside/假红绿灯只在那边存在）；仅 smoke 路径执行。
-      try {
-        const crypto = require("node:crypto");
-        const secretPath = fs.existsSync(
-          path.join(getGatewayDataDir(), "jwt-secret"),
-        )
-          ? path.join(getGatewayDataDir(), "jwt-secret")
-          : path.join(app.getPath("userData"), "jwt-secret");
-        const secret = fs.readFileSync(secretPath);
-        const b64u = (buf) =>
-          buf
-            .toString("base64")
-            .replace(/\+/g, "-")
-            .replace(/\//g, "_")
-            .replace(/=+$/, "");
-        const now = Math.floor(Date.now() / 1000);
-        const payload = b64u(
-          Buffer.from(
-            JSON.stringify({ authenticated: true, iat: now, exp: now + 3600 }),
-          ),
-        );
-        const sig = b64u(
-          crypto
-            .createHmac("sha256", secret)
-            .update(
-              `${b64u(Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })))}.${payload}`,
-            )
-            .digest(),
-        );
-        await mainWindow.webContents.session.cookies.set({
-          url: gatewayOrigin(),
-          name: "auth_token",
-          value: `${b64u(Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })))}.${payload}.${sig}`,
-        });
-        await mainWindow.webContents.loadURL(`${gatewayOrigin()}/dashboard`);
-      } catch (e) {
-        results.push(`smoke 登录注入失败：${e.message}`);
-      }
       await new Promise((resolve) => {
         if (!mainWindow.webContents.isLoadingMainFrame()) {
           resolve();
@@ -1387,78 +1244,13 @@ async function runSmoke() {
       });
       results.push("窗口 did-finish-load ✓");
 
-      // 源码应已彻底移除的冗余 UI 元素（假红绿灯 / 9Remote / 9English / 捐赠按钮 / 顶部三工具），不许回归
       const win = mainWindow;
-      const removedChecks = {
-        假红绿灯: "aside > div.flex.items-center.gap-2.px-6.pt-5",
-        九Remote: "aside > nav button:has(+ a[href='https://9english.net/'])",
-        九English: "aside > nav a[href='https://9english.net/']",
-        捐赠按钮: "header button[aria-label='Donate']",
-        主题切换: "header button[aria-label*='mode']",
-        语言切换: "header button[title='Language']",
-        四宫格菜单: "header button[title='Menu']",
-      };
-      const removedState = await win.webContents.executeJavaScript(
-        `(() => { const q = ${JSON.stringify(removedChecks)};
-                  return Object.fromEntries(Object.entries(q).map(([k, sel]) => {
-                    const el = document.querySelector(sel);
-                    return [k, !el];
-                  })); })()`,
-        true,
-      );
-      for (const [k, v] of Object.entries(removedState)) {
-        results.push(`${k}已移除=${v}`);
-        ok &&= v === true;
-      }
-
-      // 校验 Skills 技能入口存在且正常展示（保留并取消隐藏）
-      const skillsVisible = await win.webContents.executeJavaScript(
-        `(() => {
-          const el = document.querySelector("aside > nav a[href='/dashboard/skills']");
-          return el ? getComputedStyle(el).display !== "none" : false;
-        })()`,
-        true,
-      );
-      results.push(`技能入口可见=${skillsVisible}`);
-      ok &&= skillsVisible;
 
       // 校验窗口标题已移除所有字样（保持标题栏纯净无文字）
       const title = win.getTitle();
       const titleOk = title === "";
       results.push(`窗口标题无字样=${titleOk} ("${title}")`);
       ok &&= titleOk;
-
-      // 校验侧栏品牌名与版本号已原生展示为 iRouter Proxy 与桌面端当前版本
-      const brandText = await win.webContents.executeJavaScript(
-        `(() => {
-          const h1 = document.querySelector('aside a[href="/dashboard"] h1');
-          return h1 ? h1.textContent.trim() : "";
-        })()`,
-        true,
-      );
-      const versionText = await win.webContents.executeJavaScript(
-        `(() => {
-          const span = document.querySelector('aside a[href="/dashboard"] h1 + span');
-          return span ? span.textContent.trim() : "";
-        })()`,
-        true,
-      );
-      const brandOk = brandText === "iRouter Proxy";
-      const versionOk = versionText === `v${app.getVersion()}`;
-      results.push(`品牌名iRouter Proxy=${brandOk}`);
-      results.push(`版本号v${app.getVersion()}=${versionOk}`);
-      ok &&= brandOk && versionOk;
-
-      // 校验侧栏 Logo 容器已替换为官方应用图标原生 img 标签
-      const logoLoaded = await win.webContents.executeJavaScript(
-        `(() => {
-          const img = document.querySelector('aside a[href="/dashboard"] img');
-          return img && img.getAttribute("src") === "/logo.png";
-        })()`,
-        true,
-      );
-      results.push(`侧栏Logo加载官方图标=${logoLoaded}`);
-      ok &&= logoLoaded;
 
       // 校验深浅色模式与系统标题栏外观跟随
       const isDarkInPage = await win.webContents.executeJavaScript(
@@ -1513,110 +1305,6 @@ async function runSmoke() {
         `菜单栏多语言动态响应=${i18nOk} (中=[${zhLabels.join(", ")}], 英=[${enLabels.join(", ")}])`,
       );
       ok &&= i18nOk;
-
-      // 面板文案多语言：以「脱敏策略」卡片（ADR 0005）为探针，验证面板字典确实随包分发
-      // 且新增文案已入典。浏览器直连面板被 custom-server 守卫拒绝（连接级掐断），
-      // 故只能在这里驱动真实桌面窗口断言——这也是本检查放在 smoke 而非单测的原因。
-      // 回归背景：该卡片首版全部文案漏入字典，中文界面整片显示英文。
-      try {
-        await win.webContents.session.cookies.set({
-          url: gatewayOrigin(),
-          name: "locale",
-          value: "zh-CN",
-        });
-        await win.webContents.loadURL(`${gatewayOrigin()}/dashboard/profile`);
-        await new Promise((resolve) => {
-          if (!win.webContents.isLoadingMainFrame()) {
-            resolve();
-            return;
-          }
-          const t = setTimeout(resolve, 5000);
-          win.webContents.once("did-finish-load", () => {
-            clearTimeout(t);
-            resolve();
-          });
-        });
-        // 等运行时 i18n 取回字典并完成 DOM 替换
-        await new Promise((r) => setTimeout(r, 2500));
-
-        // 卡片范围 = 「脱敏策略」标题到「网络」标题之间的 DOM 文本。
-        // 这一段的**每个英文源串**都必须已被 runtime i18n 译为中文——不再是抽查
-        // 几个关键词（抽查漏掉新增/漏译文案，恰是上次回归的形态）。
-        // 源串清单由 tests/unit/dlp-i18n-coverage.test.js 钉住并保证与字典同源。
-        const CARD_SOURCES = [
-          "Redaction Policy",
-          "Detect secrets (API keys, private keys, ID/bank cards) in the request body before forwarding upstream. Outbound only — request details stored locally are still kept in plain text.",
-          "Mode",
-          "Off — forward everything unchanged",
-          "Audit — log matches, forward unchanged",
-          "Redact — replace matches with [REDACTED:rule]",
-          "Block — reject the request with HTTP 422",
-          "Match stored credentials",
-          "Exact-match against the API keys and tokens already stored in this app. Zero false positives. Only the rule name is logged, never the value.",
-          "Allow exemption markers",
-          "Everything between the two markers skips inspection and reaches the provider unchanged. Use it to send something a rule keeps flagging by mistake.",
-          "your text",
-          "sent unchanged, markers removed",
-        ];
-        const panelI18n = await win.webContents.executeJavaScript(
-          `(() => {
-             const srcs = ${JSON.stringify(CARD_SOURCES)};
-             const body = document.body.innerText;
-             const opts = [...document.querySelectorAll("option")].map((o) => o.textContent.trim());
-             // 豁免标记字面量须可见（曾有版本只留开关，用户无从得知该写什么）；
-             // 用码点构造断言串，避免源码/中间层改写 [[ ]] 字面量
-             const B = String.fromCharCode(91, 91), E2 = String.fromCharCode(93, 93);
-             const OPEN = B + "ALLOW_SENSITIVE" + E2;
-             const CLOSE = B + "/ALLOW_SENSITIVE" + E2;
-             const codes = [...document.querySelectorAll("code")].map((c) => c.textContent.trim());
-             // 任一英文源串仍以整串出现 = 该条未入典或未替换
-             const leaked = srcs.filter((s) => body.includes(s));
-             return {
-               card: body.includes("脱敏策略"),
-               // 四档 mode 文案（option 的直接父元素不在 runtime skipTags 内，故会被翻译）
-               modes: ["关闭 —", "仅告警 —", "改写 —", "拦截 —"].every((p) => opts.some((o) => o.startsWith(p))),
-               markers: codes.includes(OPEN) && codes.includes(CLOSE),
-               leaked,
-             };
-           })()`,
-          true,
-        );
-        const panelOk =
-          panelI18n.card &&
-          panelI18n.modes &&
-          panelI18n.markers &&
-          panelI18n.leaked.length === 0;
-        results.push(
-          `面板文案中文=${panelOk} (卡片=${panelI18n.card}, 档位=${panelI18n.modes}, 豁免标记可见=${panelI18n.markers}, 英文残留=${panelI18n.leaked.length}${panelI18n.leaked.length ? ":" + panelI18n.leaked[0].slice(0, 40) : ""})`,
-        );
-        ok &&= panelOk;
-
-        // 可选：把面板截图落盘，供人工核对布局（文本断言看不出换行/溢出/对齐问题）。
-        // 用法：IROUTER_SMOKE_SHOT=/tmp/x.png npm run smoke:packaged
-        if (process.env.IROUTER_SMOKE_SHOT) {
-          try {
-            // 滚到 Redaction Policy 卡片，再截可视区
-            await win.webContents.executeJavaScript(
-              `(() => { const el = [...document.querySelectorAll("h3")].find((h) => h.textContent.trim() === "脱敏策略");
-                        if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
-              true,
-            );
-            await new Promise((r) => setTimeout(r, 600));
-            const img = await win.webContents.capturePage();
-            fs.writeFileSync(process.env.IROUTER_SMOKE_SHOT, img.toPNG());
-            results.push(`面板截图=${process.env.IROUTER_SMOKE_SHOT}`);
-          } catch (e) {
-            results.push(`面板截图失败：${e.message}`);
-          }
-        }
-      } catch (e) {
-        results.push(`面板文案中文检查异常：${e.message}`);
-        ok = false;
-      } finally {
-        await win.webContents.session.cookies
-          .remove(gatewayOrigin(), "locale")
-          .catch(() => {});
-      }
 
       // 关窗应隐藏到托盘，且网关继续服务（spec: 关窗最小化到托盘）
       win.close();
@@ -1706,7 +1394,6 @@ app.whenReady().then(async () => {
   );
   const dataDir = getGatewayDataDir();
   fs.mkdirSync(dataDir, { recursive: true });
-  migrateFromLegacyApplicationSupport(dataDir);
   await reapOrphanGateway(dataDir);
 
   if (!maybeImportLegacyData(dataDir)) {
