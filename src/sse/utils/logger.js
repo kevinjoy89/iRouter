@@ -51,6 +51,10 @@ export function setVerboseErrors(on) {
   verboseErrors = on === true;
 }
 
+export function isVerboseErrors() {
+  return verboseErrors;
+}
+
 // Like errorLine() but only when the verbose switch is on: 上游原始报文等大段内容
 export function errorDetail(tag, symbol, message) {
   if (!verboseErrors) return;

@@ -1,5 +1,6 @@
 import { convertResponsesStreamToJson } from "../../transformer/streamToJsonConverter.js";
 import { createErrorResult } from "../../utils/error.js";
+import { createUpstreamCapture, logVerboseExchange, tapUpstreamStream } from "../../utils/verboseLog.js";
 import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { FORMATS } from "../../translator/formats.js";
 import { PROVIDERS } from "../../config/providers.js";
@@ -198,8 +199,10 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
   // provider still receives chat SSE chunks, which must go through the standard path.
   const isCodexResponsesApi = isResponsesProvider(provider) || targetFormat === FORMATS.OPENAI_RESPONSES;
   if (isCodexResponsesApi) {
+    const capture = createUpstreamCapture(log, { provider, model, reqTag, requestBody: ctx.providerRequest });
     try {
-      const jsonResponse = await convertResponsesStreamToJson(providerResponse.body);
+      const stream = capture ? tapUpstreamStream(providerResponse.body, capture) : providerResponse.body;
+      const jsonResponse = await convertResponsesStreamToJson(stream);
       if (onRequestSuccess) await onRequestSuccess();
 
       const usage = jsonResponse.usage || {};
@@ -284,6 +287,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
       return { success: true, response: new Response(JSON.stringify(finalResp), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }) };
     } catch (err) {
       console.error("[ChatCore] Responses API SSE→JSON failed:", err);
+      capture?.dump({ status: err.message });
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Failed to convert streaming response to JSON");
     }
   }
@@ -292,8 +296,18 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
   try {
     const sseText = await providerResponse.text();
     const parsed = parseSSEToOpenAIResponse(sseText, model);
-    if (!parsed) return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Invalid SSE response for non-streaming request");
+    if (!parsed) {
+      logVerboseExchange(log, reqTag, {
+        stage: "PARSE-SSE", status: "invalid SSE", provider, model,
+        requestBody: ctx.providerRequest, responseText: sseText,
+      });
+      return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Invalid SSE response for non-streaming request");
+    }
     if (parsed.error) {
+      logVerboseExchange(log, reqTag, {
+        stage: "UPSTREAM-SSE", status: parsed.error.code || "sse error", provider, model,
+        requestBody: ctx.providerRequest, responseText: sseText,
+      });
       return createErrorResult(
         HTTP_STATUS.BAD_GATEWAY,
         parsed.error.message || "Upstream SSE stream failed"

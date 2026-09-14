@@ -67,8 +67,9 @@ export const DEFAULT_MIN_TOKENS = 32000;
 
 export const TOKEN_SAVER_HEADER = "x-9router-token-saver";
 
-// 完整异常日志（settings.verboseErrorLog）单条上游报文的打印上限，避免刷屏
-export const VERBOSE_ERROR_BODY_MAX_BYTES = 4 * 1024;
+// 完整异常日志（settings.verboseErrorLog）：请求体与错误响应体全文打印（排障需要完整
+// prompt），仅流式累积的原始报文设上限，避免长流式输出撑爆控制台日志缓冲。
+export const VERBOSE_STREAM_CAPTURE_MAX_BYTES = 1024 * 1024;
 
 // Retry config for 429 responses (legacy - kept for backward compatibility)
 export const RETRY_CONFIG = {

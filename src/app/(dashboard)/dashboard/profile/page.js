@@ -1812,7 +1812,7 @@ export default function ProfilePage() {
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm sm:text-base">Print Full Error Logs</p>
               <p className="text-xs sm:text-sm text-text-muted">
-                Include the full upstream error body in the console log (off by default)
+                Include the full request sent to the model and the full upstream response body in the console log (off by default)
               </p>
             </div>
             <Toggle

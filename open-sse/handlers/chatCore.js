@@ -6,10 +6,11 @@ import { normalizeClaudePassthrough, anchorClaudeCache } from "../translator/for
 import { createStreamController } from "../utils/streamHandler.js";
 import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { createRequestLogger } from "../utils/requestLogger.js";
+import { logVerboseExchange } from "../utils/verboseLog.js";
 import { getModelTargetFormat, getModelSupportedFormats, getModelStrip, getModelUpstreamId, getModelType, PROVIDER_ID_TO_ALIAS } from "../config/providerModels.js";
 import { PROVIDERS } from "../config/providers.js";
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
-import { HTTP_STATUS, TOKEN_SAVER_HEADER, VERBOSE_ERROR_BODY_MAX_BYTES } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, TOKEN_SAVER_HEADER } from "../config/runtimeConfig.js";
 import { handleBypassRequest } from "../utils/bypassHandler.js";
 import { trackPendingRequest, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { getExecutor } from "../executors/index.js";
@@ -399,6 +400,13 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     if (log?.errorLine) {
       log.errorLine(reqTag, "✗", `ERROR 502 · ${provider}/${model} · ${Date.now() - requestStartTime}ms\n    ${errMsg}${error.stack ? `\n    ${error.stack}` : ""}`);
     }
+    // 完整异常日志：请求已发出但拿不到响应（超时/连接失败）时，仍要能看到发出去的内容
+    logVerboseExchange(log, reqTag, {
+      stage: "EXEC",
+      status: errMsg,
+      provider, model,
+      requestBody: finalBody || translatedBody,
+    });
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
   }
 
@@ -470,19 +478,20 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       const urlStr = providerUrl ? `\n    URL: ${providerUrl}` : "";
       log.errorLine(reqTag, "✗", `ERROR ${statusCode} · ${provider}/${model} · ${Date.now() - requestStartTime}ms${urlStr}\n    ${errMsg}`);
     }
-    // 完整异常日志（settings.verboseErrorLog，默认关）：上游原始报文全文，
-    // 供定位「上游到底回了什么」（如内容审核 400 的原始 body）。
-    if (rawBody) {
-      log?.errorDetail?.(
-        reqTag, "✗",
-        `DETAIL ${statusCode} · ${provider}/${model}${providerUrl ? ` · ${providerUrl}` : ""} · upstream body ${rawBody.length}B:\n    ${rawBody.slice(0, VERBOSE_ERROR_BODY_MAX_BYTES)}`
-      );
-    }
+    // 完整异常日志（settings.verboseErrorLog，默认关）：本次请求体 + 上游原始报文全文，
+    // 供定位「到底发出去什么、上游又回了什么」（如内容审核 400 撞在哪段 prompt）。
+    logVerboseExchange(log, reqTag, {
+      stage: "UPSTREAM",
+      status: statusCode,
+      provider, model, url: providerUrl,
+      requestBody: finalBody || translatedBody,
+      responseText: rawBody,
+    });
     reqLogger.logError(new Error(message), finalBody || translatedBody);
     return createErrorResult(statusCode, errMsg, resetsAtMs);
   }
 
-  const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };
+  const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log, providerUrl };
   const appendLog = (extra) => appendRequestLog({ model, provider, connectionId, ...extra }).catch(() => { });
   const trackDone = () => trackPendingRequest(model, provider, connectionId, false);
 

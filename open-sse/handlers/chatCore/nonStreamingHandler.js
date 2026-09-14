@@ -4,6 +4,7 @@ import { fromOpenAIFinish } from "../../translator/concerns/finishReason.js";
 import { ollamaBodyToOpenAI } from "../../translator/response/ollama-to-openai.js";
 import { addBufferToUsage, filterUsageForFormat } from "../../utils/usageTracking.js";
 import { createErrorResult } from "../../utils/error.js";
+import { logVerboseExchange, tapUpstreamStream } from "../../utils/verboseLog.js";
 import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { parseSSEToOpenAIResponse } from "./sseToJsonHandler.js";
 import { unwrapClineEnvelope } from "../../shared/clineEnvelope.js";
@@ -292,15 +293,25 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
     const parsed = parseSSEToOpenAIResponse(sseText, model);
     if (!parsed) {
       appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
+      logVerboseExchange(log, reqTag, {
+        stage: "PARSE-SSE", status: "invalid SSE", provider, model,
+        requestBody: finalBody || translatedBody, responseText: sseText,
+      });
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Invalid SSE response for non-streaming request");
     }
     responseBody = parsed;
   } else {
+    // 读原文再解析（而非 response.json()）：解析失败时原文可用于完整异常日志
+    const rawText = await providerResponse.text().catch(() => "");
     try {
-      responseBody = await providerResponse.json();
+      responseBody = JSON.parse(rawText);
     } catch (err) {
       appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
       console.error(`[ChatCore] Failed to parse JSON from ${provider}:`, err.message);
+      logVerboseExchange(log, reqTag, {
+        stage: "PARSE-JSON", status: err.message, provider, model,
+        requestBody: finalBody || translatedBody, responseText: rawText,
+      });
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, `Invalid JSON response from ${provider}`);
     }
   }

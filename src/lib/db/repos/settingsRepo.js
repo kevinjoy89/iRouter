@@ -56,8 +56,8 @@ export const DEFAULT_SETTINGS = {
   samlAttributeEmail: "email",
   samlAttributeName: "name",
   enableObservability: false,
-  // 完整异常日志：开启后上游失败的原始报文（截断至 VERBOSE_ERROR_BODY_MAX_BYTES）
-  // 才写入控制台日志。默认关，避免正常运行时刷屏。
+  // 完整异常日志：开启后上游异常时把「发给 LLM 的请求体」与「LLM 返回的原文」
+  // 全文写入控制台日志（仅流式累积设 1MB 上限）。默认关，避免正常运行时刷屏。
   verboseErrorLog: false,
   observabilityMaxRecords: 1000,
   observabilityBatchSize: 20,

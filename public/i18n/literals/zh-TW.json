@@ -259,7 +259,7 @@
   "Combos always start with their first model.": "組合模型始終從第一個提供者開始。",
   "Record request details for inspection in the logs view": "記錄請求詳細資訊以便在日誌視圖中分析",
   "Print Full Error Logs": "列印完整例外日誌",
-  "Include the full upstream error body in the console log (off by default)": "將上游完整例外報文寫入主控台日誌（預設關閉）",
+  "Include the full request sent to the model and the full upstream response body in the console log (off by default)": "將發給模型的完整請求體與上游完整回應報文寫入主控台日誌（預設關閉）",
   "Local Mode - All data stored on your machine": "本地模式 — 所有資料儲存在您的機器上",
   "Remote Mode": "遠端模式",
   "Leave blank to keep existing secret": "留空以保留現有金鑰",
