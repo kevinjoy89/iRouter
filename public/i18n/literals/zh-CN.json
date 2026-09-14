@@ -1896,7 +1896,7 @@
   "Redact — replace matches with [REDACTED:rule]": "改写 — 将命中替换为 [REDACTED:规则名]",
   "Block — reject the request with HTTP 422": "拦截 — 以 HTTP 422 拒绝该请求",
   "Select an option": "请选择",
-  "Everything between the two markers skips inspection and reaches the provider unchanged. Use it to send something a rule keeps flagging by mistake.": "两个标记之间的内容跳过检测、原样发给供应商。用于发送某条规则反复误报的内容。",
+  "Everything between the two markers skips inspection and reaches the provider unchanged. Use it to send something a rule keeps flagging by mistake.": "两个标记之间的内容不参与规则匹配、原样发给供应商。用于发送某条规则反复误报的内容。",
   "your text": "你的内容",
   "sent unchanged, markers removed": "原样发送，标记被移除"
 }

@@ -106,7 +106,7 @@ rules:
       - private_key
       - session_token
 
-  # 以下三条为 PII 规则，默认关闭（见 design.md 威胁模型：首要目标是防凭据外泄）。
+  # 以下三条为 PII 规则，默认关闭（首要目标是防凭据外泄）。
   email:
     description: 电子邮箱（可选 PII）
     pattern: '\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b'

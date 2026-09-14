@@ -22,7 +22,7 @@
 **Non-Goals:**
 
 - **落盘脱敏**（`requestDetails` 表）——独立立项，见 ADR 0005
-- **入站 gzip/deflate 解压后扫描**（参考 `decode_inbound_body`）——需同步改 `Content-Encoding` 转发语义，而 iRouter 的客户端与网关在本机回环，压缩请求体不是现实威胁面；留待有真实需求时再做
+- **入站 gzip/deflate 解压后扫描**（参考 `decode_inbound_body`）——需同步改 `Content-Encoding` 转发语义，而 iRouter 的客户端与网关在本机回环，压缩请求体留待有真实需求时再做
 - **audio / video 请求体**——`formData()` 与 `.text()`+`arrayBuffer()` 路径，请求体常为二进制，需要单独的判定语义
 - **逐条规则 UI 开关**——14 个 Toggle 的 UI 工作量与收益不匹配；需要定制的走 `DLP_RULE_FILE`
 - **`DLP_FAIL_CLOSED` 开关**——见 ADR 0005
@@ -38,7 +38,7 @@
 5. **规则集 = 仓库内置 YAML + `DLP_RULE_FILE` 覆盖**。保留参考实现规则文件的注释（它同时是文档），可与上游 diff。用 `confbox/yaml`。
 6. **动作三档 + 默认 off**。参考实现默认也是 off；iRouter 是既有产品的桌面版，升级不得改变流量行为。规则各自可带 `action` 覆盖全局模式（`_rule_action` 语义）。
 7. **fail-open，不移植 `fail_closed`**。见 ADR 0005。
-8. **豁免标记：引擎实现，默认关**。`dlpAllowExemptions` 默认 `false`，与参考实现一致。redact 模式需要逃生舱——误报切碎 prompt 时用户得能表达"这段确实要发"。
+8. **豁免标记：引擎实现，默认关**。`dlpAllowExemptions` 默认 `false`，与参考实现一致。redact 模式需要显式放行机制——误报切碎 prompt 时用户得能表达"这段确实要发"。
 9. **已知密钥精确匹配：做**。iRouter 存着全部上游凭据，可构造合并正则（长度 ≥ 8、非空、按长度降序、进程内缓存）。零误报是这个功能里最稀缺的属性，且能抓到"把 A 供应商的 key 粘给 B 供应商"这一最典型泄漏。代价是进程内多一份明文副本——这些 key 本就明文躺在同进程可读的 SQLite 里。
 10. **UI：Profile 页**（一个三选一下拉 + 已知密钥/豁免两个 Toggle），不新开页面、不塞进 token-saver 页（后者语义是省 token，混入安全功能会让两边文案都别扭）。
 11. **JS 移植的技术要点**（对齐参考实现行为，不照抄语法）：
@@ -51,7 +51,7 @@
 
 ## Risks / Trade-offs
 
-- **误报会切碎正常上下文**（尤其 redact 档）。缓解：默认 off；`keywords` 预筛；`min_entropy` 阈值；`validator`（身份证校验位 / Luhn）压误报；`allowlist`（`your_key` / `example` / `placeholder` 一类示例值）；豁免标记作为逃生舱。
+- **误报会切碎正常上下文**（尤其 redact 档）。缓解：默认 off；`keywords` 预筛；`min_entropy` 阈值；`validator`（身份证校验位 / Luhn）压误报；`allowlist`（`your_key` / `example` / `placeholder` 一类示例值）；豁免标记作为显式放行机制。
 - **性能**：每条文本字段 × 规则数。缓解：`keywords` 预筛让多数规则在关键词缺席时零开销；`max_matches` 限制单字段命中数；解码递归有候选数/字节数预算。参考实现已有这些机制，照搬。
 - **已知密钥正则随凭据数量增长**。缓解：长度降序 + 进程内缓存 + 变更失效；凭据数量在桌面场景是几十量级。
 - **重复读取已修复，但重试复用同一 body 对象意味着"上一次尝试对 body 的改写会被下一次继承"**。已核实现有改写全部幂等（见 Decisions 3）。**代价**：若将来新增非幂等的 body 改写，会静默影响重试。已在 `chat.js` 修复处注释说明。
