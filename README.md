@@ -1,12 +1,12 @@
 # iRouter
 
-**9Router 的跨平台独立桌面版**——装完是一个真正的 App，窗口里直接是 9Router 面板，不用再开浏览器，也不需要目标机器装 Node。
+**9Router 的跨平台桌面版**——装完是一个真正的 App，窗口里直接是 9Router 面板，不用再开浏览器，也不需要目标机器装 Node。
 
 9Router 源码基于上游 [decolua/9router](https://github.com/decolua/9router)（MIT）**v0.5.69** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/`），可自由修改（如思考强度上限降级、限流自动重试）；升级 = 对比上游新版本手工合并。桌面壳层在 `desktop/`。术语见 [CONTEXT.md](./CONTEXT.md)，技术决策见 [docs/adr/](./docs/adr/)。
 
 ## 安装（macOS）
 
-1. 打开 `desktop/build/dist/iRouter-0.1.5.dmg`
+1. 打开 `desktop/build/dist/iRouter-0.1.6.dmg`
 2. 把 **iRouter** 拖进 `Applications`
 3. **首次打开**：应用未做签名与公证，Gatekeeper 会拦。解决办法二选一：
    - 在「应用程序」里 **右键（按住 Control）点 iRouter → 打开 → 再点打开**
