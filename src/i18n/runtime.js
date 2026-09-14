@@ -208,6 +208,20 @@ function translateDynamicPatterns(text, locale) {
       : `（${comboSummaryMatch[1]} 个供应商 · ${comboSummaryMatch[2]} 个组合）`;
   }
 
+  // 13. MITM 拦截与 DNS 提示
+  const interceptViaMitmMatch = text.match(/^Intercept\s+(.+?)\s+requests\s+via\s+MITM\s+proxy$/i);
+  if (interceptViaMitmMatch) {
+    return isTw
+      ? `透過 MITM 代理攔截 ${interceptViaMitmMatch[1]} 請求`
+      : `通过 MITM 代理拦截 ${interceptViaMitmMatch[1]} 请求`;
+  }
+  const toggleDnsMatch = text.match(/^Toggle\s+DNS\s+to\s+redirect\s+(.+?)\s+traffic\s+through\s+(?:9Router|iRouter)\s+via\s+MITM\.$/i);
+  if (toggleDnsMatch) {
+    return isTw
+      ? `切換 DNS 以透過 MITM 將 ${toggleDnsMatch[1]} 流量重定向至 iRouter。`
+      : `切换 DNS 以通过 MITM 将 ${toggleDnsMatch[1]} 流量重定向至 iRouter。`;
+  }
+
   // 13. 添加模型模态框标题 "Add <kind> Model" / "Add <kind> Model to Combo"
   const addModelMatch = text.match(/^Add\s+(.+?)\s+Model(\s+to\s+Combo)?$/i);
   if (addModelMatch) {
