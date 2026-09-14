@@ -1,6 +1,6 @@
 "use client";
 
-import { DEFAULT_LOCALE, LOCALE_COOKIE, normalizeLocale } from "./config";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, normalizeLocale } from "./config.js";
 
 let translationMap = {};
 let currentLocale = DEFAULT_LOCALE;
@@ -44,22 +44,26 @@ function translateDynamicPatterns(text, locale) {
   const isTw = locale === "zh-TW";
   if (!isZh && !isTw) return text;
 
-  // 1. 分页 "Showing 0-0 of 0" / "Showing 1-20 of 35"
-  const showingMatch = text.match(/^Showing\s+(\d+-\d+)\s+of\s+(\d+)(?:\s+results)?$/i);
+  // 1. 分页 "Showing 0-0 of 0" / "Showing 1-20 of 35" / "Showing 1 to 20 of 35 results"
+  const showingMatch = text.match(/^Showing\s+(\d+)(?:\s*-\s*|\s+to\s+)(\d+)\s+of\s+(\d+)(?:\s+results)?$/i);
   if (showingMatch) {
     return isTw
-      ? `顯示 ${showingMatch[1]} / 共 ${showingMatch[2]} 條`
-      : `显示 ${showingMatch[1]} / 共 ${showingMatch[2]} 条`;
+      ? `顯示 ${showingMatch[1]}-${showingMatch[2]} / 共 ${showingMatch[3]} 條`
+      : `显示 ${showingMatch[1]}-${showingMatch[2]} / 共 ${showingMatch[3]} 条`;
   }
 
-  // 2. 每页条数 "20 / page"
+  // 2. 每页条数 "20 / page" 及独立后缀 "/ page"
   const perPageMatch = text.match(/^(\d+)\s*[/]\s*page$/i);
   if (perPageMatch) {
     return isTw ? `${perPageMatch[1]} 條 / 頁` : `${perPageMatch[1]} 条 / 页`;
   }
+  const perPageSuffixMatch = text.match(/^[/]\s*page$/i);
+  if (perPageSuffixMatch) {
+    return isTw ? "/ 頁" : "/ 页";
+  }
 
-  // 3. 页码 "Page 1 / 1"
-  const pageMatch = text.match(/^Page\s+(\d+)\s*[/]\s*(\\d+)$/i);
+  // 3. 页码 "Page 1 / 1" / "Page1/1"
+  const pageMatch = text.match(/^Page\s*(\d+)\s*[/]\s*(\d+)$/i);
   if (pageMatch) {
     return isTw ? `第 ${pageMatch[1]} / ${pageMatch[2]} 頁` : `第 ${pageMatch[1]} / ${pageMatch[2]} 页`;
   }
@@ -339,6 +343,14 @@ export async function initRuntimeI18n() {
         }
         return;
       }
+      // React re-renders mutate text node values in place — re-translate on characterData change
+      if (mutation.type === "characterData") {
+        const node = mutation.target;
+        // Skip if this change was made by our own translation to avoid infinite loops
+        if (node._i18nApplied === node.nodeValue) return;
+        processTextNode(node);
+        return;
+      }
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
           processElement(node);
@@ -352,6 +364,7 @@ export async function initRuntimeI18n() {
   observer.observe(document.body, {
     childList: true,
     subtree: true,
+    characterData: true,
     attributes: true,
     attributeFilter: ["title", "placeholder"],
   });

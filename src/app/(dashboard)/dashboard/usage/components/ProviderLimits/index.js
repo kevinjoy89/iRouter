@@ -1340,7 +1340,7 @@ export default function ProviderLimits() {
               >
                 {ACCOUNT_PAGE_SIZE_OPTIONS.map((option) => (
                   <option key={option} value={String(option)}>
-                    {option} / page
+                    {`${option} / page`}
                   </option>
                 ))}
                 <option value="custom">Custom</option>
@@ -1379,7 +1379,7 @@ export default function ProviderLimits() {
                 aria-label="Custom accounts per page"
                 placeholder="Custom"
               />
-              <span className="text-xs text-text-muted">Page {pagination.page} / {pagination.totalPages}</span>
+              <span className="text-xs text-text-muted">{`Page ${pagination.page} / ${pagination.totalPages}`}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <button

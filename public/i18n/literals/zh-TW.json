@@ -929,5 +929,14 @@
   "Select an option": "請選擇",
   "Everything between the two markers skips inspection and reaches the provider unchanged. Use it to send something a rule keeps flagging by mistake.": "兩個標記之間的內容跳過偵測、原樣傳送給供應商。用於傳送某條規則反覆誤報的內容。",
   "your text": "你的內容",
-  "sent unchanged, markers removed": "原樣傳送，標記被移除"
+  "sent unchanged, markers removed": "原樣傳送，標記被移除",
+  "GitHub Copilot in VS Code via 9Router extension": "在 VS Code 中透過 9Router 擴充套件使用 GitHub Copilot",
+  "In VS Code, open Extensions (Ctrl+Shift+X or Cmd+Shift+X), search for '9Router for Github Copilot' and click Install.": "在 VS Code 中開啟擴充套件面板（Ctrl+Shift+X 或 Cmd+Shift+X），搜尋「9Router for Github Copilot」並點擊安裝。",
+  "Press Cmd+Shift+P (or Ctrl+Shift+P), run '9Router: Configure Server', then enter your Server URL and API Key:": "按 Cmd+Shift+P（或 Ctrl+Shift+P），執行「9Router: Configure Server」，然後輸入您的伺服器網址與 API 金鑰：",
+  "Open Copilot Chat, click the model picker at the bottom → 'Manage Models...' → check the 9Router models to use.": "開啟 Copilot Chat，點擊底部的模型選擇器 →「管理模型...」→ 勾選要使用的 9Router 模型。",
+  "Not installed": "未安裝",
+  "Page": "頁",
+  "/ page": "/ 頁",
+  "20 / page": "20 條 / 頁",
+  "Page 1 / 1": "第 1 / 1 頁"
 }

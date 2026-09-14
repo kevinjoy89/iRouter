@@ -1897,5 +1897,13 @@
   "Select an option": "请选择",
   "Everything between the two markers skips inspection and reaches the provider unchanged. Use it to send something a rule keeps flagging by mistake.": "两个标记之间的内容不参与规则匹配、原样发给供应商。用于发送某条规则反复误报的内容。",
   "your text": "你的内容",
-  "sent unchanged, markers removed": "原样发送，标记被移除"
+  "sent unchanged, markers removed": "原样发送，标记被移除",
+  "GitHub Copilot in VS Code via 9Router extension": "在 VS Code 中通过 9Router 扩展使用 GitHub Copilot",
+  "In VS Code, open Extensions (Ctrl+Shift+X or Cmd+Shift+X), search for '9Router for Github Copilot' and click Install.": "在 VS Code 中打开扩展面板（Ctrl+Shift+X 或 Cmd+Shift+X），搜索“9Router for Github Copilot”并点击安装。",
+  "Press Cmd+Shift+P (or Ctrl+Shift+P), run '9Router: Configure Server', then enter your Server URL and API Key:": "按 Cmd+Shift+P（或 Ctrl+Shift+P），运行“9Router: Configure Server”，然后输入您的服务器地址与 API 密钥：",
+  "Open Copilot Chat, click the model picker at the bottom → 'Manage Models...' → check the 9Router models to use.": "打开 Copilot Chat，点击底部的模型选择器 →“管理模型...”→ 勾选要使用的 9Router 模型。",
+  "Page": "页",
+  "/ page": "/ 页",
+  "20 / page": "20 条 / 页",
+  "Page 1 / 1": "第 1 / 1 页"
 }

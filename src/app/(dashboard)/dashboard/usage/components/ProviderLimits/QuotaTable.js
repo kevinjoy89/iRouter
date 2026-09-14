@@ -257,10 +257,10 @@ export default function QuotaTable({
         <div className="rounded-md border border-black/10 bg-black/[0.02] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.03]">
           <div className="flex items-center justify-between gap-2 text-[10px] text-text-muted">
             <span>
-              Showing {pageStart}-{pageEnd} of {sortedQuotas.length}
+              {`Showing ${pageStart}-${pageEnd} of ${sortedQuotas.length}`}
             </span>
             <span>
-              Page {page} / {totalPages}
+              {`Page ${page} / ${totalPages}`}
             </span>
           </div>
           <div className="mt-1.5 flex items-center justify-end gap-1">
