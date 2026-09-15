@@ -1957,5 +1957,18 @@
   "Server off": "服务关闭",
   "DNS off": "DNS 关闭",
   "Active": "已激活",
-  "Administrator required — restart iRouter as Administrator to use MITM": "需要管理员权限 — 请以管理员身份重启 iRouter 以使用 MITM"
+  "Administrator required — restart iRouter as Administrator to use MITM": "需要管理员权限 — 请以管理员身份重启 iRouter 以使用 MITM",
+  "Follow system": "跟随系统",
+  "Applies to the whole app": "应用于整个应用",
+  "Menu bar and interface text": "菜单栏与界面文案",
+  "Launch at Login": "开机自启",
+  "Open iRouter automatically when you sign in": "登录系统时自动启动 iRouter",
+  "When closing the window": "关闭窗口时",
+  "Quit iRouter": "退出 iRouter",
+  "Hide to tray, keep in Dock": "隐藏到托盘，保留 Dock 图标",
+  "Hide to tray, remove from Dock": "隐藏到托盘，移除 Dock 图标",
+  "Quitting stops the gateway": "退出会停止网关",
+  "The gateway keeps running in the background": "网关继续在后台运行",
+  "With the Dock icon hidden, bring the window back from the menu bar.": "Dock 图标隐藏后，从菜单栏图标唤回窗口。",
+  "Gateway Settings": "网关设置"
 }

@@ -7,7 +7,7 @@
 export const APP_CONFIG = {
         name: "iRouter Proxy",
         description: "AI Infrastructure Management",
-        version: process.env.NEXT_PUBLIC_APP_VERSION || "0.1.7",
+        version: process.env.NEXT_PUBLIC_APP_VERSION || "0.1.8",
 };
 
 // GitHub configuration

@@ -7,6 +7,7 @@ import "@/lib/network/initOutboundProxy"; // Auto-initialize outbound proxy env
 import "@/shared/services/bootstrap"; // Auto-run initializeApp (watchdog, auto-resume tunnel)
 import { initConsoleLogCapture } from "@/lib/consoleLogBuffer";
 import { RuntimeI18nProvider } from "@/i18n/RuntimeI18nProvider";
+import ShellSettingsHost from "@/shared/components/ShellSettingsHost";
 
 // Hook console immediately at module load time (server-side only, runs once)
 initConsoleLogCapture();
@@ -18,7 +19,8 @@ const inter = Inter({
 
 export const metadata = {
   title: "9Router - AI Infrastructure Management",
-  description: "One endpoint for all your AI providers. Manage keys, monitor usage, and scale effortlessly.",
+  description:
+    "One endpoint for all your AI providers. Manage keys, monitor usage, and scale effortlessly.",
   icons: {
     icon: "/favicon.svg",
   },
@@ -50,6 +52,9 @@ export default function RootLayout({ children }) {
         <ThemeProvider>
           <RuntimeI18nProvider>
             {children}
+            {/* 壳层设置模态框的宿主：主进程发 IPC 时开框。挂在 root layout
+                而非 dashboard layout，因为菜单栏 Cmd+, 在登录页也会触发。 */}
+            <ShellSettingsHost />
           </RuntimeI18nProvider>
         </ThemeProvider>
         <GoogleAnalytics gaId={"G-LC959F603F"} />

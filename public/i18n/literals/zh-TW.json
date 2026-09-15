@@ -992,5 +992,19 @@
   "Server off": "服務關閉",
   "DNS off": "DNS 關閉",
   "Active": "已啟用",
-  "Administrator required — restart iRouter as Administrator to use MITM": "需要管理員權限 — 請以管理員身分重啟 iRouter 以使用 MITM"
+  "Administrator required — restart iRouter as Administrator to use MITM": "需要管理員權限 — 請以管理員身分重啟 iRouter 以使用 MITM",
+  "Follow system": "跟隨系統",
+  "Applies to the whole app": "套用於整個應用程式",
+  "Menu bar and interface text": "選單列與介面文字",
+  "Launch at Login": "開機自動啟動",
+  "Open iRouter automatically when you sign in": "登入系統時自動啟動 iRouter",
+  "When closing the window": "關閉視窗時",
+  "Quit iRouter": "結束 iRouter",
+  "Hide to tray, keep in Dock": "隱藏至選單列，保留 Dock 圖示",
+  "Hide to tray, remove from Dock": "隱藏至選單列，移除 Dock 圖示",
+  "Quitting stops the gateway": "結束會停止閘道",
+  "The gateway keeps running in the background": "閘道繼續在背景執行",
+  "With the Dock icon hidden, bring the window back from the menu bar.": "Dock 圖示隱藏後，從選單列圖示喚回視窗。",
+  "Gateway Settings": "閘道設定",
+  "Open": "開啟"
 }

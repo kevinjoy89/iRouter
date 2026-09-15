@@ -41,7 +41,6 @@ let gateway = null;
 let gatewayPort = 0;
 let quitting = false;
 let smokeStarted = false;
-let settingsWindow = null; // 设置窗口单例（重复打开时聚焦已存在窗口）
 
 // 应用名必须在任何 getPath 调用前固定：userData 目录名取自它（spec: 数据目录隔离）
 app.setName("iRouter");
@@ -463,6 +462,10 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 主窗口也挂 preload：设置面板是主窗口内的模态框，壳层能力（关窗行为、
+      // 开机自启）必须在这个 document 里可读写。浏览器打开时没有 preload，
+      // window.irouterShell 不存在，模态框只渲染主题与语言。
+      preload: path.join(__dirname, "preload.js"),
     },
   });
   mainWindow = win;
@@ -587,40 +590,26 @@ function createWindow() {
   return win;
 }
 
-// ---------------------------------------------------------------- 设置窗口
-// 壳层设置面板：加载网关侧 /settings 页面（复用面板的 i18n runtime 与主题 store），
-// 经 preload 暴露的 ipc 读写壳层状态。为什么不是壳层自有 HTML：file:// 页面
-// 访问不到 http://127.0.0.1:PORT 的 localStorage 与 cookie，那样主题/语言两个
-// 控件就无法复用面板已有的写入路径，只能重写一套且容易与面板失同步。
-function openSettingsWindow() {
-  showDock(); // 设置窗口也是窗口：开着它时 Dock 该在
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.show();
-    settingsWindow.focus();
+// ---------------------------------------------------------------- 设置面板
+// 设置面板是**主窗口内的模态框**（渲染进程侧 src/shared/components/ShellSettingsModal.js），
+// 不是一个独立的 BrowserWindow。第一版做成了独立窗口，两个问题：那个窗口有自己的
+// document，改主题只影响它自己（主窗口的 zustand 不感知同 origin 的 localStorage 变更）；
+// 语言切换也只作用于它，而它不在主窗口 i18n 的 MutationObserver 观察范围内。
+// 模态框与面板同一个 document，两个问题一起消失。
+//
+// 主进程只负责「把面板调起来」：必要时先显示窗口，再发 IPC 让渲染进程开模态框。
+function openSettings() {
+  showDock();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    // 窗口首次加载后渲染进程才注册监听，等 did-finish-load 再发
+    mainWindow.webContents.once("did-finish-load", () => {
+      mainWindow?.webContents.send("shell:open-settings");
+    });
     return;
   }
-  const win = new BrowserWindow({
-    width: 620,
-    height: 680,
-    minWidth: 480,
-    minHeight: 420,
-    title: "iRouter",
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#18181b" : "#ffffff",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      preload: path.join(__dirname, "preload.js"),
-    },
-  });
-  settingsWindow = win;
-  win.on("closed", () => {
-    settingsWindow = null;
-  });
-  win.once("ready-to-show", () => win.show());
-  win.loadURL(`${gatewayOrigin()}/settings`);
+  showWindow();
+  mainWindow.webContents.send("shell:open-settings");
 }
 
 /**
@@ -1067,7 +1056,7 @@ function buildMenuTemplate(locale = currentLocale) {
               {
                 label: t.settings,
                 accelerator: "CmdOrCtrl+,",
-                click: openSettingsWindow,
+                click: openSettings,
               },
               { type: "separator" },
               { role: "services", label: t.services },
@@ -1196,7 +1185,7 @@ function updateTrayMenu() {
     // macOS 已把「设置…」放进 App 菜单（Cmd+,），托盘不再重复；其余平台无应用菜单
     ...(process.platform === "darwin"
       ? []
-      : [{ label: t.settings, click: openSettingsWindow }]),
+      : [{ label: t.settings, click: openSettings }]),
     { type: "separator" },
     { label: t.quitApp, click: () => quit() },
   ]);
@@ -1414,6 +1403,99 @@ async function runSmoke() {
         `菜单栏多语言动态响应=${i18nOk} (中=[${zhLabels.join(", ")}], 英=[${enLabels.join(", ")}])`,
       );
       ok &&= i18nOk;
+
+      // 设置模态框：验证它渲染在**主窗口内**，且主题/语言作用于整个应用。
+      // 第一版把设置做成了独立 BrowserWindow——那个窗口有自己的 document，
+      // 改主题只影响它自己，语言切换也不在主窗口 i18n 的观察范围内。这条断言
+      // 就是为了钉住那个回归：模态框必须与面板同 document。
+      const cjkCount = () =>
+        (document.body.innerText.match(/[\u4e00-\u9fff]/g) || []).length;
+
+      win.webContents.send("shell:open-settings");
+      await new Promise((r) => setTimeout(r, 700));
+      const modalOpen = await win.webContents.executeJavaScript(
+        `Boolean(document.querySelector(".shell-settings-modal"))`,
+        true,
+      );
+      results.push(`设置模态框在主窗口内打开=${modalOpen}`);
+      ok &&= modalOpen;
+
+      const cjkBefore = await win.webContents.executeJavaScript(
+        `(${cjkCount.toString()})()`,
+        true,
+      );
+
+      // 切深色：documentElement 的 dark 类是**文档级**的，证明作用于整个应用
+      const clickedTheme = await win.webContents.executeJavaScript(
+        `(() => { const el = document.querySelector('[data-settings-option="theme:dark"]'); if (!el) return false; el.click(); return true; })()`,
+        true,
+      );
+      await new Promise((r) => setTimeout(r, 500));
+      const darkApplied = await win.webContents.executeJavaScript(
+        `document.documentElement.classList.contains("dark")`,
+        true,
+      );
+      results.push(`切深色作用于整个应用=${clickedTheme && darkApplied}`);
+      ok &&= clickedTheme && darkApplied;
+
+      // 切简体中文：验证整个应用的文本都变了，而不只是模态框
+      const clickedLocale = await win.webContents.executeJavaScript(
+        `(() => { const el = document.querySelector('[data-settings-option="locale:zh-CN"]'); if (!el) return false; el.click(); return true; })()`,
+        true,
+      );
+      await new Promise((r) => setTimeout(r, 1200));
+      const cjkAfter = await win.webContents.executeJavaScript(
+        `(${cjkCount.toString()})()`,
+        true,
+      );
+      const localeOk = clickedLocale && cjkAfter > cjkBefore + 20;
+      results.push(
+        `切中文作用于整个应用=${localeOk} (中文字符 ${cjkBefore}→${cjkAfter})`,
+      );
+      ok &&= localeOk;
+
+      // 壳层专属项应渲染（主窗口已挂 preload，window.irouterShell 存在）
+      const shellApiOk = await win.webContents.executeJavaScript(
+        `Boolean(window.irouterShell?.getSettings)`,
+        true,
+      );
+      results.push(`主窗口已挂preload=${shellApiOk}`);
+      ok &&= shellApiOk;
+
+      // 关闭路径：点显式关闭按钮应关掉模态框（用户要求：必须有关闭按钮，
+      // 且不支持点非弹窗位置关闭——误触遮罩不该丢改动）。
+      const closeBtnFound = await win.webContents.executeJavaScript(
+        `(() => { const btns = Array.from(document.querySelectorAll(".shell-settings-modal button")); const el = btns.find((b) => /Close|关闭/.test(b.textContent)); if (!el) return false; el.click(); return true; })()`,
+        true,
+      );
+      await new Promise((r) => setTimeout(r, 400));
+      const modalClosed = await win.webContents.executeJavaScript(
+        `!document.querySelector(".shell-settings-modal")`,
+        true,
+      );
+      results.push(`关闭按钮可关掉模态框=${closeBtnFound && modalClosed}`);
+      ok &&= closeBtnFound && modalClosed;
+
+      // 点遮罩不应关闭：重新打开后点遮罩，模态框应仍在
+      win.webContents.send("shell:open-settings");
+      await new Promise((r) => setTimeout(r, 600));
+      const overlayClicked = await win.webContents.executeJavaScript(
+        `(() => { const m = document.querySelector(".shell-settings-modal"); if (!m) return false; const ov = m.parentElement.querySelector(".absolute.inset-0"); if (!ov) return false; ov.click(); return true; })()`,
+        true,
+      );
+      await new Promise((r) => setTimeout(r, 400));
+      const stillOpen = await win.webContents.executeJavaScript(
+        `Boolean(document.querySelector(".shell-settings-modal"))`,
+        true,
+      );
+      results.push(`点遮罩不关闭=${overlayClicked && stillOpen}`);
+      ok &&= overlayClicked && stillOpen;
+      // 收尾：关掉再验关窗行为
+      await win.webContents.executeJavaScript(
+        `(() => { const btns = Array.from(document.querySelectorAll(".shell-settings-modal button")); const el = btns.find((b) => /Close|关闭/.test(b.textContent)); if (el) el.click(); })()`,
+        true,
+      );
+      await new Promise((r) => setTimeout(r, 300));
 
       // 关窗应隐藏到托盘，且网关继续服务（spec: 关窗最小化到托盘）
       win.close();

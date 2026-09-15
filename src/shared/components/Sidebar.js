@@ -32,7 +32,6 @@ const debugItems = [
 
 const systemItems = [
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
-  { href: "/dashboard/skills", label: "Skills", icon: "extension" },
 ];
 
 export default function Sidebar({ onClose }) {
@@ -101,9 +100,9 @@ export default function Sidebar({ onClose }) {
 
           {/* System section */}
           <div className="pt-3 mt-2 space-y-0.5">
-            <p className="px-4 text-xs font-semibold text-text-muted/60 uppercase tracking-wider mb-2">
-              System
-            </p>
+            {/* 分区标题已移除：原为裸文本 `System`，而字典把键 `System` 映射成了
+                「跟随系统」（那是主题选择器里 System 的语义）。i18n 按文本节点精确匹配，
+                两者撞车后这里一直错显为「跟随系统」。字典键有歧义，宁可不显示。 */}
 
             {/* Media Providers accordion */}
             <button
@@ -227,7 +226,7 @@ export default function Sidebar({ onClose }) {
               >
                 settings
               </span>
-              <span className="text-[13px] font-medium">Settings</span>
+              <span className="text-[13px] font-medium">Gateway Settings</span>
             </Link>
           </div>
         </nav>

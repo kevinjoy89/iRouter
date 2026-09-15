@@ -130,13 +130,6 @@ const getPageInfo = (pathname) => {
       icon: "lan",
       breadcrumbs: [],
     };
-  if (pathname.includes("/skills"))
-    return {
-      title: "Agent Skills",
-      description: "Copy a link and paste to your AI to use 9Router — no install needed",
-      icon: "extension",
-      breadcrumbs: [],
-    };
   if (pathname.includes("/endpoint"))
     return {
       title: "Endpoint",
@@ -146,7 +139,7 @@ const getPageInfo = (pathname) => {
     };
   if (pathname.includes("/profile"))
     return {
-      title: "Settings",
+      title: "Gateway Settings",
       description: "Manage your preferences",
       icon: "settings",
       breadcrumbs: [],
