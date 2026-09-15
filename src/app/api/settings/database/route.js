@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { exportDb, getSettings, importDb } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
+import { resetComboRotation } from "open-sse/services/combo.js";
+import { invalidateKnownSecrets } from "@/lib/dlp/index.js";
 import { verifyDashboardPassword } from "@/lib/auth/dashboardSession";
 
 const CLI_TOKEN_HEADER = "x-9r-cli-token";
@@ -32,12 +34,16 @@ export async function POST(request) {
     }
     await importDb(payload);
 
-    // Ensure proxy settings take effect immediately after a DB import.
+    // 导入替换的是整个配置层，所以三处缓存都要失效——不同于 PATCH /api/settings
+    // 的按字段条件失效，这里无条件。缺了 comboRotation 与 dlp 已知密钥的失效，
+    // 导入的新组合模型与脱敏规则要重启网关才生效（见 ADR 0006）。
     try {
       const settings = await getSettings();
       applyOutboundProxyEnv(settings);
+      invalidateKnownSecrets();
+      resetComboRotation();
     } catch (err) {
-      console.warn("[Settings][DatabaseImport] Failed to re-apply outbound proxy env:", err);
+      console.warn("[Settings][DatabaseImport] Failed to re-apply imported settings:", err);
     }
 
     return NextResponse.json({ success: true });

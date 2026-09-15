@@ -1970,5 +1970,11 @@
   "Quitting stops the gateway": "退出会停止网关",
   "The gateway keeps running in the background": "网关继续在后台运行",
   "With the Dock icon hidden, bring the window back from the menu bar.": "Dock 图标隐藏后，从菜单栏图标唤回窗口。",
-  "Gateway Settings": "网关设置"
+  "Gateway Settings": "网关设置",
+  "Gateway data": "网关数据",
+  "Sign in to manage backups.": "请先登录再管理备份。",
+  "Export Configuration": "导出配置",
+  "Import Configuration": "导入配置",
+  "Configuration exported": "配置已导出",
+  "Configuration imported": "配置已导入"
 }

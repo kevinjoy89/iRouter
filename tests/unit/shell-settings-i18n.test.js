@@ -43,17 +43,17 @@ function extractSourceStrings() {
   }
   // Modal 的 title=
   for (const m of src.matchAll(/\btitle="([^"]{2,})"/g)) out.add(m[1]);
-  // 长文案节点（JSX 文本）：<div ...>Some sentence.</div>
+  // JSX 文本节点：被换行包着、以大写字母起头的英文串。
+  //
+  // 不解析开标签。早先这里拆成两条——长文案按 ≥13 字符匹配 `</div>`、短组件
+  // 文本按纯字母匹配——两处都有缝：按 `[^>]*>` 匹配标签头会被属性里的箭头函数
+  // 提前截断（`onClick={() => ...}` 的 `=>`），含箭头函数的按钮文案因此漏抽；
+  // 而 12 字符的标签正好掉进“长”“短”两档之间。只看 `> \n 文本 \n <` 这个
+  // 形状，两处缝一并消失。
   for (const m of src.matchAll(
-    />\s*\n\s*([A-Z][^<>{}\n]{12,}?)\s*\n\s*<\/div>/g,
+    />\s*\n\s*([A-Z][^<>{}\n]{1,60}?)\s*\n\s*</g,
   ))
     out.add(m[1].replace(/\s+/g, " ").trim());
-  // 组件子文本节点（<Button ...>Open</Button>）：短、且被换行包着，
-  // 上面那条按长度 ≥12 的规则会漏掉。
-  for (const m of src.matchAll(
-    /<[A-Z][A-Za-z]*\b[^>]*>\s*\n\s*([A-Z][A-Za-z]{1,20}?)\s*\n\s*<\/[A-Z][A-Za-z]*>/g,
-  ))
-    out.add(m[1].trim());
 
   return [...out].sort();
 }
@@ -184,5 +184,61 @@ describe("壳层设置模态框：挂载点", () => {
       existsSync(join(REPO, "src", "app", "settings", "page.js")),
       "src/app/settings/page.js 应已删除",
     ).toBe(false);
+  });
+});
+
+// 配置导出/导入（ADR 0006）：从面板的 profile 页迁入模态框，因此是桌面专属。
+describe("壳层设置模态框：配置导出/导入", () => {
+  const src = readFileSync(MODAL, "utf8");
+
+  it("有 Gateway data 段与两个入口", () => {
+    expect(src).toMatch(/Gateway data/);
+    expect(src).toMatch(/Export Configuration/);
+    expect(src).toMatch(/Import Configuration/);
+  });
+
+  it("密码就地输入，不再嵌套第二个 Modal", () => {
+    // 嵌套会让 Escape 一次关掉两个（两者的监听都挂在 document 上），
+    // 且内层卸载会把外层的 body 滚动锁一并清掉。
+    expect(src.match(/<Modal\b/g) || [], "不应出现第二个 Modal").toHaveLength(1);
+    expect(src).toMatch(/type="password"/);
+  });
+
+  it("未登录时禁用：该接口在 ALWAYS_PROTECTED，无 JWT 一律 401（本机也不免）", () => {
+    expect(src).toMatch(/\/api\/auth\/status/);
+    expect(src).toMatch(/authenticated === true/);
+    expect(src).toMatch(/disabled=\{!authed/);
+  });
+
+  it("数据库路径由网关回报，不硬编码", () => {
+    expect(src).toMatch(/\/api\/settings\/database\/info/);
+    // 渲染的必须是 API 回报的值，而不是写死的路径字面量
+    expect(src).toMatch(/shortenHome\(dbPath\)/);
+    expect(src).not.toMatch(/db\/data\.sqlite/);
+  });
+});
+
+describe("配置导出/导入：迁出后不留残骸", () => {
+  const profile = readFileSync(
+    join(REPO, "src", "app", "(dashboard)", "dashboard", "profile", "page.js"),
+    "utf8",
+  );
+
+  it("profile 页不再有备份入口、状态与密码模态框", () => {
+    expect(profile).not.toMatch(/Download Backup|Import Backup/);
+    expect(profile).not.toMatch(/setDbAuth|pendingImportRef|importFileRef/);
+    // 那个密码模态框必须一并删掉，否则 Modal 的导入成为孤儿
+    expect(profile).not.toMatch(/<Modal\b/);
+    expect(profile).not.toMatch(/from "@\/shared\/components\/Modal"/);
+  });
+
+  it("导入后失效三处缓存（否则新组合/脱敏规则要重启网关才生效）", () => {
+    const route = readFileSync(
+      join(REPO, "src", "app", "api", "settings", "database", "route.js"),
+      "utf8",
+    );
+    expect(route).toMatch(/applyOutboundProxyEnv\(settings\)/);
+    expect(route).toMatch(/invalidateKnownSecrets\(\)/);
+    expect(route).toMatch(/resetComboRotation\(\)/);
   });
 });

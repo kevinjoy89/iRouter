@@ -1006,5 +1006,12 @@
   "The gateway keeps running in the background": "閘道繼續在背景執行",
   "With the Dock icon hidden, bring the window back from the menu bar.": "Dock 圖示隱藏後，從選單列圖示喚回視窗。",
   "Gateway Settings": "閘道設定",
-  "Open": "開啟"
+  "Open": "開啟",
+  "Gateway data": "閘道資料",
+  "Sign in to manage backups.": "請先登入再管理備份。",
+  "Export Configuration": "匯出設定",
+  "Import Configuration": "匯入設定",
+  "Configuration exported": "設定已匯出",
+  "Configuration imported": "設定已匯入",
+  "Password": "密碼"
 }

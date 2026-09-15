@@ -9,12 +9,12 @@
 //
 // 壳层专属项（关窗行为 / 开机自启）经 preload 暴露的 window.irouterShell 读写；
 // 浏览器打开时该对象不存在，这些项整段不渲染。
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/shared/components/Modal";
 import Button from "@/shared/components/Button";
 import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
-import { reloadTranslations } from "@/i18n/runtime";
+import { reloadTranslations, translate } from "@/i18n/runtime";
 import useThemeStore from "@/store/themeStore";
 
 // 关窗行为三档。值与 desktop/settings.js 的 CLOSE_ACTIONS 一一对应——那边是
@@ -108,6 +108,228 @@ function Segmented({ options, value, onChange, group }) {
         </button>
       ))}
     </div>
+  );
+}
+
+// 家目录前缀缩成 ~：完整路径会撑爆这一行
+function shortenHome(p) {
+  return p.replace(/^\/(?:Users|home)\/[^/]+/, "~");
+}
+
+// 网关数据段：配置导出/导入。原先在面板的 /dashboard/profile（Local Mode 卡片），
+// 迁到此处后即为桌面专属——模态框只能由壳层主进程经 IPC 唤起，浏览器形态打不开
+// （ADR 0006）。
+//
+// 单列一段并标出「Gateway data」：上面各行的语义是窗口与外观行为，这一段动的是
+// 网关的数据，边界得读得出来。
+//
+// 密码就地输入而非第二个模态框：Modal 的 Escape 监听挂在 document 上，
+// document.body.style.overflow 又由各自独立写入，嵌套会导致按一次 Escape 关掉两个、
+// 内层卸载清掉外层的滚动锁。
+//
+// 状态留在这个独立组件里，靠 Modal 关闭时返回 null 让它整体卸载——密码与状态
+// 提示因此自然归零，不必在 effect 里重置（那样会触发本仓的
+// react-hooks/set-state-in-effect error）。
+function GatewayDataSection() {
+  const [authed, setAuthed] = useState(null);
+  const [dbPath, setDbPath] = useState("");
+  const [pending, setPending] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const fileRef = useRef(null);
+  const pickedFileRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/auth/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setAuthed(d?.authenticated === true);
+      })
+      .catch(() => {
+        if (alive) setAuthed(false);
+      });
+    // 路径由网关回报：桌面版默认 ~/.irouter，上游默认 ~/.9router，DATA_DIR 还可覆盖。
+    // 未登录时该请求 401，路径留空。
+    fetch("/api/settings/database/info")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setDbPath(d?.path || "");
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const reset = () => {
+    setPending("");
+    setPassword("");
+    pickedFileRef.current = null;
+  };
+
+  const startExport = () => {
+    setStatus({ type: "", message: "" });
+    setPassword("");
+    setPending("export");
+  };
+
+  const onFilePicked = (event) => {
+    const file = event.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = "";
+    if (!file) return;
+    pickedFileRef.current = file;
+    setStatus({ type: "", message: "" });
+    setPassword("");
+    setPending("import");
+  };
+
+  const confirm = async () => {
+    if (!password || busy) return;
+    setBusy(true);
+    setStatus({ type: "", message: "" });
+    try {
+      if (pending === "export") {
+        const res = await fetch("/api/settings/database", {
+          headers: { "x-9r-password": password },
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(translate(data.error || "Failed to export database"));
+        }
+        const blob = new Blob([JSON.stringify(await res.json(), null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `irouter-config-${new Date().toISOString().replace(/[.:]/g, "-")}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        setStatus({ type: "success", message: "Configuration exported" });
+        reset();
+      } else {
+        const file = pickedFileRef.current;
+        if (!file) {
+          reset();
+          return;
+        }
+        const payload = JSON.parse(await file.text());
+        const res = await fetch("/api/settings/database", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(translate(data.error || "Failed to import database"));
+        }
+        setStatus({ type: "success", message: "Configuration imported" });
+        reset();
+      }
+    } catch (err) {
+      setStatus({
+        type: "error",
+        message: err.message || translate("Invalid backup file"),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="px-4 pt-4 pb-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+        Gateway data
+      </div>
+
+      <div className="px-4 py-3">
+        <div className="text-sm font-medium text-text-main">
+          Database Location
+        </div>
+        <div className="text-xs text-text-muted font-mono mt-0.5 break-all">
+          {dbPath ? shortenHome(dbPath) : "—"}
+        </div>
+
+        {authed === false ? (
+          <div className="text-xs text-text-muted mt-2">
+            Sign in to manage backups.
+          </div>
+        ) : null}
+
+        {pending ? (
+          <div className="flex items-center gap-2 mt-3">
+            <input
+              type="password"
+              autoFocus
+              value={password}
+              placeholder="Password"
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirm();
+              }}
+              className="h-9 flex-1 min-w-0 px-3 rounded-lg bg-surface-2 text-sm text-text-main border border-border"
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={confirm}
+              disabled={!password}
+              loading={busy}
+            >
+              Confirm
+            </Button>
+            <Button variant="ghost" size="sm" onClick={reset} disabled={busy}>
+              Cancel
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="flex flex-col sm:flex-row gap-2 mt-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon="download"
+            onClick={startExport}
+            disabled={!authed || busy}
+          >
+            Export Configuration
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            icon="upload"
+            onClick={() => fileRef.current?.click()}
+            disabled={!authed || busy}
+          >
+            Import Configuration
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={onFilePicked}
+          />
+        </div>
+
+        {status.message ? (
+          <p
+            className={
+              "text-xs mt-2 " +
+              (status.type === "error"
+                ? "text-red-500"
+                : "text-green-600 dark:text-green-400")
+            }
+          >
+            {status.message}
+          </p>
+        ) : null}
+      </div>
+    </>
   );
 }
 
@@ -266,6 +488,9 @@ export default function ShellSettingsModal({ isOpen, onClose }) {
             ) : null}
           </>
         ) : null}
+
+        {/* 网关数据：配置导出/导入。桌面专属（ADR 0006）。 */}
+        <GatewayDataSection />
       </div>
     </Modal>
   );

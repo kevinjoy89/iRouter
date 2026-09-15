@@ -1490,6 +1490,42 @@ async function runSmoke() {
       );
       results.push(`点遮罩不关闭=${overlayClicked && stillOpen}`);
       ok &&= overlayClicked && stillOpen;
+
+      // 配置导出/导入段（ADR 0006）：从面板的 profile 页迁到此处，故而是桌面专属。
+      // 冒烟环境停在登录页，正好钉住未登录态——该接口在 ALWAYS_PROTECTED，无 JWT
+      // 一律 401，所以这一段必须可见但禁用并说明原因，不能点了才发现。
+      const gwData = await win.webContents.executeJavaScript(
+        `(() => {
+           const m = document.querySelector(".shell-settings-modal");
+           if (!m) return { found: false };
+           const txt = m.innerText;
+           const btns = Array.from(m.querySelectorAll("button"));
+           const pick = (re) => btns.find((b) => re.test(b.textContent)) || null;
+           const exp = pick(/Export Configuration|导出配置/);
+           const imp = pick(/Import Configuration|导入配置/);
+           return {
+             found: true,
+             heading: /Gateway data|网关数据/.test(txt),
+             signInHint: /Sign in to manage backups|请先登录/.test(txt),
+             // 未登录时 /info 返回 401，路径为占位符而非任何写死的路径
+             noHardcodedPath: !/data\\.sqlite/.test(txt),
+             exportDisabled: exp ? exp.disabled : null,
+             importDisabled: imp ? imp.disabled : null,
+           };
+         })()`,
+        true,
+      );
+      const gwOk =
+        gwData.found &&
+        gwData.heading &&
+        gwData.signInHint &&
+        gwData.noHardcodedPath &&
+        gwData.exportDisabled === true &&
+        gwData.importDisabled === true;
+      results.push(
+        `配置段可见且未登录禁用=${gwOk} (标题=${gwData.heading} 未登录提示=${gwData.signInHint} 无写死路径=${gwData.noHardcodedPath} 导出禁用=${gwData.exportDisabled} 导入禁用=${gwData.importDisabled})`,
+      );
+      ok &&= gwOk;
       // 收尾：关掉再验关窗行为
       await win.webContents.executeJavaScript(
         `(() => { const btns = Array.from(document.querySelectorAll(".shell-settings-modal button")); const el = btns.find((b) => /Close|关闭/.test(b.textContent)); if (el) el.click(); })()`,
