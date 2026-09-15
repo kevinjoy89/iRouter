@@ -14,6 +14,8 @@ directories:
 # 绕开 asar（子进程按真实路径读文件，asar 的 fs 兼容面不可赌）
 files:
   - main.js
+  - preload.js
+  - settings.js
   - package.json
 
 extraResources:

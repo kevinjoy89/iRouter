@@ -1,16 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Card, Button, Toggle, Input, Select, SegmentedControl } from "@/shared/components";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
+import { Card, Button, Toggle, Input, Select } from "@/shared/components";
 import Modal from "@/shared/components/Modal";
 import PricingModal from "@/shared/components/PricingModal";
-import { useTheme } from "@/shared/hooks/useTheme";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
 import { translate, reloadTranslations } from "@/i18n/runtime";
 import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
-import { LOCALE_FLAGS } from "@/shared/constants/locales";
 
 function getLocaleFromCookie() {
   if (typeof document === "undefined") return "en";
@@ -38,10 +36,7 @@ function resolveSystemLocale() {
 }
 
 export default function ProfilePage() {
-  const { theme, setTheme } = useTheme();
   const { copied, copy } = useCopyToClipboard();
-  const [locale, setLocale] = useState(() => getLocaleFromCookie());
-  const [localePreference, setLocalePreference] = useState("system");
   const [pricingOpen, setPricingOpen] = useState(false);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
@@ -69,53 +64,25 @@ export default function ProfilePage() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const oidcRedirectUri = origin ? `${origin}/api/auth/oidc/callback` : "/api/auth/oidc/callback";
 
-  // 客户端挂载后读取本地持久化的偏好设置，若有必要则无刷新同步语言
+  // 语言与主题的**切换入口**已挪到壳层设置面板（/settings，Cmd+,）。
+  // 这里保留挂载时的偏好恢复：偏好存 localStorage，若 cookie 与它不一致
+  //（刚在 /settings 改过、或换了浏览器 profile），就地同步一次。
   useEffect(() => {
     let saved = "system";
     try {
       saved = localStorage.getItem("irouter_locale_preference") || "system";
     } catch {}
-    setLocalePreference(saved);
-
     const targetLocale = saved === "system" ? resolveSystemLocale() : saved;
-    const current = getLocaleFromCookie();
-    if (current !== targetLocale) {
+    if (getLocaleFromCookie() !== targetLocale) {
       document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(targetLocale)}; path=/; max-age=31536000`;
       fetch("/api/locale", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ locale: targetLocale }),
       }).catch(() => {});
-      setLocale(targetLocale);
       reloadTranslations();
     }
   }, []);
-
-  /**
-   * 切换语言偏好设置并平滑热重载界面多语言文本
-   * @param {string} selectedId 选中的偏好ID ('system' | 'en' | 'zh-CN' | 'zh-TW')
-   */
-  const applyLocalePreference = async (selectedId) => {
-    setLocalePreference(selectedId);
-    try {
-      localStorage.setItem("irouter_locale_preference", selectedId);
-    } catch {}
-
-    const targetLocale = selectedId === "system" ? resolveSystemLocale() : selectedId;
-    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(targetLocale)}; path=/; max-age=31536000`;
-    setLocale(targetLocale);
-
-    try {
-      await fetch("/api/locale", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locale: targetLocale }),
-      });
-    } catch {}
-
-    // 热重载多语言词典并就地重渲染 DOM 文本，零整页刷新，完全不干扰主题状态
-    await reloadTranslations();
-  };
   const samlAcsUrl = origin ? `${origin}/api/auth/saml/acs` : "/api/auth/saml/acs";
   const samlMetadataUrl = origin ? `${origin}/api/auth/saml/metadata` : "/api/auth/saml/metadata";
   
@@ -147,11 +114,14 @@ export default function ProfilePage() {
   const [proxyLoading, setProxyLoading] = useState(false);
   const [proxyTestLoading, setProxyTestLoading] = useState(false);
 
-  const [isRemoteHost, setIsRemoteHost] = useState(false);
-  useEffect(() => {
-    if (typeof window !== "undefined")
-      setIsRemoteHost(!["localhost", "127.0.0.1", "::1"].includes(window.location.hostname));
-  }, []);
+  // 是否远程访问：环境探测（window.location）→ useSyncExternalStore，
+  // 首屏给 false（服务端无 window），水合后切真值。
+  // 不用 useEffect+setState：本仓 react-hooks/set-state-in-effect 是 error。
+  const isRemoteHost = useSyncExternalStore(
+    () => () => {},
+    () => !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname),
+    () => false,
+  );
 
   useEffect(() => {
     fetch("/api/settings")
@@ -882,26 +852,6 @@ export default function ProfilePage() {
                 <p className="text-sm text-text-muted">Running on your machine</p>
               </div>
             </div>
-            <div className="inline-flex p-1 rounded-lg bg-black/5 dark:bg-white/5 w-full sm:w-auto">
-              {["light", "dark", "system"].map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setTheme(option)}
-                  className={cn(
-                    "flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-md font-medium transition-all flex-1 sm:flex-initial",
-                    theme === option
-                      ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
-                      : "text-text-muted hover:text-text-main"
-                  )}
-                >
-                  <span className="material-symbols-outlined text-[18px]">
-                    {option === "light" ? "light_mode" : option === "dark" ? "dark_mode" : "contrast"}
-                  </span>
-                  <span className="capitalize text-xs sm:text-sm">{option}</span>
-                </button>
-              ))}
-            </div>
           </div>
           <div className="flex flex-col gap-3 pt-4 border-t border-border">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg bg-bg border border-border gap-2">
@@ -942,32 +892,6 @@ export default function ProfilePage() {
                 {dbStatus.message}
               </p>
             )}
-          </div>
-        </Card>
-
-        {/* Language */}
-        <Card>
-          <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
-            <div className="flex items-center gap-3">
-              <div className="size-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-[20px]">language</span>
-              </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-semibold">{translate("Language")}</h3>
-                <p className="text-xs sm:text-sm text-text-muted">{translate("Display language preference")}</p>
-              </div>
-            </div>
-            <SegmentedControl
-              options={[
-                { value: "system", label: locale === "zh-TW" ? "跟隨系統" : locale === "zh-CN" ? "跟随系统" : "System" },
-                { value: "en", label: "English" },
-                { value: "zh-CN", label: "简体中文" },
-                { value: "zh-TW", label: "繁體中文" },
-              ]}
-              value={localePreference}
-              onChange={applyLocalePreference}
-              className="w-full sm:w-auto shrink-0"
-            />
           </div>
         </Card>
 

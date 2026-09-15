@@ -9,6 +9,7 @@ const {
   shell,
   nativeImage,
   nativeTheme,
+  ipcMain,
 } = require("electron");
 const { spawn } = require("node:child_process");
 const net = require("node:net");
@@ -16,6 +17,10 @@ const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const http = require("node:http");
+const {
+  readSettings: readShellSettings,
+  writeSettings: writeShellSettings,
+} = require("./settings.js");
 
 const DEFAULT_PORT = 20128;
 const PORT_SCAN_SPAN = 50;
@@ -36,6 +41,7 @@ let gateway = null;
 let gatewayPort = 0;
 let quitting = false;
 let smokeStarted = false;
+let settingsWindow = null; // 设置窗口单例（重复打开时聚焦已存在窗口）
 
 // 应用名必须在任何 getPath 调用前固定：userData 目录名取自它（spec: 数据目录隔离）
 app.setName("iRouter");
@@ -372,7 +378,23 @@ function trayTooltip() {
   return `${t.trayTooltip} :${gatewayPort}`;
 }
 
+// Dock 显隐（macOS 专属）。非 mac 平台 app.dock 是 undefined，两个函数都退化为空操作。
+//
+// 这两个调用点承担 closeAction 三档里的 "tray" 档语义：
+//   关窗 → hideDock()（Dock 图块消失，只剩托盘入口）
+//   唤回 → showDock()（图块回来，Dock 与 Cmd+Tab 都能找到它）
+// 刻意不做「进程启动即隐藏」——那会让窗口开着却在应用切换器里找不到，
+// 用户会以为程序崩了。隐藏只发生在「窗口全部收进托盘」之后。
+function showDock() {
+  if (process.platform === "darwin" && app.dock) app.dock.show();
+}
+
+function hideDock() {
+  if (process.platform === "darwin" && app.dock) app.dock.hide();
+}
+
 function showWindow() {
+  showDock(); // 从托盘唤回：Dock 图块一并恢复
   if (!mainWindow) {
     createWindow();
     return;
@@ -514,12 +536,24 @@ function createWindow() {
     win.setTitle(windowTitle());
   });
 
-  // 关窗最小化到托盘：网关是常驻服务，关窗不等于停服
+  // 关窗行为三档（见 desktop/settings.js 的 CLOSE_ACTIONS）：
+  //   quit — 退出应用（等价托盘菜单的「退出 iRouter」）
+  //   dock — 隐藏到托盘，Dock 图块保留（默认；与历史行为一致）
+  //   tray — 隐藏到托盘，Dock 图块一并隐藏（只剩托盘入口）
   win.on("close", (e) => {
-    if (!quitting) {
-      e.preventDefault();
-      win.hide();
+    if (quitting) return;
+    e.preventDefault();
+    // 冒烟测试恒走隐藏路径：否则 closeAction=quit 会让 smoke 提前退出、断言拿不到结果。
+    // 测试用独立 dataDir（默认 dock），这里是防御性兜底而非依赖。
+    const action = SMOKE
+      ? "dock"
+      : readShellSettings(getGatewayDataDir()).closeAction;
+    if (action === "quit") {
+      quit();
+      return;
     }
+    win.hide();
+    if (action === "tray") hideDock();
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -553,6 +587,67 @@ function createWindow() {
   return win;
 }
 
+// ---------------------------------------------------------------- 设置窗口
+// 壳层设置面板：加载网关侧 /settings 页面（复用面板的 i18n runtime 与主题 store），
+// 经 preload 暴露的 ipc 读写壳层状态。为什么不是壳层自有 HTML：file:// 页面
+// 访问不到 http://127.0.0.1:PORT 的 localStorage 与 cookie，那样主题/语言两个
+// 控件就无法复用面板已有的写入路径，只能重写一套且容易与面板失同步。
+function openSettingsWindow() {
+  showDock(); // 设置窗口也是窗口：开着它时 Dock 该在
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 620,
+    height: 680,
+    minWidth: 480,
+    minHeight: 420,
+    title: "iRouter",
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#18181b" : "#ffffff",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, "preload.js"),
+    },
+  });
+  settingsWindow = win;
+  win.on("closed", () => {
+    settingsWindow = null;
+  });
+  win.once("ready-to-show", () => win.show());
+  win.loadURL(`${gatewayOrigin()}/settings`);
+}
+
+/**
+ * 壳层设置的读写通道。渲染进程只能经 preload 的白名单方法访问，
+ * 不暴露 ipcRenderer 本体。
+ */
+function registerSettingsIpc() {
+  ipcMain.handle("shell:get-settings", () => ({
+    ...readShellSettings(getGatewayDataDir()),
+    // 开机自启的真相源是系统登录项，不是设置文件（见 desktop/settings.js 顶部注释）
+    launchAtLogin: autostartEnabled(),
+  }));
+
+  ipcMain.handle("shell:set-setting", (_event, key, value) => {
+    if (key === "launchAtLogin") {
+      setAutostart(value === true);
+    } else {
+      writeShellSettings(getGatewayDataDir(), { [key]: value });
+    }
+    updateTrayMenu();
+    return {
+      ...readShellSettings(getGatewayDataDir()),
+      launchAtLogin: autostartEnabled(),
+    };
+  });
+}
+
 function showGatewayError(detail) {
   const html = `data:text/html;charset=utf-8,${encodeURIComponent(`
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>iRouter</title>
@@ -573,6 +668,8 @@ h1{font-size:18px;margin:0 0 12px;color:#f97316}code{background:#222;padding:2px
 // ---------------------------------------------------------------- 应用多语言与菜单栏
 let currentLocale = "en";
 
+// 壳层菜单文案。**只维护 en / zh-CN / zh-TW 三种**；其余语言的键是历史遗留，
+// 缺键由 getMenuI18n 用英文兜底（见该函数）。新增菜单键只需补这三种。
 const MENU_TRANSLATIONS = {
   en: {
     view: "View",
@@ -599,6 +696,7 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "Gateway Address",
     quitApp: "Quit iRouter",
     trayTooltip: "iRouter Gateway",
+    settings: "Settings…",
     copy: "Copy",
     paste: "Paste",
     cut: "Cut",
@@ -629,6 +727,7 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "网关地址",
     quitApp: "退出 iRouter",
     trayTooltip: "iRouter 网关",
+    settings: "设置…",
     copy: "复制",
     paste: "粘贴",
     cut: "剪切",
@@ -659,6 +758,7 @@ const MENU_TRANSLATIONS = {
     gatewayAddr: "閘道位址",
     quitApp: "結束 iRouter",
     trayTooltip: "iRouter 閘道",
+    settings: "設定…",
     copy: "複製",
     paste: "貼上",
     cut: "剪下",
@@ -939,7 +1039,12 @@ function normalizeMenuLocale(raw) {
  */
 function getMenuI18n(locale = currentLocale) {
   const norm = normalizeMenuLocale(locale);
-  return MENU_TRANSLATIONS[norm] || MENU_TRANSLATIONS.en;
+  const dict = MENU_TRANSLATIONS[norm];
+  if (!dict || dict === MENU_TRANSLATIONS.en) return MENU_TRANSLATIONS.en;
+  // 英文兜底合并。壳层菜单只维护 en / zh-CN / zh-TW 三种语言，其余语言
+  // 一律回退英文——这是既定策略，不是权宜之计。合并而非直接返回 dict 是为了
+  // 让缺键显示英文原文而不是 undefined。
+  return { ...MENU_TRANSLATIONS.en, ...dict };
 }
 
 /**
@@ -958,6 +1063,12 @@ function buildMenuTemplate(locale = currentLocale) {
             label: "iRouter",
             submenu: [
               { role: "about", label: t.about },
+              { type: "separator" },
+              {
+                label: t.settings,
+                accelerator: "CmdOrCtrl+,",
+                click: openSettingsWindow,
+              },
               { type: "separator" },
               { role: "services", label: t.services },
               { type: "separator" },
@@ -1082,12 +1193,10 @@ function updateTrayMenu() {
     { label: `${t.gatewayAddr}：${gatewayOrigin()}/v1`, enabled: false },
     { type: "separator" },
     { label: t.openDashboard, click: showWindow },
-    {
-      label: t.autostart,
-      type: "checkbox",
-      checked: autostartEnabled(),
-      click: (item) => setAutostart(item.checked),
-    },
+    // macOS 已把「设置…」放进 App 菜单（Cmd+,），托盘不再重复；其余平台无应用菜单
+    ...(process.platform === "darwin"
+      ? []
+      : [{ label: t.settings, click: openSettingsWindow }]),
     { type: "separator" },
     { label: t.quitApp, click: () => quit() },
   ]);
@@ -1379,6 +1488,8 @@ app.whenReady().then(async () => {
       copyright: "跨平台本地 AI 路由网关 · MIT License",
     });
   }
+  registerSettingsIpc();
+
   // 初始语言设定：优先读取系统语言偏好
   currentLocale = normalizeMenuLocale(app.getLocale());
   setupApplicationMenu(currentLocale);
