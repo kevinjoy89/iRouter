@@ -1,13 +1,17 @@
 // 「脱敏策略」卡片的 i18n 覆盖守卫。
 //
-// 背景：该卡片首版全部文案漏入字典，中文界面整片显示英文。事后在 desktop/main.js
-// 的冒烟探针里加了抽查（几个关键词），但抽查只能覆盖被点名的串——新增或漏译的
-// 文案照样溜过去，而冒烟只在打包后跑，代价高。
+// 背景：该卡片首版全部文案漏入字典，中文界面整片显示英文。当时只在打包后的
+// 冒烟探针里抽查几个关键词——抽查只覆盖被点名的串，新增或漏译的文案照样溜过去，
+// 且代价是每次都要打包。此后改为在源码层做全量比对（本文件），跑单测即可发现。
 //
-// 本文件把三件事钉在一起，任一处漂移即红：
+// 本文件把两件事钉在一起，任一处漂移即红：
 //   1. 卡片源码里出现的英文源串（用户可见的那些）都在 zh-CN / zh-TW 字典里；
-//   2. 冒烟探针的 CARD_SOURCES 清单与卡片源码一致（不许多、不许少）；
-//   3. 字典里这些串的译文确实不是英文（防「值 == 键」的占位式入典）。
+//   2. 字典里这些串的译文确实不是英文（防「值 == 键」的占位式入典）。
+//
+// 曾有的第 3 条「冒烟探针 CARD_SOURCES 与卡片源码一致」已移除：
+// `4b89be3d` 从 desktop/main.js 删掉了 CARD_SOURCES（那批清理移除了侵入前端
+// 页面的 DOM 爬虫断言），断言失去对照物后恒红且未登记进 known-fails.txt，
+// 被基线门误报为 regression。打包期验证由 desktop/scripts/smoke-packaged.mjs 承担。
 import { readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +27,6 @@ const PROFILE = join(
   "profile",
   "page.js",
 );
-const MAIN = join(REPO, "desktop", "main.js");
 
 /** 卡片在源码里的文本，从「Redaction Policy」注释到该 Card 收尾 */
 function readCardSource() {
@@ -62,20 +65,15 @@ function extractCardSourceStrings() {
   return [...out].sort();
 }
 
-/** 冒烟探针内联的 CARD_SOURCES 清单 */
-function readSmokeSources() {
-  const src = readFileSync(MAIN, "utf8");
-  const start = src.indexOf("const CARD_SOURCES = [");
-  expect(
-    start,
-    "冒烟探针里的 CARD_SOURCES 不见了（被改名？同步更新本测试）",
-  ).toBeGreaterThan(-1);
-  const end = src.indexOf("];", start);
-  const body = src.slice(start, end);
-  return [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)]
-    .map((m) => JSON.parse(`"${m[1]}"`))
-    .sort();
-}
+/**
+ * 冒烟探针内联的 CARD_SOURCES 清单。
+ *
+ * 2026-09-15：`4b89be3d`「彻底清理桌面端主进程外挂残留」把 CARD_SOURCES 从
+ * `desktop/main.js` 一并删掉（那批清理移除了侵入前端页面的 DOM 爬虫断言），
+ * 但这条用例仍从 main.js 读，于是从此恒红，且未被登记进 known-fails.txt——
+ * 基线门因此把它报成 regression。此处的探针已随卡片回归验证一起废弃，
+ * 保留一致性检查却无对照物只会制造噪声，故移除该断言。
+ */
 
 const LOCALES = ["zh-CN", "zh-TW"];
 const dictionaries = Object.fromEntries(
@@ -122,9 +120,4 @@ describe("脱敏卡片 i18n 覆盖", () => {
       expect(nonCjk, `译文不含中文：${nonCjk.join(", ")}`).toEqual([]);
     });
   }
-
-  it("冒烟探针的 CARD_SOURCES 与卡片源码完全一致", () => {
-    // 探针少列一条 → 该条漏译时冒烟仍绿；多列一条 → 卡片改名后探针断言失效。
-    expect(readSmokeSources()).toEqual(cardStrings);
-  });
 });

@@ -17,6 +17,9 @@ defaults:
 #   validator: cn_id_checksum 或 luhn。
 #   action: audit / redact / block，可覆盖全局模式。
 #   allowlist: 匹配文本含任一值时忽略，适合示例占位符。
+#   deny: 正则数组；匹配文本命中任一即忽略。用于压代码语境误报
+#         （命中的是标识符 `updateData.accessToken` 而非秘密值）。
+#         无效正则在规则加载时抛出，不会静默失去防护。
 #   max_matches: 单个文本字段最多接受的命中数。
 #   secret_group: 用捕获组限定实际替换区间；默认 0（整个匹配）。
 #   enabled: false 的规则即使出现在 dlpRules 中也不运行。
@@ -66,6 +69,11 @@ rules:
     flags: [IGNORECASE]
     min_entropy: 2.0
     allowlist: [your_key, your_token, example, placeholder, changeme]
+    # 代码里讨论凭据时值往往是标识符（`accessToken = newCredentials`），
+    # 而真密钥含 `-`、数字或全大写。小写驼峰 / 点分路径即判为标识符。
+    deny:
+      - '[:=]\s*["'']?[a-z][a-zA-Z]*[A-Z][a-zA-Z]*["'']?\s*$'
+      - '[:=]\s*["'']?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+["'']?\s*$'
     max_matches: 50
 
   jwt:
@@ -87,13 +95,22 @@ rules:
 
   bank_card:
     description: 银行卡号（Luhn 验证）
+    # 默认关闭：本地单用户网关的首要威胁是凭据外泄，银行卡号不在其中；
+    # 而 `ps aux` / 版本号 / 内存计数这类长数字串会过 Luhn（约 1/10），
+    # 实测在正常工具输出中误报率高（真实日志里被改成 `[REDACTED:bank_card]`）。
+    # 启用需自行在 dlp_rules.yaml 或 DLP_RULE_FILE 中置 enabled: true。
     pattern: '(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)'
     validator: luhn
+    enabled: false
 
   structured_secret:
     description: JSON/YAML 敏感字段名（按字段名判定，值需过熵阈值）
     min_entropy: 1.5
     allowlist: [your_key, your_token, example, placeholder, changeme]
+    # 同 credentials：JSON 值为标识符时判为代码而非秘密
+    deny:
+      - '^[a-z][a-zA-Z]*[A-Z][a-zA-Z]*$'
+      - '^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$'
     json_keys:
       - password
       - passwd

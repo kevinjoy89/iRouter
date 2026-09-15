@@ -11,12 +11,18 @@ iRouter 的「请求脱敏」（对齐参考实现 llm-retry-proxy 的 DLP）只
 Status: accepted
 
 Considered Options:
+
 - **只做出站（选定）** / 同时做落盘：见上，一致性优先于"顺手多堵一个洞"
 - **fail-open（选定）** / fail-closed（拒绝转发不可解析的请求体）：参考实现默认已是 false；本地网关没有多租户场景，可用性 > 严格性
 - **移植 `DLP_FAIL_CLOSED` 开关**：留一个"看起来很安全"的开关，但打开后任何解析边界都会变成故障源，收益不抵复杂度
 - **不做请求脱敏**：上游供应商侧的数据处理无法由本机控制，凭据外泄不可逆，需要一个出口
 
+**第二项代价（2026-09-15 补记，真机发现）**：出站脱敏改写的是**模型赖以决策的观察**。本机 agent 会把工具输出（`grep`、`sed`、文件读取）拼进 prompt，被改写的字节于是成为模型下一轮推理的前提——模型会基于被篡改的视图去 debug 一个不存在的字符串（实测：想确认 `updateData.accessToken = newCredentials.accessToken` 在文件里的位置，读回来只有占位符，整轮对着它推理）。对被动读日志的用户，脱敏是隐私保护；对「模型本身是主体、其输出又成为输入」的 loop，它是观测污染。原 ADR 只记了「本机 SQLite 仍是明文」，漏了这一条，故补记。见 CONTEXT.md「观测篡改」。
+
+**随之调整的两处默认值**（同一轮真机反馈）：`bank_card` 改为默认 `enabled: false`（`ps aux` 的内存计数、版本号这类长数字串约 1/10 能过 Luhn，误报率高；本地单用户网关的首要威胁是凭据外泄，卡号不在其中）；`credentials` 与 `structured_secret` 新增 `deny` 字段，放行「值形如代码标识符」的候选（小写驼峰、点分路径），压掉「代码里讨论凭据」这一类误报。deny 正则无效则在规则加载期抛出，不静默失去防护。
+
 Consequences:
+
 - 出站脱敏与落盘明文**并存**，是已知且接受的边界，不是缺陷。CONTEXT.md 的「出站脱敏 / 落盘脱敏」条目与 UI 文案必须保持这个口径
 - 落盘侧的已知洞（`truncateField` 截断时保留前 200 字符 `_preview`，`requestDetailsRepo.js:87-93`）**不在本决策范围内**，随落盘脱敏立项处理
 - `enableObservability` 的落盘默认行为（不设 `OBSERVABILITY_ENABLED` 即写库，`requestDetailsRepo.js:31`）同样属落盘议题

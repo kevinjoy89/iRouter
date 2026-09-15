@@ -31,8 +31,8 @@ const REDACTED = "[REDACTED:ai_tokens]"; // 输出：引擎写回的占位符
 const BASE = { rules: ["ai_tokens"] };
 
 describe("DLP: 规则加载与校验", () => {
-  it("内置规则文件可加载，15 条规则、12 条启用（3 条 PII 默认关）", () => {
-    expect(validatePolicy()).toEqual({ version: 2, rules: 15, enabled: 12 });
+  it("内置规则文件可加载，15 条规则、11 条启用（4 条默认关：PII 三条 + 银行卡）", () => {
+    expect(validatePolicy()).toEqual({ version: 2, rules: 15, enabled: 11 });
   });
 
   it("导出的默认规则文件路径存在", () => {
@@ -619,16 +619,29 @@ describe("DLP: 校验器与熵", () => {
     expect(bad.matchedRules).toEqual([]);
   });
 
-  it("银行卡规则只放行 Luhn 合法的串", () => {
+  it("银行卡规则只放行 Luhn 合法的串（默认关，显式启用仍需过校验器）", () => {
+    // bank_card 默认 enabled: false（误报率，见 dlp_rules.yaml 注释），
+    // 但 luhn 校验器语义必须独立成立——用内联规则文件强制启用后验证。
+    const dir = mkdtempSync(join(tmpdir(), "dlp-bankcard-"));
+    const file = join(dir, "rules.yaml");
+    writeFileSync(
+      file,
+      [
+        "version: 2",
+        "rules:",
+        "  bank_card:",
+        "    pattern: '(?<!\\d)(?:\\d[ -]?){12,18}\\d(?!\\d)'",
+        "    validator: luhn",
+      ].join("\n") + "\n",
+    );
     const good = inspectRequestBody(
-      { input: "4111111111111111" },
-      { mode: "redact", rules: ["bank_card"] },
+      { input: "4242" + "424242424242" },
+      { mode: "redact", ruleFile: file },
     );
     expect(good.matchedRules).toContain("bank_card");
-
     const bad = inspectRequestBody(
       { input: "4111111111111112" },
-      { mode: "redact", rules: ["bank_card"] },
+      { mode: "redact", ruleFile: file },
     );
     expect(bad.matchedRules).toEqual([]);
   });
@@ -660,5 +673,67 @@ describe("DLP: 校验器与熵", () => {
       { mode: "redact", rules: ["jwt"] },
     );
     expect(r.matchedRules).toContain("jwt");
+  });
+});
+
+// 真机反馈：开了 redact 之后工具输出里的**代码**被切碎到无法阅读。
+// 实测 debug 场景——想确认某个标识符在文件里的位置，读回来却是占位符，
+// 于是整轮对着不存在的字符串推理。命中的是赋值语句，值是标识符而非凭据。
+// 故给规则加 deny，拒绝「值形如代码标识符」。见 CONTEXT.md「代码语境误报」。
+describe("DLP: deny（代码语境误报压制）", () => {
+  const IDENT = "newCredentials";
+
+  it("赋值为驼峰标识符时跳过", () => {
+    const input = `accessToken = ${IDENT}`;
+    const r = inspectRequestBody(
+      { input },
+      { mode: "redact", rules: ["credentials"] },
+    );
+    expect(r.matchedRules).toEqual([]);
+    expect(r.body.input).toBe(input);
+  });
+
+  it("赋值为点分路径时跳过", () => {
+    const input = `updateData.accessToken = ${IDENT}.accessToken`;
+    const r = inspectRequestBody(
+      { input },
+      { mode: "redact", rules: ["credentials"] },
+    );
+    expect(r.matchedRules).toEqual([]);
+    expect(r.body.input).toBe(input);
+  });
+
+  it("赋值为真密钥时仍然改写（deny 不得放走秘密）", () => {
+    const input = `accessToken = "${"ghp_" + "AbCdEf0123456789xyz0"}"`;
+    const r = inspectRequestBody(
+      { input },
+      { mode: "redact", rules: ["credentials"] },
+    );
+    expect(r.matchedRules).toContain("credentials");
+    expect(r.body.input).not.toContain("AbCdEf0123456789xyz0");
+  });
+
+  it("deny 是无效正则时在加载期抛出，不静默失去防护", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dlp-deny-bad-"));
+    const bad = join(dir, "bad.yaml");
+    writeFileSync(
+      bad,
+      `version: 2\nrules:\n  x:\n    pattern: ${"\u0027"}z${"\u0027"}\n    deny:\n      - ${"\u0027"}[unclosed${"\u0027"}\n`,
+    );
+    expect(() => loadPolicy(bad)).toThrow(/deny\[0\] is not a valid regex/);
+  });
+
+  it("内置规则集：bank_card 默认关，credentials 与 structured_secret 带 deny", () => {
+    const policy = loadPolicy();
+    expect(policy.rules.get("bank_card").enabled).toBe(false);
+    expect(policy.rules.get("credentials").deny.length).toBe(2);
+    expect(policy.rules.get("structured_secret").deny.length).toBe(2);
+  });
+
+  it("内置规则集：长数字串不再被 bank_card 改写", () => {
+    const input = "4242" + "424242424242";
+    const r = inspectRequestBody({ input }, { mode: "redact" });
+    expect(r.matchedRules).not.toContain("bank_card");
+    expect(r.body.input).toBe(input);
   });
 });

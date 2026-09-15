@@ -251,6 +251,18 @@ export function loadPolicy(ruleFile = DEFAULT_RULE_FILE) {
     const maxMatches = Number(def.max_matches ?? 100);
     const secretGroup = Number(def.secret_group ?? 0);
     const enabled = def.enabled ?? true;
+    // deny：候选文本命中任一即跳过。用来压掉「代码里讨论凭据」的误报——
+    // 命中的是标识符（`updateData.accessToken`）而非秘密值。编译期校验，
+    // 写错的正则在加载时抛出，不会静默失去防护。
+    const deny = stringList(def.deny, "deny", name).map((item, index) => {
+      try {
+        return new RegExp(item, "d");
+      } catch (e) {
+        throw new Error(
+          `DLP rule ${JSON.stringify(name)} deny[${index}] is not a valid regex: ${e.message}`,
+        );
+      }
+    });
     if (typeof enabled !== "boolean")
       throw new Error(
         `DLP rule ${JSON.stringify(name)} enabled must be boolean`,
@@ -281,6 +293,7 @@ export function loadPolicy(ruleFile = DEFAULT_RULE_FILE) {
       allowlist: stringList(def.allowlist, "allowlist", name).map((k) =>
         k.toLowerCase(),
       ),
+      deny,
       maxMatches,
       secretGroup,
       enabled,
@@ -303,6 +316,7 @@ export function loadPolicy(ruleFile = DEFAULT_RULE_FILE) {
         action: "",
         placeholder: "",
         allowlist: [],
+        deny: [],
         maxMatches: 100,
         secretGroup: 0,
         enabled: true,
@@ -481,8 +495,18 @@ function candidateAllowed(candidate, rule) {
   return rule.allowlist.some((item) => lowered.includes(item));
 }
 
+/** deny：候选（或被捕获的 secret_group）形如代码标识符/路径，而非凭据值 */
+function candidateDenied(candidate, rule) {
+  if (!rule.deny || !rule.deny.length) return false;
+  return rule.deny.some((re) => {
+    re.lastIndex = 0; // deny 正则无 g 标志，重置只为防御
+    return re.test(candidate);
+  });
+}
+
 function candidateValid(candidate, rule) {
   if (candidateAllowed(candidate, rule)) return false;
+  if (candidateDenied(candidate, rule)) return false;
   if (rule.minEntropy > 0 && entropy(candidate) < rule.minEntropy) return false;
   if (rule.validator === "cn_id_checksum") return validIdCard(candidate);
   if (rule.validator === "luhn") return validBankCard(candidate);
