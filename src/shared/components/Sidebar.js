@@ -99,11 +99,10 @@ export default function Sidebar({ onClose }) {
           ))}
 
           {/* System section */}
-          <div className="pt-3 mt-2 space-y-0.5">
-            {/* 分区标题已移除：原为裸文本 `System`，而字典把键 `System` 映射成了
-                「跟随系统」（那是主题选择器里 System 的语义）。i18n 按文本节点精确匹配，
-                两者撞车后这里一直错显为「跟随系统」。字典键有歧义，宁可不显示。 */}
-
+          {/* 分区标题已移除（原为裸文本 `System`，与字典里主题选项的「跟随系统」
+              撞车，i18n 按文本节点精确匹配导致一直错显）。标题曾由 `pt-3 mt-2`
+              预留出 20px 分隔，去掉后与上一项的间距向兄弟项看齐（容器已是 space-y-0.5）。 */}
+          <div className="space-y-0.5">
             {/* Media Providers accordion */}
             <button
               onClick={() => setMediaOpen((v) => !v)}
