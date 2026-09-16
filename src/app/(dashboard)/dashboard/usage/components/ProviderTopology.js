@@ -9,10 +9,14 @@ import {
   Controls,
   BaseEdge,
   getBezierPath,
+  ReactFlowProvider,
+  useReactFlow,
+  useNodesInitialized,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { getProviderIconSrc, markProviderIconMissing } from "@/shared/utils/providerIcon";
+import { buildLayout } from "./topologyLayout";
 
 // Force-stop FE animation if a provider stays active longer than this
 const FE_ACTIVE_TIMEOUT_MS = 60000;
@@ -259,117 +263,89 @@ TopologyEdge.propTypes = {
 const nodeTypes = { provider: ProviderNode, router: RouterNode };
 const edgeTypes = { topology: TopologyEdge };
 
-// Place N nodes evenly along an ellipse around the router center.
-function buildLayout(providers, activeSet, lastSet, errorSet) {
-  const nodeW = 180;
-  const nodeH = 30;
-  const routerW = 120;
-  const routerH = 44;
-  const nodeGap = 24;
 
-  const count = providers.length;
 
-  // Compute rx so arc spacing between nodes >= nodeW + nodeGap
-  const minRx = ((nodeW + nodeGap) * count) / (2 * Math.PI);
-  const rx = Math.max(320, minRx);
-  const ry = Math.max(200, rx * 0.55); // ellipse ratio ~0.55
-  if (count === 0) {
-    return {
-      nodes: [{ id: "router", type: "router", position: { x: 0, y: 0 }, data: { activeCount: 0 }, draggable: false }],
-      edges: [],
-    };
-  }
 
-  const nodes = [];
-  const edges = [];
+/**
+ * 拓扑图视口自适应控制器
+ * 专职负责在 ReactFlow 上下文内进行精准、防抖的视口自适应居中（fitView）
+ * 通过监听 nodesInitialized 确保所有节点尺寸测量完成后才执行计算，避免视口异常空白
+ *
+ * @author wei
+ * @since 2026-09-16
+ * @param {Object} props 组件入参
+ * @param {Object} props.fitOpts fitView 配置项
+ * @param {string} props.layoutDependency 触发重新居中的依赖项
+ * @return {null} 逻辑控制器无 UI 渲染
+ */
+function TopologyViewController({ fitOpts, layoutDependency }) {
+  const { fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const hasFittedRef = useRef(false);
 
-  nodes.push({
-    id: "router",
-    type: "router",
-    position: { x: -routerW / 2, y: -routerH / 2 },
-    data: { activeCount: activeSet.size },
-    draggable: false,
-  });
-
-  const edgeStyle = (active, last, error) => {
-    if (error) return { stroke: "#ef4444", strokeWidth: 2.5, opacity: 0.9 };
-    if (active) return { stroke: "#22d3ee", strokeWidth: 3.5, opacity: 1 };
-    if (last) return { stroke: "#f59e0b", strokeWidth: 2, opacity: 0.7 };
-    return { stroke: "var(--color-border)", strokeWidth: 1, opacity: 0.3 };
-  };
-
-  providers.forEach((p, i) => {
-    const config = getProviderConfig(p.provider);
-    const active = activeSet.has(p.provider?.toLowerCase());
-    const last = !active && lastSet.has(p.provider?.toLowerCase());
-    const error = !active && errorSet.has(p.provider?.toLowerCase());
-    const nodeId = `provider-${p.provider}`;
-    const data = {
-      label: (config.name !== p.provider ? config.name : null) || p.nodeName || p.name || p.provider,
-      color: config.color || "#6b7280",
-      imageUrl: getProviderImageUrl(p.provider),
-      textIcon: config.textIcon || (p.provider || "?").slice(0, 2).toUpperCase(),
-      active,
-    };
-
-    // Distribute evenly starting from top (−π/2), clockwise
-    const angle = -Math.PI / 2 + (2 * Math.PI * i) / count;
-    const cx = rx * Math.cos(angle);
-    const cy = ry * Math.sin(angle);
-
-    // Pick router handle closest to the node direction
-    let sourceHandle, targetHandle;
-    if (Math.abs(angle + Math.PI / 2) < Math.PI / 4 || Math.abs(angle - 3 * Math.PI / 2) < Math.PI / 4) {
-      sourceHandle = "top"; targetHandle = "bottom";
-    } else if (Math.abs(angle - Math.PI / 2) < Math.PI / 4) {
-      sourceHandle = "bottom"; targetHandle = "top";
-    } else if (cx > 0) {
-      sourceHandle = "right"; targetHandle = "left";
-    } else {
-      sourceHandle = "left"; targetHandle = "right";
+  // 节点尺寸首次测量就绪时，立即安全执行 fitView
+  useEffect(() => {
+    if (nodesInitialized && !hasFittedRef.current) {
+      hasFittedRef.current = true;
+      fitView(fitOpts);
     }
+  }, [nodesInitialized, fitView, fitOpts]);
 
-    nodes.push({
-      id: nodeId,
-      type: "provider",
-      position: { x: cx - nodeW / 2, y: cy - nodeH / 2 },
-      data,
-      draggable: false,
-    });
+  // 当布局依赖变动（如提供商列表变化）且节点已就绪时，平滑重新居中
+  useEffect(() => {
+    if (nodesInitialized && hasFittedRef.current) {
+      const timer = setTimeout(() => {
+        fitView(fitOpts);
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [layoutDependency, nodesInitialized, fitView, fitOpts]);
 
-    edges.push({
-      id: `e-${nodeId}`,
-      type: "topology",
-      source: "router",
-      sourceHandle,
-      target: nodeId,
-      targetHandle,
-      // Built-in animated uses stroke-dasharray (CPU-heavy); use particle beam instead
-      animated: false,
-      data: { active },
-      style: edgeStyle(active, last, error),
-    });
-  });
-
-  return { nodes, edges };
+  return null;
 }
 
-export default function ProviderTopology({ providers = [], activeRequests = [], lastProvider = "", errorProvider = "" }) {
+TopologyViewController.propTypes = {
+  fitOpts: PropTypes.object.isRequired,
+  layoutDependency: PropTypes.string.isRequired,
+};
+
+/**
+ * 拓扑图渲染主体组件
+ *
+ * @author wei
+ * @since 2026-09-16
+ * @param {Object} props 组件入参
+ * @return {JSX.Element} 拓扑图 DOM
+ */
+function ProviderTopologyInner({
+  providers = [],
+  activeRequests = [],
+  lastProvider = "",
+  errorProvider = "",
+}) {
   // Serialize to stable string keys so useMemo only re-runs when values actually change
   const activeKey = useMemo(
-    () => activeRequests.map((r) => r.provider?.toLowerCase()).filter(Boolean).sort().join(","),
+    () =>
+      activeRequests
+        .map((r) => r.provider?.toLowerCase())
+        .filter(Boolean)
+        .sort()
+        .join(","),
     [activeRequests]
   );
   const lastKey = lastProvider?.toLowerCase() || "";
   const errorKey = errorProvider?.toLowerCase() || "";
 
-  const rawActiveSet = useMemo(() => new Set(activeKey ? activeKey.split(",") : []), [activeKey]);
+  const rawActiveSet = useMemo(
+    () => new Set(activeKey ? activeKey.split(",") : []),
+    [activeKey]
+  );
   const lastSet = useMemo(() => new Set(lastKey ? [lastKey] : []), [lastKey]);
   const errorSet = useMemo(() => new Set(errorKey ? [errorKey] : []), [errorKey]);
 
-  // Track firstSeen per active provider; drop provider if running too long (BE stuck)
+  // 跟踪并维护每个活跃提供商首次出现时间，超时后自动在动效中剔除
   const firstSeenRef = useRef({});
-  const [tick, setTick] = useState(0);
+  const [activeSet, setActiveSet] = useState(() => new Set(rawActiveSet));
 
   useEffect(() => {
     const seen = firstSeenRef.current;
@@ -380,27 +356,37 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
     for (const p of Object.keys(seen)) {
       if (!rawActiveSet.has(p)) delete seen[p];
     }
-  }, [rawActiveSet]);
 
-  useEffect(() => {
+    const updateActive = () => {
+      const currentNow = Date.now();
+      const filtered = new Set();
+      for (const p of rawActiveSet) {
+        const ts = seen[p];
+        if (!ts || currentNow - ts < FE_ACTIVE_TIMEOUT_MS) {
+          filtered.add(p);
+        }
+      }
+      setActiveSet(filtered);
+    };
+
+    updateActive();
+
     if (rawActiveSet.size === 0) return;
-    const id = setInterval(() => setTick((t) => t + 1), FE_ACTIVE_TICK_MS);
+    const id = setInterval(updateActive, FE_ACTIVE_TICK_MS);
     return () => clearInterval(id);
   }, [rawActiveSet]);
 
-  const activeSet = useMemo(() => {
-    const now = Date.now();
-    const filtered = new Set();
-    for (const p of rawActiveSet) {
-      const ts = firstSeenRef.current[p];
-      if (!ts || now - ts < FE_ACTIVE_TIMEOUT_MS) filtered.add(p);
-    }
-    return filtered;
-  }, [rawActiveSet, tick]);
+  const layoutOptions = useMemo(
+    () => ({
+      getProviderConfig,
+      getProviderImageUrl,
+    }),
+    []
+  );
 
   const { nodes, edges } = useMemo(
-    () => buildLayout(providers, activeSet, lastSet, errorSet),
-    [providers, activeSet, lastSet, errorSet]
+    () => buildLayout(providers, activeSet, lastSet, errorSet, layoutOptions),
+    [providers, activeSet, lastSet, errorSet, layoutOptions]
   );
 
   // Stable key — only remount when provider list changes
@@ -411,33 +397,38 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
 
   const rfInstance = useRef(null);
   const containerRef = useRef(null);
-  const fitOpts = { padding: 0.2, duration: 200 };
+  const fitOpts = useMemo(() => ({ padding: 0.2, duration: 200 }), []);
+
   const onInit = useCallback((instance) => {
     rfInstance.current = instance;
-    setTimeout(() => instance.fitView(fitOpts), 50);
   }, []);
 
-  // Re-fit on container resize
+  // 监听容器尺寸变动，在尺寸真实有效时自适应居中
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
-      if (rfInstance.current) rfInstance.current.fitView(fitOpts);
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      // 增加尺寸有效性防御性检查，避免隐藏或零尺寸时错误计算
+      if (
+        entry &&
+        entry.contentRect.width > 50 &&
+        entry.contentRect.height > 50
+      ) {
+        if (rfInstance.current) {
+          rfInstance.current.fitView(fitOpts);
+        }
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-
-  // Re-fit when node count/layout changes
-  useEffect(() => {
-    if (rfInstance.current) {
-      const id = setTimeout(() => rfInstance.current.fitView(fitOpts), 50);
-      return () => clearTimeout(id);
-    }
-  }, [nodes.length]);
+  }, [fitOpts]);
 
   return (
-    <div ref={containerRef} className="h-[320px] w-full min-w-0 rounded-lg border border-border bg-surface-2/30 sm:h-[480px]">
+    <div
+      ref={containerRef}
+      className="h-[320px] w-full min-w-0 rounded-lg border border-border bg-surface-2/30 sm:h-[480px]"
+    >
       {providers.length === 0 ? (
         <div className="h-full flex items-center justify-center text-text-muted text-sm">
           No providers connected
@@ -449,6 +440,7 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          defaultViewport={{ x: 260, y: 220, zoom: 0.75 }}
           fitView
           fitViewOptions={fitOpts}
           minZoom={0.1}
@@ -464,24 +456,53 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
           nodesConnectable={false}
           elementsSelectable={false}
         >
-          <Controls showInteractive={false} className="react-flow-controls-custom" />
+          <Controls
+            showInteractive={false}
+            className="react-flow-controls-custom"
+          />
+          <TopologyViewController
+            fitOpts={fitOpts}
+            layoutDependency={providersKey}
+          />
         </ReactFlow>
       )}
     </div>
   );
 }
 
-ProviderTopology.propTypes = {
-  providers: PropTypes.arrayOf(PropTypes.shape({
-    id: PropTypes.string,
-    provider: PropTypes.string,
-    name: PropTypes.string,
-  })),
-  activeRequests: PropTypes.arrayOf(PropTypes.shape({
-    provider: PropTypes.string,
-    model: PropTypes.string,
-    account: PropTypes.string,
-  })),
+ProviderTopologyInner.propTypes = {
+  providers: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.string,
+      provider: PropTypes.string,
+      name: PropTypes.string,
+    })
+  ),
+  activeRequests: PropTypes.arrayOf(
+    PropTypes.shape({
+      provider: PropTypes.string,
+      model: PropTypes.string,
+      account: PropTypes.string,
+    })
+  ),
   lastProvider: PropTypes.string,
   errorProvider: PropTypes.string,
 };
+
+/**
+ * 提供商调用拓扑动效组件
+ *
+ * @author wei
+ * @since 2026-09-16
+ * @param {Object} props 组件入参
+ * @return {JSX.Element} 带有 ReactFlowProvider 上下文的拓扑图组件
+ */
+export default function ProviderTopology(props) {
+  return (
+    <ReactFlowProvider>
+      <ProviderTopologyInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+ProviderTopology.propTypes = ProviderTopologyInner.propTypes;
