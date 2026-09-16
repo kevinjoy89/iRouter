@@ -22,29 +22,46 @@ const fmtTokens = (n) => {
 
 const fmtCost = (n) => `$${(n || 0).toFixed(4)}`;
 
-export default function UsageChart({ period = "7d" }) {
+/**
+ * 使用趋势图表组件
+ * 支持按时间段展示 Token 或费用趋势面积图，并支持平滑静默刷新
+ *
+ * @author wei
+ * @since 2026-09-16
+ * @param {Object} props 组件入参
+ * @param {string} [props.period="7d"] 统计周期
+ * @param {number} [props.refreshKey=0] 外部刷新信号
+ * @return {JSX.Element} 图表卡片
+ */
+export default function UsageChart({ period = "7d", refreshKey = 0 }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState("tokens");
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/usage/chart?period=${period}`);
-      if (res.ok) {
-        const json = await res.json();
-        setData(json);
-      }
-    } catch (e) {
-      console.error("Failed to fetch chart data:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [period]);
-
+  // 拉取图表数据：初次加载与 period/refreshKey 变更时执行
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    let ignore = false;
+
+    fetch(`/api/usage/chart?period=${period}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!ignore && json) {
+          setData(json);
+        }
+      })
+      .catch((e) => {
+        console.error("Failed to fetch chart data:", e);
+      })
+      .finally(() => {
+        if (!ignore) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [period, refreshKey]);
 
   const hasData = data.some((d) => d.tokens > 0 || d.cost > 0);
 
@@ -138,4 +155,5 @@ export default function UsageChart({ period = "7d" }) {
 
 UsageChart.propTypes = {
   period: PropTypes.string,
+  refreshKey: PropTypes.number,
 };

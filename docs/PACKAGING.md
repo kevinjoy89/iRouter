@@ -117,8 +117,8 @@ npx electron-builder --mac --universal
 
 ```text
 desktop/build/dist/
-├── iRouter-0.1.9.dmg            <-- [发布交付] macOS 磁盘镜像安装包（约 149 MB）
-├── iRouter-0.1.9.dmg.blockmap   <-- 块更新校验文件
+├── iRouter-0.2.0.dmg            <-- [发布交付] macOS 磁盘镜像安装包（约 149 MB）
+├── iRouter-0.2.0.dmg.blockmap   <-- 块更新校验文件
 ├── builder-debug.yml            <-- 构建配置调试快照
 └── mac-arm64/                   <-- [本地运行/测试] 解包后的完整应用目录
     └── iRouter.app              <-- 可直接双击运行的应用程序包
@@ -126,7 +126,7 @@ desktop/build/dist/
 
 ### 首次安装与运行说明（macOS）
 
-1. 双击打开 `iRouter-0.1.9.dmg`，将 `iRouter.app` 拖入 `/Applications`（应用程序目录）；
+1. 双击打开 `iRouter-0.2.0.dmg`，将 `iRouter.app` 拖入 `/Applications`（应用程序目录）；
 2. **绕过 Gatekeeper 安全拦截**（由于未签名）：
    - **方式一（GUI）**：在「访达 → 应用程序」中，**按住 Control 键并右键点击 iRouter.app**，选择「打开」，在弹窗中再次点击「打开」；
    - **方式二（系统设置）**：打开「系统设置 → 隐私与安全性」，滚动到最下方，点击「仍要打开」；
@@ -142,7 +142,7 @@ desktop/build/dist/
 
 启动应用后，可按以下列表快速验收核心能力：
 
-- [ ] **品牌与版本展示**：侧边栏与个人设置页（`/dashboard/profile`）底部均展示为 `iRouter Proxy v0.1.9`；
+- [ ] **品牌与版本展示**：侧边栏与个人设置页（`/dashboard/profile`）底部均展示为 `iRouter Proxy v0.2.0`；
 - [ ] **主题与语言**：菜单栏「iRouter → 设置…」（`Cmd+,`）打开设置面板，可切主题（浅色/深色/跟随系统）与语言（跟随系统/中/繁/英）；Profile 页不再提供这两个入口；
 - [ ] **关窗行为三档**：设置面板内选「退出应用 / 隐藏到托盘（保留 Dock）/ 隐藏到托盘（隐藏 Dock）」，默认第二档；选第三档时关窗后 Dock 图块消失、仅托盘可唤回；
 - [ ] **开机自启**：设置面板内开关，重启后保持；已从托盘菜单移至此处；

@@ -99,7 +99,17 @@ function getInputTokens(tokens) {
   return prompt < cache ? cache : prompt;
 }
 
-export default function RequestDetailsTab() {
+/**
+ * 请求详情 Tab 组件
+ * 支持分页查看请求日志明细，并在第 1 页且抽屉未展开时支持静默自动刷新
+ *
+ * @author wei
+ * @since 2026-09-16
+ * @param {Object} props 组件入参
+ * @param {number} [props.refreshKey=0] 外部刷新触发信号
+ * @return {JSX.Element} 请求详情视图
+ */
+export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
   const [details, setDetails] = useState([]);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -118,49 +128,74 @@ export default function RequestDetailsTab() {
     endDate: ""
   });
 
-  const fetchProviders = useCallback(async () => {
-    try {
-      const res = await fetch("/api/usage/providers");
-      const data = await res.json();
-      setProviders(data.providers || []);
-
-      const cache = await fetchProviderNames();
-      setProviderNameCache(cache.providerNameCache);
-    } catch (error) {
-      console.error("Failed to fetch providers:", error);
-    }
+  const fetchProviders = useCallback(() => {
+    fetch("/api/usage/providers")
+      .then((res) => res.json())
+      .then((data) => {
+        setProviders(data.providers || []);
+        return fetchProviderNames();
+      })
+      .then((cache) => {
+        if (cache?.providerNameCache) {
+          setProviderNameCache(cache.providerNameCache);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to fetch providers:", error);
+      });
   }, []);
 
-  const fetchDetails = useCallback(async () => {
-    setLoading(true);
-    try {
+  /**
+   * 拉取请求明细列表
+   *
+   * @param {boolean} [isSilent=false] 是否静默拉取（静默拉取时不展示 loading 遮罩）
+   * @return {Promise<void>} 异步拉取结果
+   */
+  const fetchDetails = useCallback(
+    (isSilent = false) => {
       const params = new URLSearchParams({
         page: pagination.page.toString(),
-        pageSize: pagination.pageSize.toString()
+        pageSize: pagination.pageSize.toString(),
       });
       if (filters.provider) params.append("provider", filters.provider);
       if (filters.startDate) params.append("startDate", filters.startDate);
       if (filters.endDate) params.append("endDate", filters.endDate);
 
-      const res = await fetch(`/api/usage/request-details?${params}`);
-      const data = await res.json();
-
-      setDetails(data.details || []);
-      setPagination(prev => ({ ...prev, ...data.pagination }));
-    } catch (error) {
-      console.error("Failed to fetch request details:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [pagination.page, pagination.pageSize, filters]);
+      return fetch(`/api/usage/request-details?${params}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setDetails(data.details || []);
+          setPagination((prev) => ({ ...prev, ...data.pagination }));
+        })
+        .catch((error) => {
+          console.error("Failed to fetch request details:", error);
+        })
+        .finally(() => {
+          if (!isSilent) {
+            setLoading(false);
+          }
+        });
+    },
+    [pagination.page, pagination.pageSize, filters]
+  );
 
   useEffect(() => {
     fetchProviders();
   }, [fetchProviders]);
 
   useEffect(() => {
-    fetchDetails();
+    fetchDetails(false);
   }, [fetchDetails]);
+
+  // 监听外部刷新触发信号
+  useEffect(() => {
+    if (refreshKey > 0) {
+      // 仅在未打开详情抽屉且处于第 1 页时静默刷新最新请求列表，避免干扰用户排查
+      if (!isDrawerOpen && pagination.page === 1) {
+        fetchDetails(true);
+      }
+    }
+  }, [refreshKey, isDrawerOpen, pagination.page, fetchDetails]);
 
   const handleViewDetail = (detail) => {
     setSelectedDetail(detail);
@@ -168,10 +203,12 @@ export default function RequestDetailsTab() {
   };
 
   const handlePageChange = (newPage) => {
+    setLoading(true);
     setPagination(prev => ({ ...prev, page: newPage }));
   };
 
   const handlePageSizeChange = (newPageSize) => {
+    setLoading(true);
     setPagination(prev => ({ ...prev, pageSize: newPageSize, page: 1 }));
   };
 

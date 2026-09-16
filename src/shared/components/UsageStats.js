@@ -200,7 +200,12 @@ const PERIODS = [
   { value: "60d", label: "60D" },
 ];
 
-export default function UsageStats({ period: periodProp, setPeriod: setPeriodProp, hidePeriodSelector = false } = {}) {
+export default function UsageStats({
+  period: periodProp,
+  setPeriod: setPeriodProp,
+  hidePeriodSelector = false,
+  refreshKey = 0,
+} = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -251,19 +256,23 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
       .catch(() => {});
   }, []);
 
-  // Fetch filtered stats via REST when period changes (or pricing is edited —
-  // costs are derived from the pricing table, so they must be recomputed).
-  useEffect(() => {
-    // First load: show full spinner; subsequent: show subtle fetching indicator
-    if (isInitialLoad.current) {
+  /**
+   * 拉取使用统计聚合数据
+   *
+   * @param {boolean} isSilent 是否静默拉取（静默刷新时不展示全局骨架屏）
+   * @return {Promise<void>} 异步拉取结果
+   */
+  const fetchStatsData = useCallback((isSilent = false) => {
+    // 首次加载展示骨架屏；后续及静默刷新仅展示轻量 fetching 状态
+    if (!isSilent && isInitialLoad.current) {
       isInitialLoad.current = false;
       setLoading(true);
     } else {
       setFetching(true);
     }
 
-    fetch(`/api/usage/stats?period=${period}`)
-      .then((r) => r.ok ? r.json() : null)
+    return fetch(`/api/usage/stats?period=${period}`)
+      .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data) {
           hasLoadedStats.current = true;
@@ -276,6 +285,19 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
         setFetching(false);
       });
   }, [period]);
+
+  // Fetch filtered stats via REST when period changes (or pricing is edited —
+  // costs are derived from the pricing table, so they must be recomputed).
+  useEffect(() => {
+    fetchStatsData(false);
+  }, [fetchStatsData]);
+
+  // 监听外部刷新信号（前台唤醒或定时轮询），静默拉取最新统计
+  useEffect(() => {
+    if (refreshKey > 0) {
+      fetchStatsData(true);
+    }
+  }, [refreshKey, fetchStatsData]);
 
   // SSE connection - real-time updates for activeRequests + recentRequests only
   useEffect(() => {
@@ -484,7 +506,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
       )}
 
       {/* Token / Cost chart - sync period */}
-      {loading ? spinner : <UsageChart period={period} />}
+      {loading ? spinner : <UsageChart period={period} refreshKey={refreshKey} />}
 
       {/* Table with dropdown selector */}
       <div className="flex flex-col gap-3">
