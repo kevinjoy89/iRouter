@@ -300,6 +300,37 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   }
 
+  /**
+   * 根据 Combo 成员列表解析该聚合池的有效 Token 上下文与输出限制（遵循木桶原则取成员最小值）
+   *
+   * @param {Array<string|Object>} memberIds Combo 中的成员标识列表
+   * @return {{ contextWindow: number|null, maxOutput: number|null }} 解析后的窗口上限与输出上限
+   */
+  function comboTokenLimits(memberIds) {
+    let contextWindow = null;
+    let maxOutput = null;
+    for (const raw of memberIds || []) {
+      const memberId = typeof raw === "string" ? raw.trim() : String(raw?.model || raw?.id || "").trim();
+      if (!memberId) continue;
+      const slash = memberId.indexOf("/");
+      // 无 Provider 前缀的标识无法从能力表中匹配解析
+      if (slash <= 0) continue;
+      const provider = memberId.slice(0, slash);
+      const model = memberId.slice(slash + 1);
+      if (!model) continue;
+      const caps = getCapabilitiesForModel(provider, model);
+      const ctx = caps?.contextWindow;
+      const out = caps?.maxOutput;
+      if (Number.isFinite(ctx) && ctx > 0) {
+        contextWindow = contextWindow === null ? ctx : Math.min(contextWindow, ctx);
+      }
+      if (Number.isFinite(out) && out > 0) {
+        maxOutput = maxOutput === null ? out : Math.min(maxOutput, out);
+      }
+    }
+    return { contextWindow, maxOutput };
+  }
+
   const models = [];
 
   // Combos first (filtered by kind). Web combos expose `kind` so AI knows search vs fetch.
@@ -312,6 +343,11 @@ export async function buildModelsList(kindFilter, options = {}) {
     };
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
+    } else {
+      // 遵循 OpenAI/OpenRouter 标准字段注入 Token 限制，避免客户端盲猜窗口过早压缩上下文
+      const { contextWindow, maxOutput } = comboTokenLimits(combo.models);
+      if (Number.isFinite(contextWindow)) entry.context_length = contextWindow;
+      if (Number.isFinite(maxOutput)) entry.max_completion_tokens = maxOutput;
     }
     models.push(entry);
   }
