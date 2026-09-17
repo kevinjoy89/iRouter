@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { DefaultExecutor } from "./default.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
 import { isMuseSparkModel } from "../providers/models/helpers.js";
+import { translateSessionId, OPENCODE_SESSION_RE } from "./opencode.js";
 import {
   normalizeResponsesInput,
   clampResponsesCallId,
@@ -23,21 +24,32 @@ function normalizeSession(value) {
   return normalized;
 }
 
+/**
+ * 提取并校验请求头中的原生合法 OpenCode 会话标识
+ *
+ * @param {Record<string, unknown>|null|undefined} headers 请求头对象
+ * @return {string|null} 原生合法会话标识
+ */
 function nativeSession(headers) {
   if (!headers || typeof headers !== "object") return null;
   for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === SESSION_HEADER) return normalizeSession(value);
+    if (key.toLowerCase() === SESSION_HEADER) {
+      const norm = normalizeSession(value);
+      if (norm && OPENCODE_SESSION_RE.test(norm)) return norm;
+    }
   }
   return null;
 }
 
+/**
+ * 将外部会话标识确定性转换为符合规范的 OpenCode 会话标识
+ *
+ * @param {string} sessionId 原始外部会话标识
+ * @param {string} [clientTool=""] 客户端工具名称
+ * @return {string} 规范的 OpenCode 会话标识
+ */
 function translatedSession(sessionId, clientTool) {
-  const digest = crypto
-    .createHash("sha256")
-    .update(`opencode-go\0${clientTool || "generic"}\0${sessionId}`)
-    .digest("hex")
-    .slice(0, 32);
-  return `ses_${digest}`;
+  return translateSessionId(sessionId, clientTool || "opencode-go");
 }
 
 // Strip the thinking suffix "model(level)" so checks hit the base id.
@@ -111,9 +123,24 @@ export class OpenCodeGoExecutor extends DefaultExecutor {
     super("opencode-go");
   }
 
+  /**
+   * 构建上游请求目标 URL，支持自定义 Base URL 中转 Responses 模型
+   *
+   * @param {string} model 模型名称
+   * @param {boolean} [stream=true] 是否流式
+   * @param {number} [urlIndex=0] URL 索引
+   * @param {Record<string, unknown>} [credentials=null] 凭据信息
+   * @return {string} 上游目标 URL
+   */
   buildUrl(model, stream, urlIndex = 0, credentials = null) {
-    // Muse Spark lives on /responses even when a stale runtimeTransport leaks in.
-    if (isResponsesModel(model)) return RESPONSES_BASE_URL;
+    if (isResponsesModel(model)) {
+      const customBase = credentials?.providerSpecificData?.baseUrl;
+      if (typeof customBase === "string" && customBase.trim()) {
+        const normalized = customBase.trim().replace(/\/$/, "");
+        return `${normalized}/responses`;
+      }
+      return RESPONSES_BASE_URL;
+    }
     return super.buildUrl(model, stream, urlIndex, credentials);
   }
 
@@ -151,8 +178,22 @@ export class OpenCodeGoExecutor extends DefaultExecutor {
     return headers;
   }
 
+  /**
+   * @Override
+   * 转换请求体以适配 Responses 格式，并注入会话缓存键
+   *
+   * @param {string} model 模型名称
+   * @param {Record<string, unknown>} body 待发送请求体
+   * @param {boolean} stream 是否流式
+   * @param {Record<string, unknown>} credentials 凭据信息
+   * @return {Record<string, unknown>} 转换后的请求体
+   */
   transformRequest(model, body, stream, credentials) {
-    const out = super.transformRequest(model, body);
+    const out = super.transformRequest(model, body, stream, credentials);
+    const preparedSession = credentials?.[SESSION_FIELD];
+    if (preparedSession && out && typeof out === "object" && !out.prompt_cache_key) {
+      out.prompt_cache_key = preparedSession;
+    }
     if (!isResponsesModel(model || body?.model)) return out;
     const normalized = normalizeResponsesInput(out.input);
     if (normalized) out.input = normalized;

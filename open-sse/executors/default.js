@@ -7,6 +7,10 @@ import { buildClineHeaders } from "../shared/clineAuth.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
+import { resolveSessionId } from "../utils/sessionManager.js";
+import { translateSessionId } from "./opencode.js";
+
+const COMPATIBLE_SESSION_FIELD = "_compatibleSession";
 
 // Auth header descriptors — derived from registry transport.auth, fallback to hardcoded defaults.
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
@@ -67,7 +71,94 @@ export class DefaultExecutor extends BaseExecutor {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
   }
 
-  transformRequest(model, body) {
+  /**
+   * 判断当前执行器是否为自定义兼容提供商（openai-compatible-* 或 anthropic-compatible-*）
+   *
+   * @return {boolean} 是否为兼容提供商
+   */
+  isCompatibleProvider() {
+    return typeof this.provider === "string" && (
+      this.provider.startsWith("openai-compatible-") ||
+      this.provider.startsWith("anthropic-compatible-")
+    );
+  }
+
+  /**
+   * 为单次请求准备专属凭据对象，挂载兼容渠道的会话标识以保障多轮对话连续性
+   *
+   * @param {Object} [params] 准备参数
+   * @param {unknown} [params.body] 请求体数据
+   * @param {Record<string, unknown>} [params.credentials] 原始凭证
+   * @param {string} [params.providerSessionId] 外部传入的会话标识
+   * @param {string} [params.clientTool] 客户端工具名称
+   * @return {Record<string, unknown>} 挂载了 _compatibleSession 的凭据副本
+   */
+  prepareRequestCredentials({ body, credentials, providerSessionId, clientTool } = {}) {
+    const sourceCredentials = credentials || {};
+    if (!this.isCompatibleProvider()) {
+      return sourceCredentials;
+    }
+
+    const rawHeaders = sourceCredentials.rawHeaders || {};
+    // 优先从下游客户端请求头中提取既有会话头
+    let incomingHeader = null;
+    for (const [k, v] of Object.entries(rawHeaders)) {
+      const lower = k.toLowerCase();
+      if (
+        lower === "x-opencode-session" ||
+        lower === "x-session-id" ||
+        lower === "session_id" ||
+        lower === "session-id" ||
+        lower === "x-claude-code-session-id"
+      ) {
+        if (typeof v === "string" && v.trim()) {
+          incomingHeader = v.trim();
+          break;
+        }
+      }
+    }
+
+    const rawSession = incomingHeader
+      || (typeof providerSessionId === "string" && providerSessionId.trim() ? providerSessionId.trim() : null)
+      || resolveSessionId({
+        headers: rawHeaders,
+        body,
+        connectionId: sourceCredentials.connectionId,
+        scope: this.provider,
+      });
+
+    // 转换为符合规范格式（ses_[12位hex时间戳][14位Base62]）的会话标识
+    const normalizedSession = rawSession ? translateSessionId(rawSession, clientTool) : null;
+
+    return {
+      ...sourceCredentials,
+      [COMPATIBLE_SESSION_FIELD]: normalizedSession,
+    };
+  }
+
+  /**
+   * @Override
+   * 执行请求前注入兼容渠道专属的局部会话凭据
+   *
+   * @param {Object} args 执行参数
+   * @return {Promise<Object>} 执行结果
+   */
+  async execute(args) {
+    const credentials = this.prepareRequestCredentials(args);
+    return super.execute({ ...args, credentials });
+  }
+
+  /**
+   * @Override
+   * 转换请求体，为自定义兼容渠道注入 prompt_cache_key 或 metadata.user_id
+   *
+   * @param {string} model 模型名称
+   * @param {Record<string, unknown>} body 待发送的请求体
+   * @param {boolean} [stream=true] 是否流式
+   * @param {Record<string, unknown>} [credentials=null] 凭证信息
+   * @return {Record<string, unknown>} 转换后的请求体
+   */
+  transformRequest(model, body, stream = true, credentials = null) {
     const transformed = this.applyJsonSchemaFallback(body);
 
     if (transformed && typeof transformed === "object") {
@@ -78,7 +169,28 @@ export class DefaultExecutor extends BaseExecutor {
       stripUnsupportedParams(this.provider, model, transformed);
     }
 
-    return injectReasoningContent({ provider: this.provider, model, body: transformed });
+    const out = injectReasoningContent({ provider: this.provider, model, body: transformed });
+
+    if (this.isCompatibleProvider() && out && typeof out === "object") {
+      const session = credentials?.[COMPATIBLE_SESSION_FIELD];
+      if (session) {
+        if (this.provider.startsWith("openai-compatible-")) {
+          // 注入 prompt_cache_key，提供请求体级别的会话保障，防止上游反向代理丢弃 Header
+          if (!out.prompt_cache_key) {
+            out.prompt_cache_key = session;
+          }
+        } else if (this.provider.startsWith("anthropic-compatible-")) {
+          // 针对 Anthropic 兼容端点确保注入 metadata.user_id
+          if (!out.metadata || typeof out.metadata !== "object" || Array.isArray(out.metadata)) {
+            out.metadata = { user_id: session };
+          } else if (!out.metadata.user_id) {
+            out.metadata.user_id = session;
+          }
+        }
+      }
+    }
+
+    return out;
   }
 
   // Fallback json_schema → json_object for openai-compatible providers without native Structured Output.
@@ -199,6 +311,16 @@ export class DefaultExecutor extends BaseExecutor {
             }
           }
         }
+      }
+    }
+
+    // 为自定义兼容渠道注入多协议会话请求头，覆盖 sub2api / OpenCode 及常见聚合网关
+    if (this.isCompatibleProvider()) {
+      const session = credentials?.[COMPATIBLE_SESSION_FIELD] || this.prepareRequestCredentials({ credentials })[COMPATIBLE_SESSION_FIELD];
+      if (session) {
+        if (!headers["x-opencode-session"]) headers["x-opencode-session"] = session;
+        if (!headers["x-session-id"]) headers["x-session-id"] = session;
+        if (!headers["session_id"]) headers["session_id"] = session;
       }
     }
 
