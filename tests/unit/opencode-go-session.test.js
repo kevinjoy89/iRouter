@@ -12,6 +12,7 @@ vi.mock("../../open-sse/utils/proxyFetch.js", () => ({
 
 import { DefaultExecutor } from "../../open-sse/executors/default.js";
 import { getExecutor } from "../../open-sse/executors/index.js";
+import { OPENCODE_SESSION_RE } from "../../open-sse/executors/opencode.js";
 
 const TRANSPORTS = [
   { format: "openai", baseUrl: "https://opencode.ai/zen/go/v1/chat/completions", auth: { combined: true, header: "Authorization", scheme: "bearer" } },
@@ -55,7 +56,7 @@ describe("OpenCode Go x-opencode-session", () => {
 
     expect(executor.constructor.name).toBe("OpenCodeGoExecutor");
     expect(prepared).not.toBe(credentials);
-    expect(prepared._opencodeGoSession).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(prepared._opencodeGoSession).toMatch(OPENCODE_SESSION_RE);
     expect(credentials).not.toHaveProperty("_opencodeGoSession");
     expect(executor).not.toHaveProperty("_currentSessionId");
     expect(executor).not.toHaveProperty("_opencodeGoSession");
@@ -63,11 +64,12 @@ describe("OpenCode Go x-opencode-session", () => {
 
   it("preserves a valid native session header case-insensitively", () => {
     const executor = getExecutor("opencode-go");
+    const nativeValid = "ses_f534dfae8ffeCy4Ee4tLWNygDc";
     const { prepared } = prepare(executor, {
-      credentials: makeCredentials({ rawHeaders: { "X-OpenCode-Session": " native-session-a " } }),
+      credentials: makeCredentials({ rawHeaders: { "X-OpenCode-Session": ` ${nativeValid} ` } }),
     });
 
-    expect(prepared._opencodeGoSession).toBe("native-session-a");
+    expect(prepared._opencodeGoSession).toBe(nativeValid);
   });
 
   it("ignores an oversized native session and uses the translated identity", () => {
@@ -76,7 +78,7 @@ describe("OpenCode Go x-opencode-session", () => {
       credentials: makeCredentials({ rawHeaders: { "x-opencode-session": "x".repeat(257) } }),
     });
 
-    expect(prepared._opencodeGoSession).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(prepared._opencodeGoSession).toMatch(OPENCODE_SESSION_RE);
   });
 
   it("keeps the same translated conversation stable across all transports", () => {
@@ -89,7 +91,7 @@ describe("OpenCode Go x-opencode-session", () => {
     });
 
     expect(new Set(values).size).toBe(1);
-    expect(values[0]).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(values[0]).toMatch(OPENCODE_SESSION_RE);
     expect(values[0]).not.toContain("conversation-a");
   });
 
@@ -121,7 +123,7 @@ describe("OpenCode Go x-opencode-session", () => {
     const second = prepare(executor, options).prepared._opencodeGoSession;
 
     expect(first).toBe(second);
-    expect(first).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(first).toMatch(OPENCODE_SESSION_RE);
     expect(first).not.toContain("fallback-connection");
   });
 
@@ -137,7 +139,7 @@ describe("OpenCode Go x-opencode-session", () => {
       clientTool: "codex",
     });
 
-    expect(result.headers["x-opencode-session"]).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(result.headers["x-opencode-session"]).toMatch(OPENCODE_SESSION_RE);
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][1].headers["x-opencode-session"]).toBe(result.headers["x-opencode-session"]);
     expect(credentials).not.toHaveProperty("_opencodeGoSession");

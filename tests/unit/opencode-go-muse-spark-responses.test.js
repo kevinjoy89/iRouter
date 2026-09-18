@@ -120,6 +120,21 @@ describe("OpenCodeGoExecutor routing + sanitization", () => {
     expect(out.tools.find((t) => t.name === "bare").parameters).toEqual({ type: "object", properties: {} });
     expect(out.tools.find((t) => t.name === "full").parameters).toEqual({ type: "object", properties: { a: { type: "string" } } });
   });
+
+  it("scrubs previous-turn reasoning items and ciphertext from Responses input", () => {
+    const ex = new OpenCodeGoExecutor();
+    const body = {
+      model: MODEL,
+      input: [
+        { type: "reasoning", encrypted_content: "stale-ciphertext", reasoning_encrypted_content: "stale" },
+        { type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] },
+      ],
+    };
+    const out = ex.transformRequest(MODEL, body, true, {});
+    expect(out.input.some((item) => item.type === "reasoning")).toBe(false);
+    expect(out.input[0].encrypted_content).toBeUndefined();
+    expect(out.input[0].reasoning_encrypted_content).toBeUndefined();
+  });
 });
 
 describe("chat/claude clients translate to Responses without breaking tools", () => {

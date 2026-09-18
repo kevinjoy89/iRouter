@@ -3,7 +3,7 @@ import { getCapabilitiesForModel } from "../../open-sse/providers/capabilities.j
 import { PROVIDER_MODELS, getModelTargetFormat } from "../../open-sse/config/providerModels.js";
 import { getThinkingLevels } from "../../open-sse/providers/thinkingLevels.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
-import { OpenCodeExecutor } from "../../open-sse/executors/opencode.js";
+import { OpenCodeExecutor, OPENCODE_FINGERPRINT_TOOLS } from "../../open-sse/executors/opencode.js";
 import "../translator/registerAll.js";
 import { translateRequest } from "../../open-sse/translator/index.js";
 
@@ -131,5 +131,74 @@ describe("OpenCode Free Muse Spark thinking", () => {
       expect(out.max_output_tokens).toBe(2048);
       expect(out.max_tokens).toBeUndefined();
     }
+  });
+
+  it("forces stream: true on outgoing requests", () => {
+    const executor = new OpenCodeExecutor();
+    const chatBody = { messages: [{ role: "user", content: "hi" }], stream: false };
+    executor.transformRequest("big-pickle", chatBody, false, {});
+    expect(chatBody.stream).toBe(true);
+
+    const responsesBody = { input, stream: false };
+    executor.transformRequest(MODEL, responsesBody, false, {});
+    expect(responsesBody.stream).toBe(true);
+  });
+
+  it("injects agent fingerprint tools on chat and responses requests", () => {
+    const executor = new OpenCodeExecutor();
+
+    const chatBody = { messages: [{ role: "user", content: "hi" }] };
+    executor.transformRequest("big-pickle", chatBody, true, {});
+    expect(Array.isArray(chatBody.tools)).toBe(true);
+    const chatToolNames = chatBody.tools.map((t) => t.function?.name || t.name);
+    for (const expected of OPENCODE_FINGERPRINT_TOOLS) {
+      expect(chatToolNames).toContain(expected);
+    }
+
+    const responsesBody = { input };
+    executor.transformRequest(MODEL, responsesBody, true, {});
+    expect(Array.isArray(responsesBody.tools)).toBe(true);
+    const respToolNames = responsesBody.tools.map((t) => t.name);
+    for (const expected of OPENCODE_FINGERPRINT_TOOLS) {
+      expect(respToolNames).toContain(expected);
+    }
+    expect(responsesBody.tools.every((t) => t.type === "function" && t.parameters?.type === "object")).toBe(true);
+  });
+
+  it("preserves caller tools alongside the injected fingerprints", () => {
+    const executor = new OpenCodeExecutor();
+    const chatBody = {
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "my_custom_tool",
+          description: "custom",
+          parameters: { type: "object", properties: { a: { type: "string" } } },
+        },
+      }],
+    };
+    executor.transformRequest("big-pickle", chatBody, true, {});
+    const chatToolNames = chatBody.tools.map((t) => t.function?.name || t.name);
+    expect(chatToolNames).toContain("my_custom_tool");
+    for (const expected of OPENCODE_FINGERPRINT_TOOLS) {
+      expect(chatToolNames).toContain(expected);
+    }
+  });
+
+  it("forces store: false and scrubs previous reasoning tokens on Responses", () => {
+    const executor = new OpenCodeExecutor();
+    const responsesBody = {
+      input: [
+        { type: "reasoning", encrypted_content: "stale-ciphertext", reasoning_encrypted_content: "stale" },
+        { type: "message", role: "user", content: [{ type: "input_text", text: "next question" }] },
+      ],
+      store: true,
+    };
+    executor.transformRequest(MODEL, responsesBody, true, {});
+    expect(responsesBody.store).toBe(false);
+    expect(responsesBody.input.some((item) => item.type === "reasoning")).toBe(false);
+    expect(responsesBody.input[0].encrypted_content).toBeUndefined();
+    expect(responsesBody.input[0].reasoning_encrypted_content).toBeUndefined();
   });
 });

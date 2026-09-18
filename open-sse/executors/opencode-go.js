@@ -95,13 +95,21 @@ function normalizeResponsesTools(body) {
   }
 }
 
-// Last line of defense for native Responses clients (sourceFormat === targetFormat
-// skips translation): coerce items in place so malformed tool payloads 400 here
-// with a clear shape instead of upstream as InputValidationError.
+/**
+ * 清洗 Responses 模型的 input 消息项
+ * 过滤历史推理项并移除非法字段，确保工具调用参数和标识符合规范
+ *
+ * @param {Record<string, unknown>} body 请求体对象
+ * @return {void}
+ */
 function sanitizeResponsesItems(body) {
   if (!Array.isArray(body.input)) return;
   body.input = body.input.filter((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return true;
+    // 过滤上一轮历史思维链项，防范多账号池轮换触发加密内容校验 400 异常
+    if (item.type === "reasoning") return false;
+    delete item.encrypted_content;
+    delete item.reasoning_encrypted_content;
     if (item.type === "function_call") {
       if (!item.name || typeof item.name !== "string" || item.name.trim() === "") return false;
       item.name = item.name.trim().slice(0, MAX_TOOL_NAME_LEN);

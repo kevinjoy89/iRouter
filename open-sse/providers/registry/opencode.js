@@ -14,6 +14,9 @@ export default {
   noAuth: true,
   transport: {
     baseUrl: "https://opencode.ai",
+    // 上游免费渠道风控拒绝非流式请求（stream:false 会报 403 FreeTierError）
+    // 强制上游走 SSE 流式，chatCore 会自动为非流式客户端聚合转回 JSON
+    forceStream: true,
     headers: {
       "x-opencode-client": "desktop",
     },
