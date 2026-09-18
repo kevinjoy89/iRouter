@@ -100,6 +100,16 @@ function getInputTokens(tokens) {
 }
 
 /**
+ * 获取输出 Token 数，兼容 completion_tokens 与 output_tokens 命名
+ *
+ * @param {Object} tokens Token 统计对象
+ * @return {number} 输出 Token 数
+ */
+function getOutputTokens(tokens) {
+  return tokens?.completion_tokens ?? tokens?.output_tokens ?? 0;
+}
+
+/**
  * 请求详情 Tab 组件
  * 支持分页查看请求日志明细，并在第 1 页且抽屉未展开时支持静默自动刷新
  *
@@ -339,7 +349,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                       {getCachedTokens(detail.tokens) > 0 ? getCachedTokens(detail.tokens).toLocaleString() : "—"}
                     </td>
                     <td className="p-4 text-sm text-text-main text-right font-mono">
-                      {detail.tokens?.completion_tokens?.toLocaleString() || 0}
+                      {getOutputTokens(detail.tokens).toLocaleString()}
                     </td>
                     <td className="p-4 text-sm text-text-muted">
                       <div className="flex flex-col gap-0.5">
@@ -441,7 +451,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
               <div>
                 <span className="text-text-muted">Output Tokens:</span>{" "}
                 <span className="text-text-main font-mono">
-                  {selectedDetail.tokens?.completion_tokens?.toLocaleString() || 0}
+                  {getOutputTokens(selectedDetail.tokens).toLocaleString()}
                 </span>
               </div>
             </div>

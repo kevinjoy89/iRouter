@@ -294,4 +294,10 @@ export async function runMigrationOnce(adapter) {
   const newVer = getAppVersion();
   const oldVer = getMetaSync(adapter, "appVersion", null);
   if (oldVer !== newVer) setMetaSync(adapter, "appVersion", newVer);
+
+  // 打印数据库启动自检信息，展示当前保留的 requestDetails 数量
+  try {
+    const row = adapter.get("SELECT COUNT(*) as c FROM requestDetails");
+    console.log(`[DB][ready] data.sqlite 就绪 | requestDetails 现有记录数: ${row?.c ?? 0}`);
+  } catch {}
 }

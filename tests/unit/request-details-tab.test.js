@@ -131,6 +131,25 @@ function getInputTokens(tokens) {
   const cache = getCachedTokens(tokens);
   return prompt < cache ? cache : prompt;
 }
+/**
+ * 获取输出 Token 数，镜像 RequestDetailsTab 组件内实现
+ *
+ * @param {Object} tokens Token 统计对象
+ * @return {number} 输出 Token 数
+ */
+function getOutputTokens(tokens) {
+  return tokens?.completion_tokens ?? tokens?.output_tokens ?? 0;
+}
+
+describe("RequestDetailsTab token helpers", () => {
+  it("getOutputTokens supports both completion_tokens and output_tokens", () => {
+    expect(getOutputTokens({ completion_tokens: 123 })).toBe(123);
+    expect(getOutputTokens({ output_tokens: 456 })).toBe(456);
+    expect(getOutputTokens({ completion_tokens: 10, output_tokens: 20 })).toBe(10);
+    expect(getOutputTokens({})).toBe(0);
+    expect(getOutputTokens(null)).toBe(0);
+  });
+});
 
 describe("backupDbLite — excludes requestDetails, keeps critical data", () => {
   it("backup file omits requestDetails rows but keeps other tables", async () => {

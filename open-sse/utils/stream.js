@@ -1,7 +1,7 @@
 import { translateResponse, initState } from "../translator/index.js";
 import { FORMATS } from "../translator/formats.js";
 import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb.js";
-import { extractUsage, mergeUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
+import { extractUsage, mergeUsage, hasValidUsage, estimateUsage, estimateOutputTokens, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
 import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE } from "./streamHelpers.js";
 import { getOpenAIResponsesEventName, isOpenAIResponsesTerminalEvent, formatIncompleteOpenAIResponsesStreamFailure } from "./responsesStreamHelpers.js";
 import { dbg, isDebugEnabled } from "./debugLog.js";
@@ -90,6 +90,20 @@ export function createSSEStream(options = {}) {
     if (!hasValidUsage(finalUsage) && totalContentLength > 0) {
       finalUsage = estimateUsage(body, totalContentLength, isPassthrough ? FORMATS.OPENAI : sourceFormat);
       if (isPassthrough) usage = finalUsage; else state.usage = finalUsage;
+    }
+
+    // 若已有 usage 但输出 token 始终为 0 且实际已产生了文本输出，兜底补全输出 token 估算
+    const currentOut = finalUsage?.completion_tokens ?? finalUsage?.output_tokens ?? 0;
+    if (finalUsage && currentOut === 0 && totalContentLength > 0) {
+      const estimatedOut = estimateOutputTokens(totalContentLength);
+      const promptTok = finalUsage.prompt_tokens ?? finalUsage.input_tokens ?? 0;
+      finalUsage = {
+        ...finalUsage,
+        completion_tokens: estimatedOut,
+        output_tokens: estimatedOut,
+        total_tokens: promptTok + estimatedOut
+      };
+      if (isPassthrough) usage = finalUsage; else if (state) state.usage = finalUsage;
     }
 
     if (hasValidUsage(finalUsage)) {

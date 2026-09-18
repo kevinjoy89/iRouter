@@ -35,6 +35,11 @@ export function parseSSELine(line, format = null) {
 
 // Check if chunk has valuable content (not empty)
 export function hasValuableContent(chunk, format) {
+  // 若分块携带有效 usage 统计信息，始终视为有价值内容，避免统计尾包被误过滤
+  if (chunk?.usage && typeof chunk.usage === "object" && Object.keys(chunk.usage).length > 0) {
+    return true;
+  }
+
   // OpenAI format
   if (format === FORMATS.OPENAI && chunk.choices?.[0]?.delta) {
     const delta = chunk.choices[0].delta;

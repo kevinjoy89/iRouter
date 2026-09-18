@@ -1,8 +1,39 @@
 import { ensureDirs, DATA_FILE } from "./paths.js";
 
 // Use global to survive Next.js dev hot-reload (module state resets on reload)
-if (!global._dbAdapter) global._dbAdapter = { instance: null, initPromise: null, logged: false };
+if (!global._dbAdapter) global._dbAdapter = { instance: null, initPromise: null, logged: false, shutdownHooks: new Set() };
+if (!global._dbAdapter.shutdownHooks) global._dbAdapter.shutdownHooks = new Set();
 const state = global._dbAdapter;
+
+/**
+ * 注册数据库关闭前的同步回调钩子
+ *
+ * @param {Function} hook 同步执行的回调函数
+ * @author wei
+ * @since 2026-09-18
+ */
+export function registerDbShutdownHook(hook) {
+  if (typeof hook === "function") {
+    state.shutdownHooks.add(hook);
+  }
+}
+
+/**
+ * 执行所有已注册的数据库关闭钩子
+ *
+ * @param {object} adapter 数据库适配器实例
+ * @author wei
+ * @since 2026-09-18
+ */
+export function executeDbShutdownHooks(adapter) {
+  for (const hook of state.shutdownHooks) {
+    try {
+      hook(adapter);
+    } catch (e) {
+      console.error("[DB] 执行关闭钩子失败:", e);
+    }
+  }
+}
 
 async function tryBunSqlite() {
   // Bun runtime only — built-in, no install needed

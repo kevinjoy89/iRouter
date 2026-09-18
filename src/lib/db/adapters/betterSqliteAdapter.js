@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { PRAGMA_SQL } from "../schema.js";
+import { executeDbShutdownHooks } from "../driver.js";
 
 // Periodic checkpoint to keep WAL file small (avoid huge -wal/-shm growth)
 const CHECKPOINT_INTERVAL_MS = 60 * 1000;
@@ -26,7 +27,11 @@ export function createBetterSqliteAdapter(filePath) {
   }, CHECKPOINT_INTERVAL_MS);
   if (typeof checkpointTimer.unref === "function") checkpointTimer.unref();
 
+  let isClosing = false;
   function gracefulClose() {
+    if (isClosing) return;
+    isClosing = true;
+    try { executeDbShutdownHooks(adapter); } catch {}
     try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch {}
     try { stmtCache.clear(); } catch {}
     try { db.close(); } catch {}
@@ -38,7 +43,7 @@ export function createBetterSqliteAdapter(filePath) {
   process.once("SIGINT", () => { onShutdown(); process.exit(0); });
   process.once("SIGTERM", () => { onShutdown(); process.exit(0); });
 
-  return {
+  const adapter = {
     driver: "better-sqlite3",
     run(sql, params = []) { return prepare(sql).run(...params); },
     get(sql, params = []) { return prepare(sql).get(...params); },
@@ -52,4 +57,5 @@ export function createBetterSqliteAdapter(filePath) {
     },
     raw: db,
   };
+  return adapter;
 }

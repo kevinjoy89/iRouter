@@ -242,18 +242,40 @@ async function reapOrphanGateway(dataDir) {
     return;
   }
   if (!pid || !isPidAlive(pid)) return;
-  console.log(`[iRouter] 回收上次遗留的网关进程 pid=${pid}`);
+  console.log(`[iRouter] 回收上次遗留的网关进程 pid=${pid}，优先发送 SIGTERM 优雅退出`);
+  // 优先发送 SIGTERM 允许网关进程执行 shutdown 钩子落盘并完成 WAL checkpoint
   try {
-    process.kill(-pid, "SIGKILL"); // detached 启动，pid 即进程组组长
+    process.kill(-pid, "SIGTERM"); // detached 启动，pid 即进程组组长
   } catch {
     try {
-      process.kill(pid, "SIGKILL");
+      process.kill(pid, "SIGTERM");
     } catch {
       /* 已退出 */
     }
   }
+
+  // 优雅期等待：最多 1500ms
+  const gracefulDeadline = Date.now() + 1500;
+  while (isPidAlive(pid) && Date.now() < gracefulDeadline) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  // 若优雅期内未退出，降级为 SIGKILL 强杀
+  if (isPidAlive(pid)) {
+    console.warn(`[iRouter] 遗留网关进程 pid=${pid} 未在优雅期内退出，强制终止 (SIGKILL)`);
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* 已退出 */
+      }
+    }
+  }
+
   // 等它真正消失再选端口，否则刚被占的默认端口会被误判为不可用而无谓顺延
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 2000;
   while (isPidAlive(pid) && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 100));
   }

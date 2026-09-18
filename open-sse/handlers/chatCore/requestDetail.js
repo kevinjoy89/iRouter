@@ -65,13 +65,18 @@ export function extractUsageFromResponse(responseBody) {
 }
 
 export function buildRequestDetail(base, overrides = {}) {
+  // 归一化 token 统计，确保无论上游输出格式如何，均具备统一的标准字段
+  const normalizedTokens = base.tokens
+    ? (canonicalizeUsage(base.tokens) || base.tokens)
+    : { prompt_tokens: 0, completion_tokens: 0 };
+
   return {
     provider: base.provider || "unknown",
     model: base.model || "unknown",
     connectionId: base.connectionId || undefined,
     timestamp: new Date().toISOString(),
     latency: base.latency || { ttft: 0, total: 0 },
-    tokens: base.tokens || { prompt_tokens: 0, completion_tokens: 0 },
+    tokens: normalizedTokens,
     request: base.request,
     providerRequest: base.providerRequest || null,
     providerResponse: base.providerResponse || null,

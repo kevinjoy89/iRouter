@@ -1,7 +1,8 @@
-import { getAdapter } from "../driver.js";
+import { getAdapter, getAdapterSync, registerDbShutdownHook } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 
-const DEFAULT_MAX_RECORDS = 200;
+const DEFAULT_MAX_RECORDS = 1000;
+const MIN_RETAINED_RECORDS = 100;
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_JSON_SIZE = 5 * 1024;
@@ -9,6 +10,21 @@ const CONFIG_CACHE_TTL_MS = 5000;
 
 let cachedConfig = null;
 let cachedConfigTs = 0;
+
+/**
+ * 解析并防御性校验请求详情最大保留条数
+ *
+ * @param {string|number} [customValue] 用户或环境变量配置的最大条数
+ * @return {number} 合法且安全的保留条数下限
+ * @author wei
+ * @since 2026-09-18
+ */
+function resolveSafeMaxRecords(customValue) {
+  const parsed = parseInt(customValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_RECORDS;
+  // 防御性保护：保留条数至少为 MIN_RETAINED_RECORDS 条，防止异常配置引发过度淘汰
+  return Math.max(MIN_RETAINED_RECORDS, parsed);
+}
 
 async function getObservabilityConfig() {
   if (cachedConfig && (Date.now() - cachedConfigTs) < CONFIG_CACHE_TTL_MS) return cachedConfig;
@@ -20,7 +36,7 @@ async function getObservabilityConfig() {
       const enabled = envRequestLogs.toLowerCase() === "true";
       cachedConfig = {
         enabled,
-        maxRecords: settings.observabilityMaxRecords || parseInt(process.env.OBSERVABILITY_MAX_RECORDS || String(DEFAULT_MAX_RECORDS), 10),
+        maxRecords: resolveSafeMaxRecords(settings.observabilityMaxRecords ?? process.env.OBSERVABILITY_MAX_RECORDS),
         batchSize: settings.observabilityBatchSize || parseInt(process.env.OBSERVABILITY_BATCH_SIZE || String(DEFAULT_BATCH_SIZE), 10),
         flushIntervalMs: settings.observabilityFlushIntervalMs || parseInt(process.env.OBSERVABILITY_FLUSH_INTERVAL_MS || String(DEFAULT_FLUSH_INTERVAL_MS), 10),
         maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "5", 10)) * 1024,
@@ -36,7 +52,7 @@ async function getObservabilityConfig() {
 
     cachedConfig = {
       enabled,
-      maxRecords: settings.observabilityMaxRecords || parseInt(process.env.OBSERVABILITY_MAX_RECORDS || String(DEFAULT_MAX_RECORDS), 10),
+      maxRecords: resolveSafeMaxRecords(settings.observabilityMaxRecords ?? process.env.OBSERVABILITY_MAX_RECORDS),
       batchSize: settings.observabilityBatchSize || parseInt(process.env.OBSERVABILITY_BATCH_SIZE || String(DEFAULT_BATCH_SIZE), 10),
       flushIntervalMs: settings.observabilityFlushIntervalMs || parseInt(process.env.OBSERVABILITY_FLUSH_INTERVAL_MS || String(DEFAULT_FLUSH_INTERVAL_MS), 10),
       maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "5", 10)) * 1024,
@@ -68,7 +84,12 @@ function sanitizeHeaders(headers) {
   return sanitized;
 }
 
-export const __test__ = { sanitizeHeaders };
+export const __test__ = {
+  sanitizeHeaders,
+  resolveSafeMaxRecords,
+  getWriteBuffer: () => writeBuffer,
+  clearBuffer: () => { writeBuffer = []; },
+};
 
 function generateDetailId(model) {
   const timestamp = new Date().toISOString();
@@ -85,53 +106,101 @@ function truncateField(obj, maxSize) {
   return obj || {};
 }
 
+/**
+ * 同步将内存缓冲区中的请求详情写入数据库
+ *
+ * @param {object} [targetAdapter] 可选的目标数据库适配器实例，未传时自动获取
+ * @return {number} 本次成功持久化的记录条数
+ * @throws {Error} 数据库操作失败时可能抛出异常
+ * @author wei
+ * @since 2026-09-18
+ */
+export function flushRequestDetailsSync(targetAdapter) {
+  if (writeBuffer.length === 0) return 0;
+
+  let db = targetAdapter;
+  if (!db) {
+    try {
+      db = getAdapterSync();
+    } catch {
+      // 数据库尚未初始化或已销毁，无法执行同步写入
+      return 0;
+    }
+  }
+  if (!db) return 0;
+
+  // 获取当前配置或兜底默认配置
+  const config = cachedConfig || {
+    maxRecords: DEFAULT_MAX_RECORDS,
+    maxJsonSize: DEFAULT_MAX_JSON_SIZE,
+  };
+
+  // 取出当前缓冲区中的全部数据
+  const items = writeBuffer.splice(0, writeBuffer.length);
+  if (items.length === 0) return 0;
+
+  try {
+    db.transaction(() => {
+      for (const item of items) {
+        if (!item.id) item.id = generateDetailId(item.model);
+        if (!item.timestamp) item.timestamp = new Date().toISOString();
+        if (item.request?.headers) item.request.headers = sanitizeHeaders(item.request.headers);
+
+        const record = {
+          id: item.id,
+          provider: item.provider || null,
+          model: item.model || null,
+          connectionId: item.connectionId || null,
+          timestamp: item.timestamp,
+          status: item.status || null,
+          latency: item.latency || {},
+          tokens: item.tokens || {},
+          request: truncateField(item.request, config.maxJsonSize),
+          providerRequest: truncateField(item.providerRequest, config.maxJsonSize),
+          providerResponse: truncateField(item.providerResponse, config.maxJsonSize),
+          response: truncateField(item.response, config.maxJsonSize),
+          pxpipe: item.pxpipe || undefined,
+        };
+
+        db.run(
+          `INSERT INTO requestDetails(id, timestamp, provider, model, connectionId, status, data) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET timestamp = excluded.timestamp, provider = excluded.provider, model = excluded.model, connectionId = excluded.connectionId, status = excluded.status, data = excluded.data`,
+          [record.id, record.timestamp, record.provider, record.model, record.connectionId, record.status, stringifyJson(record)]
+        );
+      }
+
+      const cnt = db.get(`SELECT COUNT(*) as c FROM requestDetails`);
+      if (cnt && cnt.c > config.maxRecords) {
+        db.run(
+          `DELETE FROM requestDetails WHERE id IN (SELECT id FROM requestDetails ORDER BY timestamp ASC LIMIT ?)`,
+          [cnt.c - config.maxRecords]
+        );
+      }
+    });
+    return items.length;
+  } catch (e) {
+    console.error("[requestDetailsRepo] 同步持久化请求详情失败:", e);
+    // 写入失败时将未落盘记录放回缓冲队列头部，避免丢数据
+    writeBuffer.unshift(...items);
+    return 0;
+  }
+}
+
+/**
+ * 异步刷新内存缓冲区到数据库
+ *
+ * @return {Promise<void>} 异步任务 Promise
+ * @author wei
+ * @since 2026-09-18
+ */
 async function flushToDatabase() {
   if (isFlushing) return;
   if (writeBuffer.length === 0) return;
   isFlushing = true;
   try {
-    // Drain entire buffer (loop in case more pushed during await)
+    const db = await getAdapter();
+    // 循环排空，处理在异步等待期间新入队的记录
     while (writeBuffer.length > 0) {
-      const items = writeBuffer.splice(0, writeBuffer.length);
-      const db = await getAdapter();
-      const config = await getObservabilityConfig();
-
-      db.transaction(() => {
-        for (const item of items) {
-          if (!item.id) item.id = generateDetailId(item.model);
-          if (!item.timestamp) item.timestamp = new Date().toISOString();
-          if (item.request?.headers) item.request.headers = sanitizeHeaders(item.request.headers);
-
-          const record = {
-            id: item.id,
-            provider: item.provider || null,
-            model: item.model || null,
-            connectionId: item.connectionId || null,
-            timestamp: item.timestamp,
-            status: item.status || null,
-            latency: item.latency || {},
-            tokens: item.tokens || {},
-            request: truncateField(item.request, config.maxJsonSize),
-            providerRequest: truncateField(item.providerRequest, config.maxJsonSize),
-            providerResponse: truncateField(item.providerResponse, config.maxJsonSize),
-            response: truncateField(item.response, config.maxJsonSize),
-            pxpipe: item.pxpipe || undefined,
-          };
-
-          db.run(
-            `INSERT INTO requestDetails(id, timestamp, provider, model, connectionId, status, data) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET timestamp = excluded.timestamp, provider = excluded.provider, model = excluded.model, connectionId = excluded.connectionId, status = excluded.status, data = excluded.data`,
-            [record.id, record.timestamp, record.provider, record.model, record.connectionId, record.status, stringifyJson(record)]
-          );
-        }
-
-        const cnt = db.get(`SELECT COUNT(*) as c FROM requestDetails`);
-        if (cnt && cnt.c > config.maxRecords) {
-          db.run(
-            `DELETE FROM requestDetails WHERE id IN (SELECT id FROM requestDetails ORDER BY timestamp ASC LIMIT ?)`,
-            [cnt.c - config.maxRecords]
-          );
-        }
-      });
+      flushRequestDetailsSync(db);
     }
   } catch (e) {
     console.error("[requestDetailsRepo] Batch write failed:", e);
@@ -222,9 +291,11 @@ export async function getRequestDetailById(id) {
   return row ? parseJson(row.data, null) : null;
 }
 
-const _shutdownHandler = async () => {
+const _shutdownHandler = () => {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-  if (writeBuffer.length > 0) await flushToDatabase();
+  if (writeBuffer.length > 0) {
+    flushRequestDetailsSync();
+  }
 };
 
 function ensureShutdownHandler() {
@@ -240,3 +311,9 @@ function ensureShutdownHandler() {
 }
 
 ensureShutdownHandler();
+
+// 注册到全局数据库适配器关闭钩子，确保在数据库连接关闭及 WAL TRUNCATE 之前完成写入
+registerDbShutdownHook((adapter) => {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  flushRequestDetailsSync(adapter);
+});

@@ -1,6 +1,7 @@
 // Built-in node:sqlite adapter — available in Node >= 22.5.0.
 // No native build, no npm install. API mirrors betterSqliteAdapter.
 import { PRAGMA_SQL } from "../schema.js";
+import { executeDbShutdownHooks } from "../driver.js";
 
 const CHECKPOINT_INTERVAL_MS = 60 * 1000;
 
@@ -38,7 +39,11 @@ export async function createNodeSqliteAdapter(filePath) {
   }, CHECKPOINT_INTERVAL_MS);
   if (typeof checkpointTimer.unref === "function") checkpointTimer.unref();
 
+  let isClosing = false;
   function gracefulClose() {
+    if (isClosing) return;
+    isClosing = true;
+    try { executeDbShutdownHooks(adapter); } catch {}
     try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
     try { stmtCache.clear(); } catch {}
     try { db.close(); } catch {}
@@ -48,7 +53,7 @@ export async function createNodeSqliteAdapter(filePath) {
   process.once("SIGINT", () => { onShutdown(); process.exit(0); });
   process.once("SIGTERM", () => { onShutdown(); process.exit(0); });
 
-  return {
+  const adapter = {
     driver: "node:sqlite",
     run(sql, params = []) {
       const r = prepare(sql).run(...params);
@@ -81,4 +86,5 @@ export async function createNodeSqliteAdapter(filePath) {
     },
     raw: db,
   };
+  return adapter;
 }
