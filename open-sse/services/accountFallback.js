@@ -1,51 +1,68 @@
 import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS } from "../config/errorConfig.js";
 
 /**
- * Calculate exponential backoff cooldown for rate limits (429)
- * Level 1: 1s, Level 2: 2s, Level 3: 4s... → max 4 min
- * @param {number} backoffLevel - Current backoff level
- * @returns {number} Cooldown in milliseconds
+ * 计算 429 限流退避冷却时间（支持自定义基数、上限与固定退避模式）
+ *
+ * @param {number} [backoffLevel=0] 当前退避级别
+ * @param {object} [customConfig=null] 可选的用户自定义重试配置
+ * @return {number} 冷却时间（毫秒）
+ * @author wei
+ * @since 2026-09-18
  */
-export function getQuotaCooldown(backoffLevel = 0) {
+export function getQuotaCooldown(backoffLevel = 0, customConfig = null) {
+  const base = (customConfig?.rateLimitLockBaseSeconds != null ? customConfig.rateLimitLockBaseSeconds : 2) * 1000;
+  const max = (customConfig?.rateLimitLockMaxSeconds != null ? customConfig.rateLimitLockMaxSeconds : 120) * 1000;
+
+  // 上限设置为 0 时表示完全不进行冷却锁定
+  if (max === 0) return 0;
+
+  // 若关闭退避，直接使用基础锁定时长，不进行翻倍
+  if (customConfig?.backoff === false) {
+    return Math.min(base, max);
+  }
+
   const level = Math.max(0, backoffLevel - 1);
-  const cooldown = BACKOFF_CONFIG.base * Math.pow(2, level);
-  return Math.min(cooldown, BACKOFF_CONFIG.max);
+  const cooldown = base * Math.pow(2, level);
+  return Math.min(cooldown, max);
 }
 
 /**
- * Check if error should trigger account fallback (switch to next account)
- * Config-driven: matches ERROR_RULES top-to-bottom (text rules first, then status)
- * @param {number} status - HTTP status code
- * @param {string} errorText - Error message text
- * @param {number} backoffLevel - Current backoff level for exponential backoff
- * @returns {{ shouldFallback: boolean, cooldownMs: number, newBackoffLevel?: number }}
+ * 检查错误是否应触发账号故障转移并计算冷却时间
+ *
+ * @param {number} status HTTP 响应状态码
+ * @param {string} errorText 错误文本信息
+ * @param {number} [backoffLevel=0] 当前账号退避级别
+ * @param {object} [retryCfg=null] 可选的用户重试与锁定配置
+ * @return {{ shouldFallback: boolean, cooldownMs: number, newBackoffLevel?: number }} 转移判定与冷却时长
+ * @author wei
+ * @since 2026-09-18
  */
-export function checkFallbackError(status, errorText, backoffLevel = 0) {
+export function checkFallbackError(status, errorText, backoffLevel = 0, retryCfg = null) {
   const lowerError = errorText
     ? (typeof errorText === "string" ? errorText : JSON.stringify(errorText)).toLowerCase()
     : "";
 
   for (const rule of ERROR_RULES) {
-    // Text-based rule: match substring in error message
+    // 文本匹配规则
     if (rule.text && lowerError && lowerError.includes(rule.text)) {
       if (rule.backoff) {
         const newLevel = Math.min(backoffLevel + 1, BACKOFF_CONFIG.maxLevel);
-        return { shouldFallback: true, cooldownMs: getQuotaCooldown(newLevel), newBackoffLevel: newLevel };
+        return { shouldFallback: true, cooldownMs: getQuotaCooldown(newLevel, retryCfg), newBackoffLevel: newLevel };
       }
       return { shouldFallback: true, cooldownMs: rule.cooldownMs };
     }
 
-    // Status-based rule: match HTTP status code
+    // 状态码匹配规则
     if (rule.status && rule.status === status) {
       if (rule.backoff) {
         const newLevel = Math.min(backoffLevel + 1, BACKOFF_CONFIG.maxLevel);
-        return { shouldFallback: true, cooldownMs: getQuotaCooldown(newLevel), newBackoffLevel: newLevel };
+        return { shouldFallback: true, cooldownMs: getQuotaCooldown(newLevel, retryCfg), newBackoffLevel: newLevel };
       }
       return { shouldFallback: true, cooldownMs: rule.cooldownMs };
     }
   }
 
-  // Default: transient cooldown for any unmatched error
+  // 默认兜底：未匹配错误的瞬时冷却时间
   return { shouldFallback: true, cooldownMs: TRANSIENT_COOLDOWN_MS };
 }
 

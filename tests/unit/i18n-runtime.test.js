@@ -85,6 +85,44 @@ describe("面板新增文案的字典覆盖", () => {
     expect(missing, `未入字典: ${JSON.stringify(missing, null, 2)}`).toEqual([]);
   });
 
+  it("Retry Strategy 卡片的所有可翻译文案都在 zh-CN / zh-TW 字典中", () => {
+    const zh = JSON.parse(readFileSync(ZH_CN, "utf8"));
+    const tw = JSON.parse(readFileSync(ZH_TW, "utf8"));
+
+    const expectedKeys = [
+      "Retry Strategy",
+      "Auto Retry",
+      "Hold failing requests (429/5xx) and retry automatically so agents keep running",
+      "Max Retries",
+      "Whole-request retries after all combo members fail (0 = unlimited)",
+      "Member Retries",
+      "Retry the same combo member on 429/5xx before switching (0 = off)",
+      "Account Retries",
+      "Retry the same account on 429 before switching (0 = off)",
+      "Respect Retries in Sticky",
+      "Wait for retries to finish before advancing sticky counter; advance only on success (off = advance immediately)",
+      "Interval (s)",
+      "Base wait between retries",
+      "Exponential Backoff",
+      "Double the wait each attempt and respect upstream Retry-After (off = fixed interval)",
+      "Backoff Max (s)",
+      "Exponential backoff ceiling",
+      "Retry-After Cap (s)",
+      "Clamp upstream Retry-After so one provider can't hold a request too long (0 = no cap)",
+      "Rate Limit Lock Max (s)",
+      "Maximum cooldown lock duration when 429 rate limited (0 = do not lock)",
+      "Rate Limit Lock Base (s)",
+      "Base cooldown seconds for 429 rate limit errors",
+      "Total Wait Budget (s)",
+      "Cumulative wait ceiling per request (0 = unlimited)",
+      "Status Codes",
+      "Comma-separated codes that trigger retry (rate-limit text always matches)",
+    ];
+
+    const missing = expectedKeys.filter((k) => !zh[k] || !tw[k]);
+    expect(missing, `Retry Strategy 文案未入字典: ${JSON.stringify(missing, null, 2)}`).toEqual([]);
+  });
+
   it("描述句不内联 <code>/<strong>（会被切成多个文本节点而漏翻）", () => {
     const block = redactionBlock();
     // 逐条描述句（<p> 内的文案）不得内联标记元素；标记字面量只出现在独立的 <code> 块里。

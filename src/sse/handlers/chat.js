@@ -18,7 +18,7 @@ import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { handleComboChat, handleFusionChat, detectRequiredCapabilities } from "open-sse/services/combo.js";
 import { getDeclaredLevels, clampLevel, resolveRequestedEffort, applyEffortToBody } from "open-sse/services/effortCaps.js";
 import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
-import { resolveAutoRetry, withAutoRetry } from "open-sse/services/autoRetry.js";
+import { resolveAutoRetry, withAutoRetry, isRetryable, waitBeforeRetry, parseRetryAfterHeader } from "open-sse/services/autoRetry.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -192,13 +192,14 @@ async function handleChatOnce(request, clientRawRequest = null, settings = null,
       body,
       models: augmentedModels,
       handleSingleModel: withCapacityAdapterStripping(
-        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, retryState),
         adapterAdded
       ),
       log,
       comboName: modelStr,
       comboStrategy,
       comboStickyLimit,
+      comboStickyRespectRetries: !!settings.comboStickyRespectRetries,
       effortCaps: settings.effortCaps,
       effortAwareRoute: effortAwareRouteFor(settings, modelStr),
       autoRetry: autoRetryCfg,
@@ -217,12 +218,13 @@ async function handleChatOnce(request, clientRawRequest = null, settings = null,
       body,
       models: soloAugmented,
       handleSingleModel: withCapacityAdapterStripping(
-        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, retryState),
         adapterAdded
       ),
       log,
       comboName: modelStr,
       comboStrategy: getActiveAdapterStrategy(requiredCapabilities, settings),
+      comboStickyRespectRetries: !!settings.comboStickyRespectRetries,
       effortCaps: settings.effortCaps,
       effortAwareRoute: effortAwareRouteFor(settings, modelStr),
       autoRetry: autoRetryCfg,
@@ -231,13 +233,13 @@ async function handleChatOnce(request, clientRawRequest = null, settings = null,
     });
   }
 
-  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey);
+  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, retryState);
 }
 
 /**
  * Handle single model chat request
  */
-async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null) {
+async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, retryState = null) {
   const settings = await getSettings();
   const modelInfo = await getModelInfo(modelStr);
 
@@ -360,8 +362,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
     // Use shared chatCore
     const chatSettings = await getSettings();
+    const autoRetryCfg = resolveAutoRetry(chatSettings);
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
-    const result = await handleChatCore({
+
+    const executeCoreCall = async () => handleChatCore({
       body: { ...body, model: `${provider}/${model}` },
       modelInfo: { provider, model },
       credentials: refreshedCredentials,
@@ -404,7 +408,38 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
+    let result = await executeCoreCall();
     if (result.success) return result.response;
+
+    // 账号级原地重试（accountRetries）：在切下个账号前优先在当前账号原地等待重试
+    if (autoRetryCfg.accountRetries > 0 && isRetryable(result.status, result.error, autoRetryCfg)) {
+      for (let a = 0; a < autoRetryCfg.accountRetries; a++) {
+        const retryAfterMs = parseRetryAfterHeader(result.response?.headers?.get?.("retry-after"));
+        const proceed = await waitBeforeRetry({
+          cfg: autoRetryCfg,
+          attempt: a,
+          retryAfterMs,
+          retryState,
+          signal: request?.signal,
+          log,
+          label: "ACC-RETRY",
+        });
+        if (!proceed) {
+          if (request?.signal?.aborted) return result.response;
+          break;
+        }
+        log.info("ACC-RETRY", `Retrying account ${credentials.connectionName} for ${provider}/${model} (${a + 1}/${autoRetryCfg.accountRetries})`);
+        const retried = await executeCoreCall();
+        if (retried.success) {
+          log.info("ACC-RETRY", `Account ${credentials.connectionName} succeeded on retry ${a + 1}/${autoRetryCfg.accountRetries}`);
+          return retried.response;
+        }
+        result = retried;
+        if (!isRetryable(result.status, result.error, autoRetryCfg)) {
+          break;
+        }
+      }
+    }
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;

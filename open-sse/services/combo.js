@@ -227,9 +227,11 @@ function rotateModelsFromIndex(models, currentIndex) {
  * @param {string} comboName - Name of the combo
  * @param {string} strategy - "fallback" or "round-robin"
  * @param {number|string} [stickyLimit=1] - Requests per combo model before switching
+ * @param {Object} [options] - 轮转控制选项
+ * @param {boolean} [options.deferStickyIncrement=false] - 是否延迟递增粘性计数（成功履约后结算）
  * @returns {string[]} Rotated models array
  */
-export function getRotatedModels(models, comboName, strategy, stickyLimit = 1) {
+export function getRotatedModels(models, comboName, strategy, stickyLimit = 1, options = {}) {
   if (!models || models.length <= 1 || strategy !== "round-robin") {
     return models;
   }
@@ -243,6 +245,16 @@ export function getRotatedModels(models, comboName, strategy, stickyLimit = 1) {
 
   const currentIndex = state.index % models.length;
   const rotatedModels = rotateModelsFromIndex(models, currentIndex);
+
+  // 若开启延迟递增，则在请求发起时不消耗粘性额度，留待成功履约后通过 recordComboSuccess 结算
+  if (options?.deferStickyIncrement) {
+    comboRotationState.set(rotationKey, {
+      index: currentIndex,
+      consecutiveUseCount: state.consecutiveUseCount,
+    });
+    return rotatedModels;
+  }
+
   const nextUseCount = state.consecutiveUseCount + 1;
 
   if (nextUseCount >= normalizedStickyLimit) {
@@ -258,6 +270,67 @@ export function getRotatedModels(models, comboName, strategy, stickyLimit = 1) {
   }
 
   return rotatedModels;
+}
+
+/**
+ * 记录 Combo 成员成功履约并推进粘性计数
+ *
+ * @param {string} comboName - Combo 名称
+ * @param {string[]} models - Combo 原始成员列表
+ * @param {string} succeededModel - 成功履约的模型名称
+ * @param {number|string} [stickyLimit=1] - 粘性上限阈值
+ * @author wei
+ * @since 2026-09-18
+ */
+export function recordComboSuccess(comboName, models, succeededModel, stickyLimit = 1) {
+  if (!models || models.length <= 1) return;
+  const rotationKey = comboName || "__default__";
+  const normalizedStickyLimit = normalizeStickyLimit(stickyLimit);
+  const existingState = comboRotationState.get(rotationKey);
+  const state = typeof existingState === "number"
+    ? { index: existingState, consecutiveUseCount: 0 }
+    : (existingState || { index: 0, consecutiveUseCount: 0 });
+
+  const modelIndex = models.indexOf(succeededModel);
+  // 若未找到模型，使用当前状态索引兜底
+  const effectiveIndex = modelIndex >= 0 ? modelIndex : (state.index % models.length);
+  // 若成功模型与当前游标不一致（发生故障转移或插队），重置基础计数
+  const baseCount = effectiveIndex === (state.index % models.length) ? state.consecutiveUseCount : 0;
+  const nextUseCount = baseCount + 1;
+
+  if (nextUseCount >= normalizedStickyLimit) {
+    comboRotationState.set(rotationKey, {
+      index: (effectiveIndex + 1) % models.length,
+      consecutiveUseCount: 0,
+    });
+  } else {
+    comboRotationState.set(rotationKey, {
+      index: effectiveIndex,
+      consecutiveUseCount: nextUseCount,
+    });
+  }
+}
+
+/**
+ * 记录 Combo 全部成员履约失败并推进到下一成员
+ *
+ * @param {string} comboName - Combo 名称
+ * @param {string[]} models - Combo 原始成员列表
+ * @author wei
+ * @since 2026-09-18
+ */
+export function recordComboFailure(comboName, models) {
+  if (!models || models.length <= 1) return;
+  const rotationKey = comboName || "__default__";
+  const existingState = comboRotationState.get(rotationKey);
+  const state = typeof existingState === "number"
+    ? { index: existingState, consecutiveUseCount: 0 }
+    : (existingState || { index: 0, consecutiveUseCount: 0 });
+
+  comboRotationState.set(rotationKey, {
+    index: (state.index + 1) % models.length,
+    consecutiveUseCount: 0,
+  });
 }
 
 /**
@@ -299,11 +372,15 @@ export function getComboModelsFromData(modelStr, combosData) {
  * @param {string} [options.comboName] - Name of the combo (for round-robin tracking)
  * @param {string} [options.comboStrategy] - Strategy: "fallback" or "round-robin"
  * @param {number|string} [options.comboStickyLimit=1] - Requests per combo model before switching
+ * @param {boolean} [options.comboStickyRespectRetries=false] - 是否优先尊重单模型重试（成功履约后结算粘性）
  * @returns {Promise<Response>}
  */
-export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, effortCaps = null, effortAwareRoute = false, autoRetry = null, retryState = null, signal = null }) {
+export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, comboStickyRespectRetries = false, autoSwitch = true, effortCaps = null, effortAwareRoute = false, autoRetry = null, retryState = null, signal = null }) {
+  const respectRetries = Boolean(comboStickyRespectRetries || autoRetry?.comboStickyRespectRetries);
   // Apply rotation strategy if enabled
-  let rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
+  let rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit, {
+    deferStickyIncrement: respectRetries,
+  });
 
   // Auto-switch: float models that satisfy the request's required capabilities to the front.
   if (autoSwitch) {
@@ -344,6 +421,10 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       // Success (2xx) - return response
       if (result.ok) {
         log.info("COMBO", `Model ${modelStr} succeeded`);
+        if (respectRetries && comboStrategy === "round-robin") {
+          // 履约成功后推进粘性计数
+          recordComboSuccess(comboName, models, modelStr, comboStickyLimit);
+        }
         return result;
       }
 
@@ -378,7 +459,13 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       // 降到底仍失败则交回主流程（换下个成员，用原始请求）。
       if (isInvalidEffortError(result.status, errorText)) {
         const degraded = await degradeRetry(body, modelStr, handleSingleModel, effortCaps, log);
-        if (degraded) return degraded;
+        if (degraded) {
+          if (respectRetries && comboStrategy === "round-robin") {
+            // 降档重试成功后推进粘性计数
+            recordComboSuccess(comboName, models, modelStr, comboStickyLimit);
+          }
+          return degraded;
+        }
       }
 
       // 成员级等待重试（自维护特性 ADR 0003，autoRetry.memberRetries > 0 时启用）：
@@ -396,6 +483,10 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
           const retried = await handleSingleModel(body, modelStr);
           if (retried.ok) {
             log.info("COMBO", `Model ${modelStr} succeeded on member retry ${m + 1}/${autoRetry.memberRetries}`);
+            if (respectRetries && comboStrategy === "round-robin") {
+              // 成员级重试成功后推进粘性计数
+              recordComboSuccess(comboName, models, modelStr, comboStickyLimit);
+            }
             return retried;
           }
           let retryText = retried.statusText || "";
@@ -440,6 +531,10 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
   }
 
   // All models failed
+  if (respectRetries && comboStrategy === "round-robin") {
+    // 全部成员均失败，推进轮转游标避免持续卡在故障节点
+    recordComboFailure(comboName, models);
+  }
   // Use 503 (Service Unavailable) rather than 406 (Not Acceptable) — 406 implies
   // the request itself is invalid, but here the providers are simply unavailable
   // or have no active credentials. 503 is more accurate and retryable by clients.

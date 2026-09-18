@@ -11,20 +11,35 @@ export const DEFAULT_AUTO_RETRY = {
   statusCodes: [429, 500, 502, 503, 504, 529],
   maxRetries: 20,            // 请求级整体重试上限；0 = 无限
   memberRetries: 0,          // 成员级等待重试次数；0 = 关（保持换下家语义）
+  accountRetries: 0,         // 账号级等待重试次数；0 = 关（保持换下个账号语义）
   intervalSeconds: 5,        // 基础间隔
   backoff: true,             // 指数退避（base * 2^attempt，封顶 backoffMaxSeconds）
   backoffMaxSeconds: 60,
   retryAfterMaxSeconds: 120, // 上游 Retry-After 封顶；0 = 不封顶
   totalWaitBudgetSeconds: 600, // 单请求累计等待预算；0 = 不限
+  rateLimitLockMaxSeconds: 120, // 429 账号锁定时长上限（秒）；0 = 不锁
+  rateLimitLockBaseSeconds: 2,  // 429 基础锁定时长（秒）
+  comboStickyRespectRetries: false, // Combo 粘性策略是否优先尊重单模型重试
 };
 
-const NUMERIC_KEYS = ["maxRetries", "memberRetries", "intervalSeconds", "backoffMaxSeconds", "retryAfterMaxSeconds", "totalWaitBudgetSeconds"];
+const NUMERIC_KEYS = [
+  "maxRetries",
+  "memberRetries",
+  "accountRetries",
+  "intervalSeconds",
+  "backoffMaxSeconds",
+  "retryAfterMaxSeconds",
+  "totalWaitBudgetSeconds",
+  "rateLimitLockMaxSeconds",
+  "rateLimitLockBaseSeconds",
+];
 
 // 归一化 settings.autoRetry：缺省补默认、类型纠偏（用户手编 JSON / 旧数据兜底）
 export function resolveAutoRetry(settings) {
-  const raw = settings?.autoRetry && typeof settings.autoRetry === "object" ? settings.autoRetry : {};
+  const raw = settings?.autoRetry && typeof settings.autoRetry === "object" ? settings.autoRetry : (settings && typeof settings === "object" && ("memberRetries" in settings || "accountRetries" in settings || "enabled" in settings) ? settings : {});
   const cfg = { ...DEFAULT_AUTO_RETRY, ...raw };
   cfg.enabled = cfg.enabled !== false;
+  cfg.comboStickyRespectRetries = Boolean(cfg.comboStickyRespectRetries);
   cfg.statusCodes = Array.isArray(cfg.statusCodes) && cfg.statusCodes.length > 0
     ? cfg.statusCodes.map(Number).filter(Number.isFinite)
     : [...DEFAULT_AUTO_RETRY.statusCodes];
@@ -36,6 +51,8 @@ export function resolveAutoRetry(settings) {
   cfg.backoff = cfg.backoff !== false;
   return cfg;
 }
+
+export const normalizeAutoRetryConfig = resolveAutoRetry;
 
 // 文本规则（固定启用，不可配）：与上游 ERROR_RULES 同源语义，只放宽不误伤——
 // 调用方保证仅对 >=400 的状态调用。

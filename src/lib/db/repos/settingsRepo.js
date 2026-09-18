@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = {
   quotaVisibility: {},
   comboStrategy: "fallback",
   comboStickyRoundRobinLimit: 1,
+  comboStickyRespectRetries: false,
   comboStrategies: {},
   // 思考强度上限（自维护特性，ADR 0003）：{ "provider/model": ["low","medium","high","xhigh"] }
   effortCaps: {},
@@ -27,11 +28,14 @@ export const DEFAULT_SETTINGS = {
     statusCodes: [429, 500, 502, 503, 504, 529],
     maxRetries: 20,
     memberRetries: 0,
+    accountRetries: 0,
     intervalSeconds: 5,
     backoff: true,
     backoffMaxSeconds: 60,
     retryAfterMaxSeconds: 120,
     totalWaitBudgetSeconds: 600,
+    rateLimitLockMaxSeconds: 120,
+    rateLimitLockBaseSeconds: 2,
   },
   capacityAdapter: {
     vision: { enabled: true, roundRobin: false, models: [] },

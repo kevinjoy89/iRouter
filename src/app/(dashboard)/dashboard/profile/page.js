@@ -1704,11 +1704,15 @@ const AUTO_RETRY_DEFAULTS = {
   statusCodes: [429, 500, 502, 503, 504, 529],
   maxRetries: 20,
   memberRetries: 0,
+  accountRetries: 0,
   intervalSeconds: 5,
   backoff: true,
   backoffMaxSeconds: 60,
   retryAfterMaxSeconds: 120,
   totalWaitBudgetSeconds: 600,
+  rateLimitLockMaxSeconds: 120,
+  rateLimitLockBaseSeconds: 2,
+  comboStickyRespectRetries: false,
 };
 
 function RetryStrategyCard({ settings, onChange, loading }) {
@@ -1761,7 +1765,19 @@ function RetryStrategyCard({ settings, onChange, loading }) {
         {ar.enabled !== false && (
           <>
             {num("Max Retries", "Whole-request retries after all combo members fail (0 = unlimited)", "maxRetries", { max: 999 })}
-            {num("Member Retries", "Retry the same combo member on 429/5xx before switching (0 = off)", "memberRetries", { max: 20 })}
+            {num("Member Retries", "Retry the same combo member on 429/5xx before switching (0 = off)", "memberRetries", { max: 50 })}
+            {num("Account Retries", "Retry the same account on 429 before switching (0 = off)", "accountRetries", { max: 100 })}
+            <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
+              <div className="min-w-0">
+                <p className="font-medium text-sm sm:text-base">Respect Retries in Sticky</p>
+                <p className="text-xs sm:text-sm text-text-muted">Wait for retries to finish before advancing sticky counter; advance only on success (off = advance immediately)</p>
+              </div>
+              <Toggle
+                checked={ar.comboStickyRespectRetries === true}
+                onChange={(v) => onChange({ comboStickyRespectRetries: v })}
+                disabled={loading}
+              />
+            </div>
             {num("Interval (s)", "Base wait between retries", "intervalSeconds", { min: 1, max: 600 })}
             <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
               <div className="min-w-0">
@@ -1776,6 +1792,8 @@ function RetryStrategyCard({ settings, onChange, loading }) {
             </div>
             {num("Backoff Max (s)", "Exponential backoff ceiling", "backoffMaxSeconds", { max: 3600 })}
             {num("Retry-After Cap (s)", "Clamp upstream Retry-After so one provider can't hold a request too long (0 = no cap)", "retryAfterMaxSeconds", { max: 3600 })}
+            {num("Rate Limit Lock Max (s)", "Maximum cooldown lock duration when 429 rate limited (0 = do not lock)", "rateLimitLockMaxSeconds", { max: 3600 })}
+            {num("Rate Limit Lock Base (s)", "Base cooldown seconds for 429 rate limit errors", "rateLimitLockBaseSeconds", { min: 1, max: 600 })}
             {num("Total Wait Budget (s)", "Cumulative wait ceiling per request (0 = unlimited)", "totalWaitBudgetSeconds", { max: 36000 })}
             <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
               <div className="min-w-0">
