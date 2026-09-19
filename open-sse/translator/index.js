@@ -125,6 +125,14 @@ export function translateRequest(sourceFormat, targetFormat, model, body, stream
     result = filterToOpenAIFormat(result, {
       preserveCacheControl: !!PROVIDERS[provider]?.quirks?.preserveCacheControl,
     });
+    // 流式请求向 OpenAI 兼容端注入 stream_options 以获取真实 Token 统计；非流式剔除防止部分网关报 400
+    if (stream) {
+      if (!result.stream_options && !PROVIDERS[provider]?.quirks?.dropStreamOptions) {
+        result.stream_options = { include_usage: true };
+      }
+    } else {
+      delete result.stream_options;
+    }
   }
 
   // Final step: prepare request for Claude format endpoints

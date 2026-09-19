@@ -1,7 +1,7 @@
 import { translateResponse, initState } from "../translator/index.js";
 import { FORMATS } from "../translator/formats.js";
 import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb.js";
-import { extractUsage, mergeUsage, hasValidUsage, estimateUsage, estimateOutputTokens, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
+import { extractUsage, mergeUsage, hasValidUsage, estimateUsage, estimateInputTokens, formatUsage, estimateOutputTokens, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
 import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE } from "./streamHelpers.js";
 import { getOpenAIResponsesEventName, isOpenAIResponsesTerminalEvent, formatIncompleteOpenAIResponsesStreamFailure } from "./responsesStreamHelpers.js";
 import { dbg, isDebugEnabled } from "./debugLog.js";
@@ -87,9 +87,17 @@ export function createSSEStream(options = {}) {
     const isPassthrough = mode === STREAM_MODE.PASSTHROUGH;
     let finalUsage = isPassthrough ? usage : state?.usage;
 
-    if (!hasValidUsage(finalUsage) && totalContentLength > 0) {
-      finalUsage = estimateUsage(body, totalContentLength, isPassthrough ? FORMATS.OPENAI : sourceFormat);
-      if (isPassthrough) usage = finalUsage; else state.usage = finalUsage;
+    if (!hasValidUsage(finalUsage)) {
+      if (totalContentLength > 0) {
+        finalUsage = estimateUsage(body, totalContentLength, isPassthrough ? FORMATS.OPENAI : sourceFormat);
+      } else if (body) {
+        // 即使输出内容为空或异常中断，只要有请求体，依然根据输入估算 Prompt Tokens，防止输入统计归零
+        const inputTokens = estimateInputTokens(body);
+        if (inputTokens > 0) {
+          finalUsage = formatUsage(inputTokens, 0, isPassthrough ? FORMATS.OPENAI : sourceFormat);
+        }
+      }
+      if (isPassthrough) usage = finalUsage; else if (state) state.usage = finalUsage;
     }
 
     // 若已有 usage 但输出 token 始终为 0 且实际已产生了文本输出，兜底补全输出 token 估算
@@ -120,7 +128,7 @@ export function createSSEStream(options = {}) {
     }
   };
 
-  return new TransformStream({
+  const transformStream = new TransformStream({
     transform(chunk, controller) {
       if (!ttftAt) ttftAt = Date.now();
       const text = decoder.decode(chunk, { stream: true });
@@ -249,8 +257,9 @@ export function createSSEStream(options = {}) {
 
           reqLogger?.appendConvertedChunk?.(output);
           controller.enqueue(sharedEncoder.encode(output));
-          // Responses clients (codex CLI) close on response.completed instead of [DONE]
-          if (responsesTerminal) finalizeStream();
+          // Responses 客户端在 response.completed 之后关闭，普通 OpenAI 客户端在 [DONE] 之后关闭，均需即时结算
+          const isDoneSentinel = trimmed.startsWith("data:") && trimmed.slice(5).trim() === "[DONE]";
+          if (responsesTerminal || isDoneSentinel) finalizeStream();
           continue;
         }
 
@@ -283,13 +292,27 @@ export function createSSEStream(options = {}) {
             sseEmittedCount++;
           }
 
-          if (keepsOpenAIResponsesFormat && !streamDoneSent) {
+          // 上游已发送终止标识 [DONE]，在此刻完成翻译流的冲刷与结算，防止客户端接收最后数据后断开导致 flush 漏执行
+          const flushed = translateResponse(targetFormat, sourceFormat, null, state);
+          if (flushed?.length > 0) {
+            for (const item of flushed) {
+              if (item === null || item === undefined) continue;
+              const output = formatSSE(item, sourceFormat);
+              reqLogger?.appendConvertedChunk?.(output);
+              controller.enqueue(sharedEncoder.encode(output));
+              sseEmittedCount++;
+            }
+          }
+
+          if ((sourceFormat === FORMATS.OPENAI || keepsOpenAIResponsesFormat) && !streamDoneSent) {
             const doneOutput = "data: [DONE]\n\n";
             reqLogger?.appendConvertedChunk?.(doneOutput);
             controller.enqueue(sharedEncoder.encode(doneOutput));
+            streamDoneSent = true;
           }
-          streamDoneSent = true;
           if (keepsOpenAIResponsesFormat) openAIResponsesDoneSent = true;
+
+          finalizeStream();
           continue;
         }
 
@@ -384,6 +407,11 @@ export function createSSEStream(options = {}) {
             controller.enqueue(sharedEncoder.encode(output));
             sseEmittedCount++;
           }
+        }
+
+        // Claude 协议中 message_stop 标识消息完全生成完毕，即时结算
+        if (parsed.type === "message_stop") {
+          finalizeStream();
         }
       }
     },
@@ -500,6 +528,9 @@ export function createSSEStream(options = {}) {
       }
     }
   });
+
+  transformStream.finalizeStream = finalizeStream;
+  return transformStream;
 }
 
 export function createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider = null, reqLogger = null, toolNameMap = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null, customToolNames = null, credentials = null) {

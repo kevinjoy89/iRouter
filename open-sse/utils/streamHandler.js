@@ -97,10 +97,23 @@ export function createStreamController({ onDisconnect, onError, log, provider, m
  * for long periods while raw bytes still flow (e.g. Kiro EventStream
  * binary frames buffering, Claude reasoning streams).
  */
-export function createDisconnectAwareStream(transformStream, streamController, onAbortTerminal = null) {
+export function createDisconnectAwareStream(transformStream, streamController, onAbortTerminal = null, underlyingTransformStream = null) {
   const reader = transformStream.readable.getReader();
   const writer = transformStream.writable.getWriter();
   let terminalEmitted = false;
+
+  // 客户端断开或异常时触发即时结算，确保已接收内容与 Token 不丢失
+  const triggerFinalize = () => {
+    try {
+      if (typeof underlyingTransformStream?.finalizeStream === "function") {
+        underlyingTransformStream.finalizeStream();
+      } else if (typeof transformStream?.finalizeStream === "function") {
+        transformStream.finalizeStream();
+      }
+    } catch {
+      // 忽略结算异常
+    }
+  };
 
   // Emit a synthesized terminal payload (e.g. Responses response.failed + [DONE]) once
   const emitTerminal = (controller) => {
@@ -130,6 +143,7 @@ export function createDisconnectAwareStream(transformStream, streamController, o
         }
         controller.enqueue(value);
       } catch (error) {
+        triggerFinalize();
         const wasConnected = streamController.isConnected();
         // Controller already closed = downstream ended; not an upstream error, skip noisy log.
         const msg0 = error?.message || "";
@@ -168,6 +182,7 @@ export function createDisconnectAwareStream(transformStream, streamController, o
 
     cancel(reason) {
       streamController.handleDisconnect(reason || "cancelled");
+      triggerFinalize();
       reader.cancel();
       writer.abort();
     }
@@ -254,7 +269,8 @@ export function pipeWithDisconnect(providerResponse, transformStream, streamCont
   return createDisconnectAwareStream(
     { readable: transformedBody, writable: { getWriter: () => ({ abort: () => Promise.resolve() }) } },
     wrappedController,
-    onAbortTerminal
+    onAbortTerminal,
+    transformStream
   );
 }
 
