@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/shared/utils/cn";
+import { translate } from "@/i18n/runtime";
 import Button from "./Button";
 
 export default function Pagination({
@@ -44,9 +45,7 @@ export default function Pagination({
       {/* Info text */}
       {totalItems > 0 && (
         <div className="text-sm text-text-muted">
-          Showing <span className="font-medium text-text-main">{startItem}</span> to{" "}
-          <span className="font-medium text-text-main">{endItem}</span> of{" "}
-          <span className="font-medium text-text-main">{totalItems}</span> results
+          {translate(`Showing ${startItem} to ${endItem} of ${totalItems} results`)}
         </div>
       )}
 

@@ -6,6 +6,7 @@ import Button from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import Pagination from "@/shared/components/Pagination";
 import { cn } from "@/shared/utils/cn";
+import { translate } from "@/i18n/runtime";
 import { AI_PROVIDERS, getProviderByAlias, DELETED_PROVIDER_ID, DELETED_PROVIDER_LABEL } from "@/shared/constants/providers";
 
 let providerNameCache = null;
@@ -335,7 +336,14 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                       {new Date(detail.timestamp).toLocaleString()}
                     </td>
                     <td className="max-w-[260px] truncate p-4 font-mono text-sm text-text-main">
-                      {detail.model}
+                      <div className="flex items-center gap-1.5">
+                        {detail.status === "error" && (
+                          <span className="inline-block shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-sans font-semibold text-red-600 dark:text-red-400">
+                            ERROR
+                          </span>
+                        )}
+                        <span className="truncate">{detail.model}</span>
+                      </div>
                     </td>
                     <td className="max-w-[180px] truncate p-4 text-sm text-text-main">
                        <span className="font-medium">
@@ -353,8 +361,8 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                     </td>
                     <td className="p-4 text-sm text-text-muted">
                       <div className="flex flex-col gap-0.5">
-                        <div>TTFT: <span className="font-mono">{detail.latency?.ttft || 0}ms</span></div>
-                        <div>Total: <span className="font-mono">{detail.latency?.total || 0}ms</span></div>
+                        <div>TTFT: <span className="font-mono">{detail.latency?.ttft || 0} ms</span></div>
+                        <div>{translate("Total")}: <span className="font-mono">{detail.latency?.total || 0} ms</span></div>
                       </div>
                     </td>
                     <td className="p-4 text-center">
@@ -417,13 +425,13 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                   "font-medium",
                   selectedDetail.status === "success" ? "text-green-600" : "text-red-600"
                 )}>
-                  {selectedDetail.status}
+                  {selectedDetail.status === "success" ? translate("Success") : translate("Failed")}
                 </span>
               </div>
               <div>
                 <span className="text-text-muted">Latency:</span>{" "}
                 <span className="text-text-main font-mono">
-                  TTFT {selectedDetail.latency?.ttft || 0}ms / Total {selectedDetail.latency?.total || 0}ms
+                  TTFT {selectedDetail.latency?.ttft || 0} ms / {translate("Total")} {selectedDetail.latency?.total || 0} ms
                 </span>
               </div>
               <div>
@@ -455,6 +463,18 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                 </span>
               </div>
             </div>
+
+            {selectedDetail.status === "error" && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-red-600 dark:text-red-400">
+                <div className="flex items-center gap-2 mb-2 font-semibold text-sm">
+                  <span className="material-symbols-outlined text-[20px]">error</span>
+                  <span>Request Failed {selectedDetail.response?.status ? `(${selectedDetail.response.status})` : ""}</span>
+                </div>
+                <div className="rounded border border-red-500/15 bg-black/5 dark:bg-black/20 p-3 font-mono text-xs break-all leading-relaxed">
+                  {selectedDetail.response?.error || selectedDetail.error || "Unknown error occurred"}
+                </div>
+              </div>
+            )}
 
             {selectedDetail.pxpipe && (
               <div className="rounded-lg border border-black/5 dark:border-white/5 p-4">
@@ -514,7 +534,11 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
               )}
 
               {selectedDetail.providerResponse && (
-                <CollapsibleSection title="3. Provider Response (Raw)" icon="data_object">
+                <CollapsibleSection
+                  title={`3. Provider Response (Raw)${selectedDetail.status === "error" ? " [Error Details]" : ""}`}
+                  defaultOpen={selectedDetail.status === "error"}
+                  icon="data_object"
+                >
                   <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
                     {typeof selectedDetail.providerResponse === 'object'
                       ? JSON.stringify(selectedDetail.providerResponse, null, 2)
@@ -525,24 +549,38 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
               )}
               
               <CollapsibleSection title="4. Client Response (Final)" defaultOpen={true} icon="output">
-                {selectedDetail.response?.thinking && (
-                  <div className="mb-4">
-                    <h4 className="font-semibold text-text-main mb-2 flex items-center gap-2 text-xs uppercase tracking-wide opacity-70">
-                      <span className="material-symbols-outlined text-[16px]">psychology</span>
-                      Thinking Process
+                {selectedDetail.status === "error" ? (
+                  <div>
+                    <h4 className="font-semibold text-red-500 mb-2 flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                      <span className="material-symbols-outlined text-[16px]">warning</span>
+                      Error Response
                     </h4>
-                    <pre className="max-h-[200px] max-w-full overflow-auto rounded-lg border border-amber-200 bg-amber-50 p-3 font-mono text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 sm:p-4">
-                      {selectedDetail.response.thinking}
+                    <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-red-500/20 bg-red-500/5 p-3 font-mono text-xs text-red-600 dark:text-red-400 sm:p-4">
+                      {JSON.stringify(selectedDetail.response, null, 2)}
                     </pre>
                   </div>
+                ) : (
+                  <>
+                    {selectedDetail.response?.thinking && (
+                      <div className="mb-4">
+                        <h4 className="font-semibold text-text-main mb-2 flex items-center gap-2 text-xs uppercase tracking-wide opacity-70">
+                          <span className="material-symbols-outlined text-[16px]">psychology</span>
+                          Thinking Process
+                        </h4>
+                        <pre className="max-h-[200px] max-w-full overflow-auto rounded-lg border border-amber-200 bg-amber-50 p-3 font-mono text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 sm:p-4">
+                          {selectedDetail.response.thinking}
+                        </pre>
+                      </div>
+                    )}
+                    
+                    <h4 className="font-semibold text-text-main mb-2 text-xs uppercase tracking-wide opacity-70">
+                      Content
+                    </h4>
+                    <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
+                      {selectedDetail.response?.content || (selectedDetail.response?.redacted ? translate("[Redacted]") : translate("[No content]"))}
+                    </pre>
+                  </>
                 )}
-                
-                <h4 className="font-semibold text-text-main mb-2 text-xs uppercase tracking-wide opacity-70">
-                  Content
-                </h4>
-                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
-                  {selectedDetail.response?.content || "[No content]"}
-                </pre>
               </CollapsibleSection>
             </div>
           </div>
