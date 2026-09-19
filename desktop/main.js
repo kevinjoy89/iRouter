@@ -433,8 +433,16 @@ const THEME_SYNC_SCRIPT = `
   window.__irouter_theme_sync_injected = true;
 
   function reportTheme() {
-    const isDark = document.documentElement.classList.contains("dark");
-    console.log("__IROUTER_THEME__:" + (isDark ? "dark" : "light"));
+    try {
+      const saved = localStorage.getItem("theme");
+      const pref = saved ? (JSON.parse(saved).state || {}).theme : "system";
+      const isDark = document.documentElement.classList.contains("dark");
+      console.log("__IROUTER_THEME_PREF__:" + (pref || "system"));
+      console.log("__IROUTER_THEME__:" + (isDark ? "dark" : "light"));
+    } catch {
+      const isDark = document.documentElement.classList.contains("dark");
+      console.log("__IROUTER_THEME__:" + (isDark ? "dark" : "light"));
+    }
   }
   reportTheme();
   const themeObserver = new MutationObserver((mutations) => {
@@ -492,6 +500,17 @@ function createWindow() {
   });
   mainWindow = win;
 
+  // 监听操作系统原生主题切换，实时同步窗口背景色与外观
+  const onThemeUpdated = () => {
+    if (!win.isDestroyed()) {
+      win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#18181b" : "#ffffff");
+    }
+  };
+  nativeTheme.on("updated", onThemeUpdated);
+  win.on("closed", () => {
+    nativeTheme.removeListener("updated", onThemeUpdated);
+  });
+
   // 右键上下文菜单（自维护）：Electron 默认无右键菜单；面板 Edit 顶栏菜单
   // 被隐藏后 macOS 的选区复制无键等效可用，右键菜单提供复制/全选等原生角色
   //（角色标签走系统语言，符合 macOS 惯例）。适配选中态与可编辑态。
@@ -543,10 +562,19 @@ function createWindow() {
         : typeof args[1] === "string"
           ? args[1]
           : "";
-    if (message.startsWith("__IROUTER_THEME__:")) {
+    if (message.startsWith("__IROUTER_THEME_PREF__:")) {
+      const pref = message.slice("__IROUTER_THEME_PREF__:".length);
+      if (pref === "system" || pref === "dark" || pref === "light") {
+        nativeTheme.themeSource = pref;
+        win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#18181b" : "#ffffff");
+      }
+    } else if (message.startsWith("__IROUTER_THEME__:")) {
       const mode = message.slice("__IROUTER_THEME__:".length);
       if (mode === "dark" || mode === "light") {
-        nativeTheme.themeSource = mode;
+        // 仅在非跟随系统模式下覆盖 themeSource，避免破坏系统自动跟随
+        if (nativeTheme.themeSource !== "system") {
+          nativeTheme.themeSource = mode;
+        }
         win.setBackgroundColor(mode === "dark" ? "#18181b" : "#ffffff");
       }
     } else if (message.startsWith("__IROUTER_LOCALE__:")) {
@@ -1378,8 +1406,13 @@ async function runSmoke() {
         true,
       );
       const expectedMode = isDarkInPage ? "dark" : "light";
-      const themeFollowed = nativeTheme.themeSource === expectedMode;
-      results.push(`暗黑标题栏跟随=${themeFollowed} (页面=${expectedMode})`);
+      const themeFollowed =
+        nativeTheme.themeSource === expectedMode ||
+        (nativeTheme.themeSource === "system" &&
+          nativeTheme.shouldUseDarkColors === isDarkInPage);
+      results.push(
+        `暗黑标题栏跟随=${themeFollowed} (页面=${expectedMode}, themeSource=${nativeTheme.themeSource})`,
+      );
       ok &&= themeFollowed;
 
       // 校验顶部原生菜单栏已移除 File 与 Edit 菜单
@@ -1461,6 +1494,18 @@ async function runSmoke() {
       ok &&= clickedTheme && darkApplied;
 
       // 切简体中文：验证整个应用的文本都变了，而不只是模态框
+      // 若当前已经是中文环境（如二次运行继承了上一次的 userData），先切至英文建立对照基准
+      if (cjkBefore > 50) {
+        await win.webContents.executeJavaScript(
+          `(() => { const el = document.querySelector('[data-settings-option="locale:en"]'); if (el) el.click(); })()`,
+          true,
+        );
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+      const baseCjk = await win.webContents.executeJavaScript(
+        `(${cjkCount.toString()})()`,
+        true,
+      );
       const clickedLocale = await win.webContents.executeJavaScript(
         `(() => { const el = document.querySelector('[data-settings-option="locale:zh-CN"]'); if (!el) return false; el.click(); return true; })()`,
         true,
@@ -1470,9 +1515,9 @@ async function runSmoke() {
         `(${cjkCount.toString()})()`,
         true,
       );
-      const localeOk = clickedLocale && cjkAfter > cjkBefore + 20;
+      const localeOk = clickedLocale && cjkAfter > baseCjk + 20;
       results.push(
-        `切中文作用于整个应用=${localeOk} (中文字符 ${cjkBefore}→${cjkAfter})`,
+        `切中文作用于整个应用=${localeOk} (中文字符 ${baseCjk}→${cjkAfter})`,
       );
       ok &&= localeOk;
 

@@ -97,6 +97,8 @@ try {
 
   // 场景 2：重复运行不再询问（不注入 decision → 若弹框会超时失败）
   const r2 = await runElectron({ userData: ud1, legacyDir: legacy });
+  // 若执行失败输出子进程输出以便定位
+  if (r2.code !== 0) console.log("--- r2 out ---\n" + r2.out + "\n--- end r2 out ---");
   check("场景2 重复运行：未再弹框（无 decision 也能跑完）", r2.code === 0, `exit=${r2.code}`);
 
   // 场景 3：跳过

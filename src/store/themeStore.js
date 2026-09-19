@@ -48,6 +48,14 @@ function applyTheme(theme) {
   } else {
     root.classList.remove("dark");
   }
+
+  // 通知 Electron 壳层主进程当前用户偏好与实际生效主题
+  try {
+    console.log("__IROUTER_THEME_PREF__:" + (theme || "system"));
+    console.log("__IROUTER_THEME__:" + (effectiveTheme === "dark" ? "dark" : "light"));
+  } catch {
+    // 忽略控制台输出异常
+  }
 }
 
 export default useThemeStore;
