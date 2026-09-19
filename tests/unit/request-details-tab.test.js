@@ -350,3 +350,46 @@ describe("API route contract — validation boundary", () => {
     expect(Array.isArray(bodyError.details)).toBe(true);
   });
 });
+
+/**
+ * 将 Date 对象格式化为 datetime-local 输入框兼容的本地时间字符串（YYYY-MM-DDTHH:mm），镜像组件内实现
+ *
+ * @param {Date} date 日期对象
+ * @return {string} 本地日期时间字符串
+ */
+function formatLocalDateTime(date) {
+  const pad = (num) => String(num).padStart(2, "0");
+  const y = date.getFullYear();
+  const m = pad(date.getMonth() + 1);
+  const d = pad(date.getDate());
+  const h = pad(date.getHours());
+  const min = pad(date.getMinutes());
+  return `${y}-${m}-${d}T${h}:${min}`;
+}
+
+/**
+ * 获取近 24 小时的默认开始与结束时间范围字符串，镜像组件内实现
+ *
+ * @return {{startDate: string, endDate: string}} 时间范围对象
+ */
+function getDefaultDateRange() {
+  const now = new Date();
+  const past24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  return {
+    startDate: formatLocalDateTime(past24Hours),
+    endDate: formatLocalDateTime(now),
+  };
+}
+
+describe("RequestDetailsTab default date range & reset", () => {
+  it("getDefaultDateRange returns ISO-like local datetime strings spanning 24h", () => {
+    const range = getDefaultDateRange();
+    expect(range.startDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(range.endDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+
+    const start = new Date(range.startDate).getTime();
+    const end = new Date(range.endDate).getTime();
+    const diffHours = (end - start) / (1000 * 60 * 60);
+    expect(Math.round(diffHours)).toBe(24);
+  });
+});

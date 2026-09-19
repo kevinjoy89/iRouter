@@ -262,15 +262,24 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
     setPagination(prev => ({ ...prev, pageSize: newPageSize, page: 1 }));
   };
 
-  const handleClearFilters = () => {
-    setFilters({ provider: "", status: "", startDate: "", endDate: "" });
+  /**
+   * 重置筛选条件为近 24 小时默认值
+   */
+  const handleResetFilters = () => {
+    const range = getDefaultDateRange();
+    setFilters({
+      provider: "",
+      status: "",
+      startDate: range.startDate,
+      endDate: range.endDate,
+    });
   };
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <Card padding="md">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
-          <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex min-w-0 flex-col gap-1.5 w-40 shrink-0">
             <label htmlFor="provider-filter" className="text-sm font-medium text-text-main">Provider</label>
             <select
               id="provider-filter"
@@ -292,7 +301,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
             </select>
           </div>
 
-          <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-1.5 w-28 shrink-0">
             <label htmlFor="status-filter" className="text-sm font-medium text-text-main">Status</label>
             <select
               id="status-filter"
@@ -311,7 +320,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
             </select>
           </div>
           
-          <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-1.5 w-[185px] shrink-0">
             <label htmlFor="start-date-filter" className="text-sm font-medium text-text-main">Start Date</label>
             <input
               id="start-date-filter"
@@ -325,7 +334,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
             />
           </div>
 
-          <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-1.5 w-[185px] shrink-0">
             <label htmlFor="end-date-filter" className="text-sm font-medium text-text-main">End Date</label>
             <input
               id="end-date-filter"
@@ -339,15 +348,13 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
             />
           </div>
           
-          <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 md:col-span-1">
-            <span className="hidden text-sm font-medium text-text-main opacity-0 xl:block" aria-hidden="true">Clear</span>
+          <div className="flex items-center">
             <Button 
-              variant="ghost" 
-              onClick={handleClearFilters}
-              disabled={!filters.provider && !filters.status && !filters.startDate && !filters.endDate}
-              className="w-full"
+              variant="secondary" 
+              onClick={handleResetFilters}
+              className="h-9 px-4 shrink-0"
             >
-              Clear Filters
+              Reset
             </Button>
           </div>
         </div>
