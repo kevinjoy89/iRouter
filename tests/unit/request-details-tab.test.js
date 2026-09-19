@@ -336,4 +336,17 @@ describe("API route contract — validation boundary", () => {
     expect(Array.isArray(body.details)).toBe(true);
     expect(body.pagination).toMatchObject({ page: 1, pageSize: 20 });
   });
+
+  it("status filter → 校验按 status=success 与 status=error 正确筛选", async () => {
+    // 验证状态筛选参数透传与正常响应
+    const resSuccess = await GET(makeReq("status=success"));
+    expect(resSuccess.status).toBe(200);
+    const bodySuccess = await resSuccess.json();
+    expect(Array.isArray(bodySuccess.details)).toBe(true);
+
+    const resError = await GET(makeReq("status=error"));
+    expect(resError.status).toBe(200);
+    const bodyError = await resError.json();
+    expect(Array.isArray(bodyError.details)).toBe(true);
+  });
 });

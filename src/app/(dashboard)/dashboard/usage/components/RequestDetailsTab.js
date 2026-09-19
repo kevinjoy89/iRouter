@@ -111,6 +111,40 @@ function getOutputTokens(tokens) {
 }
 
 /**
+ * 将 Date 对象格式化为 datetime-local 输入框兼容的本地时间字符串（YYYY-MM-DDTHH:mm）
+ *
+ * @param {Date} date 日期对象
+ * @return {string} 本地日期时间字符串
+ * @author wei
+ * @since 2026-09-19
+ */
+function formatLocalDateTime(date) {
+  const pad = (num) => String(num).padStart(2, "0");
+  const y = date.getFullYear();
+  const m = pad(date.getMonth() + 1);
+  const d = pad(date.getDate());
+  const h = pad(date.getHours());
+  const min = pad(date.getMinutes());
+  return `${y}-${m}-${d}T${h}:${min}`;
+}
+
+/**
+ * 获取近 24 小时的默认开始与结束时间范围字符串
+ *
+ * @return {{startDate: string, endDate: string}} 时间范围对象
+ * @author wei
+ * @since 2026-09-19
+ */
+function getDefaultDateRange() {
+  const now = new Date();
+  const past24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  return {
+    startDate: formatLocalDateTime(past24Hours),
+    endDate: formatLocalDateTime(now),
+  };
+}
+
+/**
  * 请求详情 Tab 组件
  * 支持分页查看请求日志明细，并在第 1 页且抽屉未展开时支持静默自动刷新
  *
@@ -133,10 +167,14 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [providers, setProviders] = useState([]);
   const [providerNameCache, setProviderNameCache] = useState(null);
-  const [filters, setFilters] = useState({
-    provider: "",
-    startDate: "",
-    endDate: ""
+  const [filters, setFilters] = useState(() => {
+    const range = getDefaultDateRange();
+    return {
+      provider: "",
+      status: "",
+      startDate: range.startDate,
+      endDate: range.endDate,
+    };
   });
 
   const fetchProviders = useCallback(() => {
@@ -169,6 +207,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
         pageSize: pagination.pageSize.toString(),
       });
       if (filters.provider) params.append("provider", filters.provider);
+      if (filters.status) params.append("status", filters.status);
       if (filters.startDate) params.append("startDate", filters.startDate);
       if (filters.endDate) params.append("endDate", filters.endDate);
 
@@ -224,13 +263,13 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
   };
 
   const handleClearFilters = () => {
-    setFilters({ provider: "", startDate: "", endDate: "" });
+    setFilters({ provider: "", status: "", startDate: "", endDate: "" });
   };
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <Card padding="md">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
           <div className="flex min-w-0 flex-col gap-2">
             <label htmlFor="provider-filter" className="text-sm font-medium text-text-main">Provider</label>
             <select
@@ -250,6 +289,25 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                   {provider.id === DELETED_PROVIDER_ID ? DELETED_PROVIDER_LABEL : provider.name}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-2">
+            <label htmlFor="status-filter" className="text-sm font-medium text-text-main">Status</label>
+            <select
+              id="status-filter"
+              value={filters.status}
+              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+              className={cn(
+                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
+                "w-full min-w-0 cursor-pointer"
+              )}
+              style={{ colorScheme: 'auto' }}
+            >
+              <option value="">All Statuses</option>
+              <option value="success">Success</option>
+              <option value="error">Error</option>
             </select>
           </div>
           
@@ -281,12 +339,12 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
             />
           </div>
           
-          <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 lg:col-span-1">
-            <span className="hidden text-sm font-medium text-text-main opacity-0 lg:block" aria-hidden="true">Clear</span>
+          <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 md:col-span-1">
+            <span className="hidden text-sm font-medium text-text-main opacity-0 xl:block" aria-hidden="true">Clear</span>
             <Button 
               variant="ghost" 
               onClick={handleClearFilters}
-              disabled={!filters.provider && !filters.startDate && !filters.endDate}
+              disabled={!filters.provider && !filters.status && !filters.startDate && !filters.endDate}
               className="w-full"
             >
               Clear Filters

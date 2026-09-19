@@ -1,8 +1,6 @@
 import { getAdapter, getAdapterSync, registerDbShutdownHook } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 
-const DEFAULT_MAX_RECORDS = 1000;
-const MIN_RETAINED_RECORDS = 100;
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_JSON_SIZE = 5 * 1024;
@@ -10,21 +8,6 @@ const CONFIG_CACHE_TTL_MS = 5000;
 
 let cachedConfig = null;
 let cachedConfigTs = 0;
-
-/**
- * 解析并防御性校验请求详情最大保留条数
- *
- * @param {string|number} [customValue] 用户或环境变量配置的最大条数
- * @return {number} 合法且安全的保留条数下限
- * @author wei
- * @since 2026-09-18
- */
-function resolveSafeMaxRecords(customValue) {
-  const parsed = parseInt(customValue, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_RECORDS;
-  // 防御性保护：保留条数至少为 MIN_RETAINED_RECORDS 条，防止异常配置引发过度淘汰
-  return Math.max(MIN_RETAINED_RECORDS, parsed);
-}
 
 async function getObservabilityConfig() {
   if (cachedConfig && (Date.now() - cachedConfigTs) < CONFIG_CACHE_TTL_MS) return cachedConfig;
@@ -36,7 +19,6 @@ async function getObservabilityConfig() {
       const enabled = envRequestLogs.toLowerCase() === "true";
       cachedConfig = {
         enabled,
-        maxRecords: resolveSafeMaxRecords(settings.observabilityMaxRecords ?? process.env.OBSERVABILITY_MAX_RECORDS),
         batchSize: settings.observabilityBatchSize || parseInt(process.env.OBSERVABILITY_BATCH_SIZE || String(DEFAULT_BATCH_SIZE), 10),
         flushIntervalMs: settings.observabilityFlushIntervalMs || parseInt(process.env.OBSERVABILITY_FLUSH_INTERVAL_MS || String(DEFAULT_FLUSH_INTERVAL_MS), 10),
         maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "5", 10)) * 1024,
@@ -52,7 +34,6 @@ async function getObservabilityConfig() {
 
     cachedConfig = {
       enabled,
-      maxRecords: resolveSafeMaxRecords(settings.observabilityMaxRecords ?? process.env.OBSERVABILITY_MAX_RECORDS),
       batchSize: settings.observabilityBatchSize || parseInt(process.env.OBSERVABILITY_BATCH_SIZE || String(DEFAULT_BATCH_SIZE), 10),
       flushIntervalMs: settings.observabilityFlushIntervalMs || parseInt(process.env.OBSERVABILITY_FLUSH_INTERVAL_MS || String(DEFAULT_FLUSH_INTERVAL_MS), 10),
       maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "5", 10)) * 1024,
@@ -60,7 +41,6 @@ async function getObservabilityConfig() {
   } catch {
     cachedConfig = {
       enabled: false,
-      maxRecords: DEFAULT_MAX_RECORDS,
       batchSize: DEFAULT_BATCH_SIZE,
       flushIntervalMs: DEFAULT_FLUSH_INTERVAL_MS,
       maxJsonSize: DEFAULT_MAX_JSON_SIZE,
@@ -86,7 +66,6 @@ function sanitizeHeaders(headers) {
 
 export const __test__ = {
   sanitizeHeaders,
-  resolveSafeMaxRecords,
   getWriteBuffer: () => writeBuffer,
   clearBuffer: () => { writeBuffer = []; },
 };
@@ -131,7 +110,6 @@ export function flushRequestDetailsSync(targetAdapter) {
 
   // 获取当前配置或兜底默认配置
   const config = cachedConfig || {
-    maxRecords: DEFAULT_MAX_RECORDS,
     maxJsonSize: DEFAULT_MAX_JSON_SIZE,
   };
 
@@ -165,14 +143,6 @@ export function flushRequestDetailsSync(targetAdapter) {
         db.run(
           `INSERT INTO requestDetails(id, timestamp, provider, model, connectionId, status, data) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET timestamp = excluded.timestamp, provider = excluded.provider, model = excluded.model, connectionId = excluded.connectionId, status = excluded.status, data = excluded.data`,
           [record.id, record.timestamp, record.provider, record.model, record.connectionId, record.status, stringifyJson(record)]
-        );
-      }
-
-      const cnt = db.get(`SELECT COUNT(*) as c FROM requestDetails`);
-      if (cnt && cnt.c > config.maxRecords) {
-        db.run(
-          `DELETE FROM requestDetails WHERE id IN (SELECT id FROM requestDetails ORDER BY timestamp ASC LIMIT ?)`,
-          [cnt.c - config.maxRecords]
         );
       }
     });
@@ -273,9 +243,7 @@ export async function getRequestDetails(filter = {}) {
 
 export async function getDistinctProviders() {
   const db = await getAdapter();
-  // requestDetails 有保留上限（observabilityMaxRecords，默认 1000 条）并会被 LRU 淘汰，
-  // 单独作为来源会让下拉框随窗口滑动而丢掉仍在使用的供应商。usageHistory 无上限，
-  // 二者取并集才是「用过的全部供应商」。
+  // requestDetails 记录已全量持久化保留，与 usageHistory 取并集确保全量曾用供应商均可查询
   const rows = db.all(`
     SELECT provider FROM requestDetails WHERE provider IS NOT NULL
     UNION

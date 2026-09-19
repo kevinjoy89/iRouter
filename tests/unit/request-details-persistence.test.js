@@ -42,29 +42,9 @@ function createMockAdapter() {
   };
 }
 
-describe("requestDetails 同步持久化与保留条数防御测试", () => {
+describe("requestDetails 同步持久化与全量保留测试", () => {
   beforeEach(() => {
     __test__.clearBuffer();
-  });
-
-  it("resolveSafeMaxRecords 边界值与下限防御", () => {
-    const { resolveSafeMaxRecords } = __test__;
-
-    // 默认兜底：0、负数、无效参数
-    expect(resolveSafeMaxRecords(0)).toBe(1000);
-    expect(resolveSafeMaxRecords(-10)).toBe(1000);
-    expect(resolveSafeMaxRecords("invalid")).toBe(1000);
-
-    // 下限防御：小于 100 的数值必须强制提升至 100
-    expect(resolveSafeMaxRecords(1)).toBe(100);
-    expect(resolveSafeMaxRecords(30)).toBe(100);
-    expect(resolveSafeMaxRecords(99)).toBe(100);
-    expect(resolveSafeMaxRecords("30")).toBe(100);
-
-    // 正常有效数值保持原样
-    expect(resolveSafeMaxRecords(100)).toBe(100);
-    expect(resolveSafeMaxRecords(500)).toBe(500);
-    expect(resolveSafeMaxRecords(2000)).toBe(2000);
   });
 
   it("flushRequestDetailsSync 同步批量持久化成功并清空缓冲区", () => {
@@ -118,22 +98,19 @@ describe("requestDetails 同步持久化与保留条数防御测试", () => {
     expect(__test__.getWriteBuffer()[0]).toBe(record);
   });
 
-  it("超过最大保留条数时触发自动淘汰清理", () => {
+  it("写入时不执行任何淘汰删除，数据全量持久化保留", () => {
     const mockDb = createMockAdapter();
-    // 模拟数据库中已有 105 条记录
-    for (let i = 0; i < 105; i++) {
+    // 模拟数据库中已有 1500 条记录
+    for (let i = 0; i < 1500; i++) {
       mockDb.rows.push({ id: `rec-${i}`, timestamp: new Date().toISOString(), data: "{}" });
     }
 
     const buffer = __test__.getWriteBuffer();
     buffer.push({ model: "gpt-4o", provider: "openai", status: 200 });
 
-    // flushRequestDetailsSync 中默认 DEFAULT_MAX_RECORDS 是 1000，为了测试淘汰逻辑，我们模拟超过的情况
-    // 假定现有 105 条，新写入 1 条，总数 106 条，若淘汰阈值是 100
     mockDb.get = vi.fn((sql) => {
       if (sql.includes("COUNT(*)")) {
-        // 模拟当前总记录数为 1050，超过默认 1000
-        return { c: 1050 };
+        return { c: 1500 };
       }
       return null;
     });
@@ -141,12 +118,10 @@ describe("requestDetails 同步持久化与保留条数防御测试", () => {
     const count = flushRequestDetailsSync(mockDb);
 
     expect(count).toBe(1);
-    // 验证执行了 DELETE 淘汰旧数据
+    // 验证未执行任何 DELETE 语句，数据无截断
     const deleteCalls = mockDb.run.mock.calls.filter((call) =>
-      call[0].includes("DELETE FROM requestDetails WHERE id IN")
+      call[0].includes("DELETE FROM requestDetails")
     );
-    expect(deleteCalls.length).toBe(1);
-    // 淘汰条数应为 1050 - 1000 = 50 条
-    expect(deleteCalls[0][1]).toEqual([50]);
+    expect(deleteCalls.length).toBe(0);
   });
 });

@@ -144,6 +144,11 @@ function translateDynamicPatterns(text, locale) {
     return isTw ? `您的 ${accountConnectedMatch[1]} 帳號已成功連線。` : `您的 ${accountConnectedMatch[1]} 账号已成功连接。`;
   }
 
+  // 7.2 筛选选择框 "All Statuses"
+  if (text.trim() === "All Statuses") {
+    return isTw ? "所有狀態" : "所有状态";
+  }
+
   // 8. 兼容节点编辑 "Edit Anthropic Compatible Node" / "Edit OpenAI Compatible Node"
   const editCompatMatch = text.match(/^Edit\s+(Anthropic|OpenAI)\s+Compatible\s+Node$/i);
   if (editCompatMatch) {
