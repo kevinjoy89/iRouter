@@ -277,18 +277,21 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <Card padding="md">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex min-w-0 flex-col gap-1.5 w-40 shrink-0">
-            <label htmlFor="provider-filter" className="text-sm font-medium text-text-main">Provider</label>
+      <Card padding="none" className="overflow-hidden">
+        {/* 表格顶部工具栏：筛选过滤与记录汇总 */}
+        <div className="p-3 sm:px-4 sm:py-3 border-b border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-3 bg-black/[0.01] dark:bg-white/[0.01]">
+          {/* 左侧筛选控件组 */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* 提供商筛选 */}
             <select
               id="provider-filter"
+              aria-label="Provider"
               value={filters.provider}
               onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
-                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
-                "w-full min-w-0 cursor-pointer"
+                "h-8.5 px-2.5 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                "text-xs font-medium text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
+                "w-36 cursor-pointer"
               )}
               style={{ colorScheme: 'auto' }}
             >
@@ -299,18 +302,17 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                 </option>
               ))}
             </select>
-          </div>
 
-          <div className="flex min-w-0 flex-col gap-1.5 w-28 shrink-0">
-            <label htmlFor="status-filter" className="text-sm font-medium text-text-main">Status</label>
+            {/* 状态筛选 */}
             <select
               id="status-filter"
+              aria-label="Status"
               value={filters.status}
               onChange={(e) => setFilters({ ...filters, status: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
-                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
-                "w-full min-w-0 cursor-pointer"
+                "h-8.5 px-2.5 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                "text-xs font-medium text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
+                "w-28 cursor-pointer"
               )}
               style={{ colorScheme: 'auto' }}
             >
@@ -318,49 +320,57 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
               <option value="success">Success</option>
               <option value="error">Error</option>
             </select>
-          </div>
-          
-          <div className="flex min-w-0 flex-col gap-1.5 w-[185px] shrink-0">
-            <label htmlFor="start-date-filter" className="text-sm font-medium text-text-main">Start Date</label>
-            <input
-              id="start-date-filter"
-              type="datetime-local"
-              value={filters.startDate}
-              onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-              className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
-                "w-full min-w-0 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20"
-              )}
-            />
-          </div>
-
-          <div className="flex min-w-0 flex-col gap-1.5 w-[185px] shrink-0">
-            <label htmlFor="end-date-filter" className="text-sm font-medium text-text-main">End Date</label>
-            <input
-              id="end-date-filter"
-              type="datetime-local"
-              value={filters.endDate}
-              onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-              className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
-                "w-full min-w-0 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20"
-              )}
-            />
-          </div>
-          
-          <div className="flex items-center">
+            
+            {/* 时间范围连贯输入 */}
+            <div className="flex items-center gap-1.5">
+              <input
+                id="start-date-filter"
+                aria-label="Start Date"
+                type="datetime-local"
+                value={filters.startDate}
+                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                className={cn(
+                  "h-8.5 px-2 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                  "text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
+                  "w-[175px] cursor-pointer"
+                )}
+              />
+              <span className="text-xs text-text-muted select-none">~</span>
+              <input
+                id="end-date-filter"
+                aria-label="End Date"
+                type="datetime-local"
+                value={filters.endDate}
+                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                className={cn(
+                  "h-8.5 px-2 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                  "text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
+                  "w-[175px] cursor-pointer"
+                )}
+              />
+            </div>
+            
+            {/* 重置按钮 */}
             <Button 
               variant="secondary" 
               onClick={handleResetFilters}
-              className="h-9 px-4 shrink-0"
+              icon="restart_alt"
+              className="h-8.5 px-2.5 text-xs rounded-lg gap-1 shrink-0"
             >
               Reset
             </Button>
           </div>
-        </div>
-      </Card>
 
-      <Card padding="none">
+          {/* 右侧明细记录统计 */}
+          <div className="text-xs text-text-muted font-medium ml-auto hidden sm:block">
+            {pagination.totalItems > 0 ? (
+              <span>
+                {translate("Total")}: <span className="font-mono text-text-main font-semibold">{pagination.totalItems.toLocaleString()}</span>
+              </span>
+            ) : null}
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full min-w-[880px]">
             <thead>
