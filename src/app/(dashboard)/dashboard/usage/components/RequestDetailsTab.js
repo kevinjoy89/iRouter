@@ -178,6 +178,17 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
     };
   });
 
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
+  const isLive24hRef = useRef(isLive24h);
+  isLive24hRef.current = isLive24h;
+
+  const paginationRef = useRef(pagination);
+  paginationRef.current = pagination;
+
+  const lastRefreshKeyRef = useRef(0);
+
   const fetchProviders = useCallback(() => {
     fetch("/api/usage/providers")
       .then((res) => res.json())
@@ -200,19 +211,22 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
    *
    * @param {boolean} [isSilent=false] 是否静默拉取（静默拉取时不展示 loading 遮罩）
    * @param {Object} [overrideFilters=null] 覆盖使用的筛选条件（用于实时滚动窗口即时更新）
+   * @param {Object} [overridePagination=null] 覆盖使用的分页参数
    * @return {Promise<void>} 异步拉取结果
    */
   const fetchDetails = useCallback(
-    (isSilent = false, overrideFilters = null) => {
-      const activeFilters = overrideFilters ? { ...filters, ...overrideFilters } : filters;
+    (isSilent = false, overrideFilters = null, overridePagination = null) => {
+      const activeFilters = overrideFilters ? { ...filtersRef.current, ...overrideFilters } : filtersRef.current;
+      const activePagination = overridePagination ? { ...paginationRef.current, ...overridePagination } : paginationRef.current;
+
       const params = new URLSearchParams({
-        page: pagination.page.toString(),
-        pageSize: pagination.pageSize.toString(),
+        page: activePagination.page.toString(),
+        pageSize: activePagination.pageSize.toString(),
       });
       if (activeFilters.provider) params.append("provider", activeFilters.provider);
       if (activeFilters.status) params.append("status", activeFilters.status);
 
-      if (isLive24h && !overrideFilters) {
+      if (isLive24hRef.current) {
         // 动态实时近 24 小时模式：使用动态计算的最新 24 小时前作为下限，不限制固定历史结束上限
         const liveStart = formatLocalDateTime(new Date(Date.now() - 24 * 60 * 60 * 1000));
         params.append("startDate", liveStart);
@@ -236,37 +250,38 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
           }
         });
     },
-    [pagination.page, pagination.pageSize, filters, isLive24h]
+    []
   );
 
   useEffect(() => {
     fetchProviders();
-  }, [fetchProviders]);
-
-  useEffect(() => {
     fetchDetails(false);
-  }, [fetchDetails]);
+  }, [fetchProviders, fetchDetails]);
 
   // 监听外部刷新触发信号及前台唤醒
   useEffect(() => {
-    if (refreshKey > 0) {
-      // 仅在未打开详情抽屉且处于第 1 页时静默刷新最新请求列表，避免干扰用户排查
-      if (!isDrawerOpen && pagination.page === 1) {
-        if (isLive24h) {
-          // 动态推进输入框的展示时间为最新近 24 小时
-          const latestRange = getDefaultDateRange();
-          setFilters((prev) => ({
-            ...prev,
-            startDate: latestRange.startDate,
-            endDate: latestRange.endDate,
-          }));
-          fetchDetails(true, { startDate: latestRange.startDate, endDate: "" });
-        } else {
-          fetchDetails(true);
-        }
+    // 仅在外部 refreshKey 真正变大时响应一次刷新，避免任何不必要的重入死循环
+    if (refreshKey <= 0 || refreshKey === lastRefreshKeyRef.current) {
+      return;
+    }
+    lastRefreshKeyRef.current = refreshKey;
+
+    // 仅在未打开详情抽屉且处于第 1 页时静默刷新最新请求列表，避免干扰用户排查
+    if (!isDrawerOpen && paginationRef.current.page === 1) {
+      if (isLive24hRef.current) {
+        // 动态推进输入框展示时间为最新近 24 小时，并静默拉取最新数据
+        const latestRange = getDefaultDateRange();
+        setFilters((prev) => ({
+          ...prev,
+          startDate: latestRange.startDate,
+          endDate: latestRange.endDate,
+        }));
+        fetchDetails(true);
+      } else {
+        fetchDetails(true);
       }
     }
-  }, [refreshKey, isDrawerOpen, pagination.page, isLive24h, fetchDetails]);
+  }, [refreshKey, isDrawerOpen, fetchDetails]);
 
   const handleViewDetail = (detail) => {
     setSelectedDetail(detail);
@@ -275,12 +290,54 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
 
   const handlePageChange = (newPage) => {
     setLoading(true);
-    setPagination(prev => ({ ...prev, page: newPage }));
+    setPagination((prev) => ({ ...prev, page: newPage }));
+    fetchDetails(false, null, { page: newPage });
   };
 
   const handlePageSizeChange = (newPageSize) => {
     setLoading(true);
-    setPagination(prev => ({ ...prev, pageSize: newPageSize, page: 1 }));
+    setPagination((prev) => ({ ...prev, pageSize: newPageSize, page: 1 }));
+    fetchDetails(false, null, { page: 1, pageSize: newPageSize });
+  };
+
+  const handleProviderChange = (e) => {
+    const provider = e.target.value;
+    const nextFilters = { ...filters, provider };
+    setFilters(nextFilters);
+    setLoading(true);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    fetchDetails(false, nextFilters, { page: 1 });
+  };
+
+  const handleStatusChange = (e) => {
+    const status = e.target.value;
+    const nextFilters = { ...filters, status };
+    setFilters(nextFilters);
+    setLoading(true);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    fetchDetails(false, nextFilters, { page: 1 });
+  };
+
+  const handleStartDateChange = (e) => {
+    const startDate = e.target.value;
+    setIsLive24h(false);
+    isLive24hRef.current = false;
+    const nextFilters = { ...filters, startDate };
+    setFilters(nextFilters);
+    setLoading(true);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    fetchDetails(false, nextFilters, { page: 1 });
+  };
+
+  const handleEndDateChange = (e) => {
+    const endDate = e.target.value;
+    setIsLive24h(false);
+    isLive24hRef.current = false;
+    const nextFilters = { ...filters, endDate };
+    setFilters(nextFilters);
+    setLoading(true);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    fetchDetails(false, nextFilters, { page: 1 });
   };
 
   /**
@@ -289,12 +346,17 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
   const handleResetFilters = () => {
     const range = getDefaultDateRange();
     setIsLive24h(true);
-    setFilters({
+    isLive24hRef.current = true;
+    const resetFilters = {
       provider: "",
       status: "",
       startDate: range.startDate,
       endDate: range.endDate,
-    });
+    };
+    setFilters(resetFilters);
+    setLoading(true);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    fetchDetails(false, resetFilters, { page: 1 });
   };
 
   return (
@@ -309,7 +371,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
               id="provider-filter"
               aria-label="Provider"
               value={filters.provider}
-              onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
+              onChange={handleProviderChange}
               className={cn(
                 "h-8.5 px-2.5 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
                 "text-xs font-medium text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
@@ -330,7 +392,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
               id="status-filter"
               aria-label="Status"
               value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+              onChange={handleStatusChange}
               className={cn(
                 "h-8.5 px-2.5 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
                 "text-xs font-medium text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
@@ -350,10 +412,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                 aria-label="Start Date"
                 type="datetime-local"
                 value={filters.startDate}
-                onChange={(e) => {
-                  setIsLive24h(false);
-                  setFilters((prev) => ({ ...prev, startDate: e.target.value }));
-                }}
+                onChange={handleStartDateChange}
                 className={cn(
                   "h-8.5 px-2 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
                   "text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
@@ -366,10 +425,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                 aria-label="End Date"
                 type="datetime-local"
                 value={filters.endDate}
-                onChange={(e) => {
-                  setIsLive24h(false);
-                  setFilters((prev) => ({ ...prev, endDate: e.target.value }));
-                }}
+                onChange={handleEndDateChange}
                 className={cn(
                   "h-8.5 px-2 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
                   "text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
