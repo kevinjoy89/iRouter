@@ -247,7 +247,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   const githubResetAtMs = githubMonthlyResetMs(status, errorText, provider);
 
   // 读取网关配置以应用用户自定义的重试与冷却锁定时长策略
-  const settings = await getSettings();
+  const settings = typeof getSettings === "function" ? await getSettings() : null;
   const retryCfg = resolveAutoRetry(settings);
 
   // Provider-specific precise cooldown (e.g. codex usage_limit_reached resets_at) overrides backoff

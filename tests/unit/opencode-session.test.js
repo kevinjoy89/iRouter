@@ -175,7 +175,9 @@ describe("OpenCode Free Executor Session Resolution", () => {
 
     expect(headers["x-opencode-session"]).toMatch(OPENCODE_SESSION_RE);
     expect(headers["Authorization"]).toBe("Bearer public");
+  });
 
+  it("handles null or undefined body gracefully in transformRequest", () => {
     const executor = getExecutor("opencode");
     expect(() => executor.transformRequest("muse-spark-1.3-contributor-free", null, false, {})).not.toThrow();
     expect(() => executor.transformRequest("big-pickle", undefined, false, {})).not.toThrow();

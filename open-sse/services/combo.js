@@ -502,7 +502,10 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       // Check if should fallback to next model
       const { shouldFallback, cooldownMs } = checkFallbackError(result.status, errorText);
 
-      if (!shouldFallback) {
+      // 在 Combo 跨提供商与跨模型轮换场景下，单成员 4xx（如上下文超长、参数不兼容）不应阻断后续备选模型继续尝试
+      const allowComboFallback = shouldFallback || (result.status >= 400 && result.status < 500);
+
+      if (!allowComboFallback) {
         log.warn("COMBO", `Model ${modelStr} failed (no fallback)`, { status: result.status });
         return result;
       }

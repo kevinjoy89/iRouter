@@ -10,6 +10,7 @@ import {
   coerceResponsesArguments,
   coerceResponsesOutput,
 } from "../translator/formats/responsesApi.js";
+import { isMuseSparkModel } from "../providers/models/helpers.js";
 
 const SESSION_HEADER = "x-opencode-session";
 const SESSION_FIELD = "_opencodeGoSession";
@@ -58,10 +59,11 @@ function baseModelId(model) {
   return String(model || "").replace(/\([^()]+\)\s*$/, "").trim();
 }
 
-// Responses-only per the provider registry (grok-4.6, gpt-5.6-luna, muse-spark, …).
-// Reading the registry keeps this in sync with config — never hardcode model ids here.
+// 判定是否为 Responses 协议模型（包括 muse-spark 系列及注册表中声明为 openai-responses 的模型）
 function isResponsesModel(model) {
-  const entry = getProviderModels("opencode-go").find((m) => m.id === baseModelId(model));
+  const base = baseModelId(model);
+  if (isMuseSparkModel(base)) return true;
+  const entry = getProviderModels("opencode-go").find((m) => m.id === base);
   return modelTargetFormat(entry) === "openai-responses";
 }
 
