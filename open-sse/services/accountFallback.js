@@ -61,6 +61,12 @@ export function checkFallbackError(status, errorText, backoffLevel = 0, retryCfg
       return { shouldFallback: true, cooldownMs: rule.cooldownMs };
     }
   }
+  // 请求级别的客户端 4xx 错误（未匹配上述规则）：因请求本身导致（如上下文超长、请求体格式错误、不支持的参数等）
+  // 与账号凭证健康状态无关，若执行冷却会导致健康连接被误移出轮换，甚至引发连锁假死
+  // 账号级状态码（401/402/403/429）保留上述匹配规则，文本规则仍然优先匹配限流/额度等关键字
+  if (status >= 400 && status < 500 && status !== 401 && status !== 402 && status !== 403 && status !== 429) {
+    return { shouldFallback: false, cooldownMs: 0 };
+  }
 
   // 默认兜底：未匹配错误的瞬时冷却时间
   return { shouldFallback: true, cooldownMs: TRANSIENT_COOLDOWN_MS };

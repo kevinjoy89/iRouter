@@ -268,7 +268,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   }
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
-  const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
+  const reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
   // 若冷却时长为 0，则不注入 modelLock 锁定字段
   const lockUpdate = cooldownMs > 0 ? buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs) : {};
 

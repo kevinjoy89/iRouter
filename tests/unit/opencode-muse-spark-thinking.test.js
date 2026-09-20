@@ -3,7 +3,7 @@ import { getCapabilitiesForModel } from "../../open-sse/providers/capabilities.j
 import { PROVIDER_MODELS, getModelTargetFormat } from "../../open-sse/config/providerModels.js";
 import { getThinkingLevels } from "../../open-sse/providers/thinkingLevels.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
-import { OpenCodeExecutor, OPENCODE_FINGERPRINT_TOOLS } from "../../open-sse/executors/opencode.js";
+import { OpenCodeExecutor } from "../../open-sse/executors/opencode.js";
 import "../translator/registerAll.js";
 import { translateRequest } from "../../open-sse/translator/index.js";
 
@@ -61,6 +61,39 @@ describe("OpenCode Free Muse Spark thinking", () => {
     expect(out.reasoning_effort).toBeUndefined();
     expect(out.max_output_tokens).toBe(131072);
     expect(out.max_tokens).toBeUndefined();
+  });
+
+  it("routes Union Alpha through Anthropic Messages", () => {
+    const caps = getCapabilitiesForModel(PROVIDER, "union-alpha");
+    expect(caps.vision).toBe(true);
+    expect(caps.contextWindow).toBe(262144);
+    expect(caps.maxOutput).toBe(131072);
+
+    const executor = new OpenCodeExecutor();
+
+    expect(getModelTargetFormat("oc", "union-alpha")).toBe(FORMATS.CLAUDE);
+    const url = executor.buildUrl("union-alpha");
+    expect(url).toBe("https://opencode.ai/zen/v1/messages");
+    expect(executor.buildHeaders({}, true, url)).toMatchObject({
+      "anthropic-version": "2023-06-01",
+    });
+    expect(executor.buildHeaders({}, true, executor.buildUrl("big-pickle")))
+      .not.toHaveProperty("anthropic-version");
+
+    const translated = translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.CLAUDE,
+      "union-alpha",
+      { messages: [{ role: "user", content: "ping" }], max_tokens: 1 },
+      false,
+      {},
+      PROVIDER,
+    );
+    expect(translated).toMatchObject({
+      model: "union-alpha",
+      messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }],
+      max_tokens: 1,
+    });
   });
 
   it("leaves the other free models on Chat Completions", () => {
@@ -133,72 +166,62 @@ describe("OpenCode Free Muse Spark thinking", () => {
     }
   });
 
-  it("forces stream: true on outgoing requests", () => {
+  it("strips prior-turn reasoning items carrying encrypted_content from input", () => {
     const executor = new OpenCodeExecutor();
-    const chatBody = { messages: [{ role: "user", content: "hi" }], stream: false };
-    executor.transformRequest("big-pickle", chatBody, false, {});
-    expect(chatBody.stream).toBe(true);
-
-    const responsesBody = { input, stream: false };
-    executor.transformRequest(MODEL, responsesBody, false, {});
-    expect(responsesBody.stream).toBe(true);
-  });
-
-  it("injects agent fingerprint tools on chat and responses requests", () => {
-    const executor = new OpenCodeExecutor();
-
-    const chatBody = { messages: [{ role: "user", content: "hi" }] };
-    executor.transformRequest("big-pickle", chatBody, true, {});
-    expect(Array.isArray(chatBody.tools)).toBe(true);
-    const chatToolNames = chatBody.tools.map((t) => t.function?.name || t.name);
-    for (const expected of OPENCODE_FINGERPRINT_TOOLS) {
-      expect(chatToolNames).toContain(expected);
-    }
-
-    const responsesBody = { input };
-    executor.transformRequest(MODEL, responsesBody, true, {});
-    expect(Array.isArray(responsesBody.tools)).toBe(true);
-    const respToolNames = responsesBody.tools.map((t) => t.name);
-    for (const expected of OPENCODE_FINGERPRINT_TOOLS) {
-      expect(respToolNames).toContain(expected);
-    }
-    expect(responsesBody.tools.every((t) => t.type === "function" && t.parameters?.type === "object")).toBe(true);
-  });
-
-  it("preserves caller tools alongside the injected fingerprints", () => {
-    const executor = new OpenCodeExecutor();
-    const chatBody = {
-      messages: [{ role: "user", content: "hi" }],
-      tools: [{
-        type: "function",
-        function: {
-          name: "my_custom_tool",
-          description: "custom",
-          parameters: { type: "object", properties: { a: { type: "string" } } },
-        },
-      }],
-    };
-    executor.transformRequest("big-pickle", chatBody, true, {});
-    const chatToolNames = chatBody.tools.map((t) => t.function?.name || t.name);
-    expect(chatToolNames).toContain("my_custom_tool");
-    for (const expected of OPENCODE_FINGERPRINT_TOOLS) {
-      expect(chatToolNames).toContain(expected);
-    }
-  });
-
-  it("forces store: false and scrubs previous reasoning tokens on Responses", () => {
-    const executor = new OpenCodeExecutor();
-    const responsesBody = {
+    const model = "muse-spark-1.3-contributor-free";
+    const body = {
+      model,
       input: [
-        { type: "reasoning", encrypted_content: "stale-ciphertext", reasoning_encrypted_content: "stale" },
-        { type: "message", role: "user", content: [{ type: "input_text", text: "next question" }] },
+        { type: "message", role: "user", content: [{ type: "input_text", text: "say hi" }] },
+        {
+          type: "reasoning",
+          id: "rs_123",
+          encrypted_content: "ENC_BLOB_TURN_1",
+          summary: [{ type: "summary_text", text: "thinking text" }],
+        },
+        {
+          type: "function_call",
+          id: "fc_1",
+          call_id: "call_1",
+          name: "shell",
+          arguments: JSON.stringify({ command: "echo hi" }),
+        },
+        {
+          type: "function_call_output",
+          call_id: "call_1",
+          output: "hi",
+        },
+        { type: "message", role: "user", content: [{ type: "input_text", text: "now say bye" }] },
       ],
-      store: true,
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "shell",
+            description: "Run shell command",
+            parameters: { type: "object" },
+          },
+        },
+      ],
     };
-    executor.transformRequest(MODEL, responsesBody, true, {});
-    expect(responsesBody.store).toBe(false);
-    expect(responsesBody.input.some((item) => item.type === "reasoning")).toBe(false);
-    expect(responsesBody.input[0].encrypted_content).toBeUndefined();
-    expect(responsesBody.input[0].reasoning_encrypted_content).toBeUndefined();
+
+    const out = executor.transformRequest(model, body, true, {});
+    expect(out.stream).toBe(true);
+    expect(out.store).toBe(false);
+    // Prior reasoning items stripped to prevent 400 "reasoning encrypted_content was not issued to this caller"
+    expect(out.input.some((item) => item.type === "reasoning")).toBe(false);
+    expect(JSON.stringify(out.input)).not.toContain("ENC_BLOB_TURN_1");
+    // User message, function_call, function_call_output, and next user message survive
+    const types = out.input.map((item) => item.type);
+    expect(types).toEqual(["message", "function_call", "function_call_output", "message"]);
+    // Tools flattened and empty properties added
+    expect(out.tools).toEqual([
+      {
+        type: "function",
+        name: "shell",
+        description: "Run shell command",
+        parameters: { type: "object", properties: {} },
+      },
+    ]);
   });
 });
