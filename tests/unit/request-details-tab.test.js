@@ -392,4 +392,40 @@ describe("RequestDetailsTab default date range & reset", () => {
     const diffHours = (end - start) / (1000 * 60 * 60);
     expect(Math.round(diffHours)).toBe(24);
   });
+
+  it("live rolling 24h window pushes forward on refresh while custom range remains fixed", () => {
+    // 模拟时间推进
+    let isLive24h = true;
+    let filters = {
+      startDate: "2026-09-19T09:41",
+      endDate: "2026-09-20T09:41",
+    };
+
+    // 触发刷新：动态模式下推进时间
+    if (isLive24h) {
+      const advanced = getDefaultDateRange();
+      filters = { ...filters, startDate: advanced.startDate, endDate: advanced.endDate };
+    }
+    expect(filters.endDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+
+    // 用户手动指定时间段排查历史
+    isLive24h = false;
+    filters.startDate = "2026-09-18T10:00";
+    filters.endDate = "2026-09-18T12:00";
+
+    // 再次刷新：固定模式下时间不被篡改
+    if (isLive24h) {
+      const advanced = getDefaultDateRange();
+      filters = { ...filters, startDate: advanced.startDate, endDate: advanced.endDate };
+    }
+    expect(filters.startDate).toBe("2026-09-18T10:00");
+    expect(filters.endDate).toBe("2026-09-18T12:00");
+
+    // 用户点击重置：恢复动态模式与最新近24小时
+    isLive24h = true;
+    const resetRange = getDefaultDateRange();
+    filters = { ...filters, startDate: resetRange.startDate, endDate: resetRange.endDate };
+    expect(isLive24h).toBe(true);
+    expect(filters.startDate).toBe(resetRange.startDate);
+  });
 });

@@ -167,6 +167,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [providers, setProviders] = useState([]);
   const [providerNameCache, setProviderNameCache] = useState(null);
+  const [isLive24h, setIsLive24h] = useState(true);
   const [filters, setFilters] = useState(() => {
     const range = getDefaultDateRange();
     return {
@@ -198,18 +199,27 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
    * 拉取请求明细列表
    *
    * @param {boolean} [isSilent=false] 是否静默拉取（静默拉取时不展示 loading 遮罩）
+   * @param {Object} [overrideFilters=null] 覆盖使用的筛选条件（用于实时滚动窗口即时更新）
    * @return {Promise<void>} 异步拉取结果
    */
   const fetchDetails = useCallback(
-    (isSilent = false) => {
+    (isSilent = false, overrideFilters = null) => {
+      const activeFilters = overrideFilters ? { ...filters, ...overrideFilters } : filters;
       const params = new URLSearchParams({
         page: pagination.page.toString(),
         pageSize: pagination.pageSize.toString(),
       });
-      if (filters.provider) params.append("provider", filters.provider);
-      if (filters.status) params.append("status", filters.status);
-      if (filters.startDate) params.append("startDate", filters.startDate);
-      if (filters.endDate) params.append("endDate", filters.endDate);
+      if (activeFilters.provider) params.append("provider", activeFilters.provider);
+      if (activeFilters.status) params.append("status", activeFilters.status);
+
+      if (isLive24h && !overrideFilters) {
+        // 动态实时近 24 小时模式：使用动态计算的最新 24 小时前作为下限，不限制固定历史结束上限
+        const liveStart = formatLocalDateTime(new Date(Date.now() - 24 * 60 * 60 * 1000));
+        params.append("startDate", liveStart);
+      } else {
+        if (activeFilters.startDate) params.append("startDate", activeFilters.startDate);
+        if (activeFilters.endDate) params.append("endDate", activeFilters.endDate);
+      }
 
       return fetch(`/api/usage/request-details?${params}`)
         .then((res) => res.json())
@@ -226,7 +236,7 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
           }
         });
     },
-    [pagination.page, pagination.pageSize, filters]
+    [pagination.page, pagination.pageSize, filters, isLive24h]
   );
 
   useEffect(() => {
@@ -237,15 +247,26 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
     fetchDetails(false);
   }, [fetchDetails]);
 
-  // 监听外部刷新触发信号
+  // 监听外部刷新触发信号及前台唤醒
   useEffect(() => {
     if (refreshKey > 0) {
       // 仅在未打开详情抽屉且处于第 1 页时静默刷新最新请求列表，避免干扰用户排查
       if (!isDrawerOpen && pagination.page === 1) {
-        fetchDetails(true);
+        if (isLive24h) {
+          // 动态推进输入框的展示时间为最新近 24 小时
+          const latestRange = getDefaultDateRange();
+          setFilters((prev) => ({
+            ...prev,
+            startDate: latestRange.startDate,
+            endDate: latestRange.endDate,
+          }));
+          fetchDetails(true, { startDate: latestRange.startDate, endDate: "" });
+        } else {
+          fetchDetails(true);
+        }
       }
     }
-  }, [refreshKey, isDrawerOpen, pagination.page, fetchDetails]);
+  }, [refreshKey, isDrawerOpen, pagination.page, isLive24h, fetchDetails]);
 
   const handleViewDetail = (detail) => {
     setSelectedDetail(detail);
@@ -263,10 +284,11 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
   };
 
   /**
-   * 重置筛选条件为近 24 小时默认值
+   * 重置筛选条件为近 24 小时默认值，并恢复实时滚动窗口
    */
   const handleResetFilters = () => {
     const range = getDefaultDateRange();
+    setIsLive24h(true);
     setFilters({
       provider: "",
       status: "",
@@ -328,7 +350,10 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                 aria-label="Start Date"
                 type="datetime-local"
                 value={filters.startDate}
-                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                onChange={(e) => {
+                  setIsLive24h(false);
+                  setFilters((prev) => ({ ...prev, startDate: e.target.value }));
+                }}
                 className={cn(
                   "h-8.5 px-2 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
                   "text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
@@ -341,7 +366,10 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
                 aria-label="End Date"
                 type="datetime-local"
                 value={filters.endDate}
-                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                onChange={(e) => {
+                  setIsLive24h(false);
+                  setFilters((prev) => ({ ...prev, endDate: e.target.value }));
+                }}
                 className={cn(
                   "h-8.5 px-2 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
                   "text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
