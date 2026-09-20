@@ -17,7 +17,7 @@ _Avoid_: 锁版上游、零改动、submodule（均为旧结构用语）
 _Avoid_: 升级（歧义：易与产品发版混淆）、更新版本
 
 **产品版本号（product version）**:
-iRouter 自身对外可见的版本号（当前 `0.2.10`），真源为 `desktop/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.81`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
+iRouter 自身对外可见的版本号（当前 `0.3.0`），真源为 `desktop/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.81`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
 _Avoid_: 网关版本（易与上游基线号混淆）、应用版本
 
 **壳层（shell layer）**:
