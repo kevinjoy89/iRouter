@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Card from "@/shared/components/Card";
 import Button from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
@@ -179,15 +179,21 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
   });
 
   const filtersRef = useRef(filters);
-  filtersRef.current = filters;
-
   const isLive24hRef = useRef(isLive24h);
-  isLive24hRef.current = isLive24h;
-
   const paginationRef = useRef(pagination);
-  paginationRef.current = pagination;
-
   const lastRefreshKeyRef = useRef(0);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
+    isLive24hRef.current = isLive24h;
+  }, [isLive24h]);
+
+  useEffect(() => {
+    paginationRef.current = pagination;
+  }, [pagination]);
 
   const fetchProviders = useCallback(() => {
     fetch("/api/usage/providers")

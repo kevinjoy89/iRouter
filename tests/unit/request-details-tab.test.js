@@ -428,4 +428,27 @@ describe("RequestDetailsTab default date range & reset", () => {
     expect(isLive24h).toBe(true);
     expect(filters.startDate).toBe(resetRange.startDate);
   });
+
+  it("RequestDetailsTab 源代码中引用的 React Hooks 必须完整显式导入", () => {
+    // 读取组件源代码，防止由于未解构导入 Hook 导致生产打包运行时抛出 ReferenceError 崩溃白屏
+    const componentPath = path.resolve(__dirname, "../../src/app/(dashboard)/dashboard/usage/components/RequestDetailsTab.js");
+    const source = fs.readFileSync(componentPath, "utf8");
+
+    // 提取 react 导入语句
+    const reactImportMatch = source.match(/import\s+\{([^}]+)\}\s+from\s+["']react["']/);
+    expect(reactImportMatch).toBeTruthy();
+
+    const importedHooks = reactImportMatch[1]
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    // 校验代码中使用的关键 Hook 必须已导入
+    const expectedHooks = ["useState", "useEffect", "useCallback", "useRef"];
+    for (const hook of expectedHooks) {
+      if (new RegExp(`\\b${hook}\\b`).test(source)) {
+        expect(importedHooks).toContain(hook);
+      }
+    }
+  });
 });
