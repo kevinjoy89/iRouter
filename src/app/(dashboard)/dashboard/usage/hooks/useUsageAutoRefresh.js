@@ -120,13 +120,21 @@ export function useUsageAutoRefresh({ onRefresh } = {}) {
 
   // 监听前台切回与窗口聚焦（前台唤醒自动刷新）
   useEffect(() => {
+    let wakeupTimer = null;
+
     /**
      * 处理窗口前台唤醒与聚焦事件
      */
     const handleWakeup = () => {
       // 仅在页面处于可见状态时执行前台唤醒刷新
       if (document.visibilityState === "visible") {
-        triggerRefresh({ force: false });
+        if (wakeupTimer) {
+          clearTimeout(wakeupTimer);
+        }
+        // 短暂延迟 300ms 缓冲防抖，避开休眠唤醒瞬间网络套接字恢复期并天然合并 visibilitychange 与 focus
+        wakeupTimer = setTimeout(() => {
+          triggerRefresh({ force: false });
+        }, 300);
       }
     };
 
@@ -134,6 +142,9 @@ export function useUsageAutoRefresh({ onRefresh } = {}) {
     window.addEventListener("focus", handleWakeup);
 
     return () => {
+      if (wakeupTimer) {
+        clearTimeout(wakeupTimer);
+      }
       document.removeEventListener("visibilitychange", handleWakeup);
       window.removeEventListener("focus", handleWakeup);
     };

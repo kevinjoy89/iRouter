@@ -451,4 +451,27 @@ describe("RequestDetailsTab default date range & reset", () => {
       }
     }
   });
+
+  it("RequestDetailsTab 必须校验 HTTP res.ok 且在响应异常时绝不抹除已有列表数据", () => {
+    const componentPath = path.resolve(__dirname, "../../src/app/(dashboard)/dashboard/usage/components/RequestDetailsTab.js");
+    const source = fs.readFileSync(componentPath, "utf8");
+
+    // 必须包含 res.ok 状态校验，防止 500 等报错 JSON 被当作正常数据解析
+    expect(source).toMatch(/if\s*\(!res\.ok\)/);
+
+    // 必须校验 Array.isArray，只有合法数组才更新，严禁无防护覆盖
+    expect(source).toMatch(/Array\.isArray\s*\(\s*data\?\.details\s*\)/);
+
+    // 必须具备请求序列号防护机制，防止异步竞态
+    expect(source).toMatch(/fetchRequestIdRef/);
+  });
+
+  it("useUsageAutoRefresh 必须包含前台唤醒防抖机制", () => {
+    const hookPath = path.resolve(__dirname, "../../src/app/(dashboard)/dashboard/usage/hooks/useUsageAutoRefresh.js");
+    const source = fs.readFileSync(hookPath, "utf8");
+
+    // 必须包含防抖定时器逻辑，以合并 visibilitychange 与 focus 并避开休眠唤醒网络断开期
+    expect(source).toMatch(/wakeupTimer/);
+    expect(source).toMatch(/clearTimeout\s*\(\s*wakeupTimer\s*\)/);
+  });
 });

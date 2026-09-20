@@ -182,6 +182,8 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
   const isLive24hRef = useRef(isLive24h);
   const paginationRef = useRef(pagination);
   const lastRefreshKeyRef = useRef(0);
+  // 记录最新的请求序列号，防止并发或时序颠倒导致旧数据覆盖新数据
+  const fetchRequestIdRef = useRef(0);
 
   useEffect(() => {
     filtersRef.current = filters;
@@ -197,9 +199,11 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
 
   const fetchProviders = useCallback(() => {
     fetch("/api/usage/providers")
-      .then((res) => res.json())
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        setProviders(data.providers || []);
+        if (data && Array.isArray(data.providers)) {
+          setProviders(data.providers);
+        }
         return fetchProviderNames();
       })
       .then((cache) => {
@@ -214,16 +218,20 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
 
   /**
    * 拉取请求明细列表
+   * 具备严格的 HTTP 状态校验、竞态版本防护与静默刷新容错能力
    *
    * @param {boolean} [isSilent=false] 是否静默拉取（静默拉取时不展示 loading 遮罩）
    * @param {Object} [overrideFilters=null] 覆盖使用的筛选条件（用于实时滚动窗口即时更新）
    * @param {Object} [overridePagination=null] 覆盖使用的分页参数
+   * @param {number} [retryCount=0] 当前失败重试次数
    * @return {Promise<void>} 异步拉取结果
    */
   const fetchDetails = useCallback(
-    (isSilent = false, overrideFilters = null, overridePagination = null) => {
+    (isSilent = false, overrideFilters = null, overridePagination = null, retryCount = 0) => {
       const activeFilters = overrideFilters ? { ...filtersRef.current, ...overrideFilters } : filtersRef.current;
       const activePagination = overridePagination ? { ...paginationRef.current, ...overridePagination } : paginationRef.current;
+      // 递增生成当前请求的唯一序列号
+      const currentRequestId = ++fetchRequestIdRef.current;
 
       const params = new URLSearchParams({
         page: activePagination.page.toString(),
@@ -242,16 +250,44 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
       }
 
       return fetch(`/api/usage/request-details?${params}`)
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+          return res.json();
+        })
         .then((data) => {
-          setDetails(data.details || []);
-          setPagination((prev) => ({ ...prev, ...data.pagination }));
+          // 若已有更新的请求发出，丢弃本次响应以避免竞态覆盖
+          if (currentRequestId !== fetchRequestIdRef.current) {
+            return;
+          }
+          // 仅在返回有效数组时才更新明细，绝不因字段缺失或异常清空现有展示数据
+          if (Array.isArray(data?.details)) {
+            setDetails(data.details);
+          }
+          if (data?.pagination && typeof data.pagination === "object") {
+            setPagination((prev) => ({ ...prev, ...data.pagination }));
+          }
         })
         .catch((error) => {
+          // 若不是最新发起的请求，直接忽略
+          if (currentRequestId !== fetchRequestIdRef.current) {
+            return;
+          }
           console.error("Failed to fetch request details:", error);
+
+          // 若处于静默刷新（如前台唤醒或定时轮询），遇到网络瞬断或网关恢复期，保留界面旧数据并在 1 秒后自动重试一次
+          if (isSilent && retryCount < 1) {
+            setTimeout(() => {
+              if (currentRequestId === fetchRequestIdRef.current) {
+                fetchDetails(true, overrideFilters, overridePagination, retryCount + 1);
+              }
+            }, 1000);
+          }
         })
         .finally(() => {
-          if (!isSilent) {
+          // 仅最新请求负责关闭非静默模式下的全局 loading 状态
+          if (currentRequestId === fetchRequestIdRef.current && !isSilent) {
             setLoading(false);
           }
         });
@@ -282,7 +318,10 @@ export default function RequestDetailsTab({ refreshKey = 0 } = {}) {
           startDate: latestRange.startDate,
           endDate: latestRange.endDate,
         }));
-        fetchDetails(true);
+        fetchDetails(true, {
+          startDate: latestRange.startDate,
+          endDate: latestRange.endDate,
+        });
       } else {
         fetchDetails(true);
       }
