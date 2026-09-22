@@ -60,12 +60,23 @@ function buildEnv(extra = {}) {
   return { ...env, ...extra };
 }
 
+/**
+ * 执行系统构建子进程，兼容跨平台（适配 Windows 平台的 npm.cmd）
+ *
+ * @param {string} cmd 命令可执行程序名称
+ * @param {string[]} args 命令行参数列表
+ * @param {object} [options] 额外配置项
+ * @param {object} [options.env] 自定义环境变量
+ */
 function run(cmd, args, { env } = {}) {
   log(`$ ${cmd} ${args.join(" ")}`);
-  execFileSync(cmd, args, {
+  // Windows 下 npm 为批处理脚本，需显式调用 npm.cmd 或启用 shell 执行
+  const executable = process.platform === "win32" && cmd === "npm" ? "npm.cmd" : cmd;
+  execFileSync(executable, args, {
     cwd: UPSTREAM,
     stdio: "inherit",
     env: buildEnv(env),
+    shell: process.platform === "win32",
   });
 }
 
