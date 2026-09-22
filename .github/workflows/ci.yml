@@ -1,0 +1,58 @@
+name: CI
+
+# 参照 cli-analyzer 流水线设计：在多平台上执行自动化回归门禁与构建验证
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Regression Gate (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run baseline regression gate
+        run: node tests/__baseline__/verify-no-regression.mjs tests/__baseline__/current.json
+
+  build-smoke:
+    name: Build Gateway Smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm install --include=dev
+
+      - name: Verify build-server compilation
+        working-directory: desktop
+        run: npm run build-server

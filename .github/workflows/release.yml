@@ -1,0 +1,124 @@
+name: Release
+
+# 打 tag (v*，如 v0.3.0) 即构建 macOS / Windows / Linux 三平台桌面安装包并创建 GitHub Release。
+# 参照标准跨平台自动化构建矩阵，自动汇总全平台安装包并生成 SHA256 校验和。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write # softprops/action-gh-release 需要写权限以创建 GitHub Release
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            dist-cmd: npm run dist:mac
+          - os: windows-latest
+            platform: windows
+            dist-cmd: npm run dist:win
+          - os: ubuntu-22.04
+            platform: linux
+            dist-cmd: npm run dist:linux
+    runs-on: ${{ matrix.os }}
+    env:
+      # 海外 runner 直连 GitHub Releases 官方源，避免国内镜像源偶发网络超时
+      ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/"
+      ELECTRON_BUILDER_BINARIES_MIRROR: "https://github.com/electron-userland/electron-builder-binaries/releases/download/"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Derive version from tag
+        shell: bash
+        run: |
+          if [ -n "$GITHUB_REF_NAME" ]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          fi
+
+      # 保证构建前 desktop/package.json 版本号与 Tag 强一致
+      - name: Sync version into desktop/package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkgPath = "desktop/package.json";
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+          '
+
+      # Linux 平台构建 AppImage 所需依赖包
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools fakeroot
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm install --include=dev
+
+      - name: Build and package desktop app
+        working-directory: desktop
+        run: ${{ matrix.dist-cmd }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            desktop/build/dist/*.dmg
+            desktop/build/dist/*.exe
+            desktop/build/dist/*.AppImage
+            desktop/build/dist/*.zip
+          if-no-files-found: warn
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # 汇总三平台产物生成唯一的 checksums.txt，供用户下载校验
+      - name: Generate consolidated checksums.txt
+        run: |
+          cd artifacts
+          find . -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.zip" \) -exec sha256sum {} + | while read -r hash path; do
+            echo "$hash  $(basename "$path")"
+          done | sort -u > checksums.txt
+          echo "== checksums.txt =="
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.zip
+            artifacts/checksums.txt
+          draft: false
+          generate_release_notes: true
