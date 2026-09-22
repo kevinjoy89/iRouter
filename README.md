@@ -1,116 +1,137 @@
+<div align="center">
+
 # iRouter
 
-**9Router 的跨平台桌面版**——装完是一个真正的 App，窗口里直接是 9Router 面板，不用再开浏览器，也不需要目标机器装 Node。
+**Cross-platform Native Desktop Application for 9Router**
 
-9Router 源码基于上游 [decolua/9router](https://github.com/decolua/9router)（MIT）**v0.5.81** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/`），可自由修改（如思考强度上限降级、限流自动重试）；升级 = 对比上游新版本手工合并。桌面壳层在 `desktop/`。术语见 [CONTEXT.md](./CONTEXT.md)，技术决策见 [docs/adr/](./docs/adr/)。
+English | [简体中文](./README.zh-CN.md)
 
-## 安装与下载
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Release](https://img.shields.io/github/v/release/kevinjoy89/iRouter?include_prereleases)](https://github.com/kevinjoy89/iRouter/releases)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](https://github.com/kevinjoy89/iRouter/releases)
 
-### 方式一：下载预编译安装包（推荐）
-前往 [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases) 下载最新版本的安装包：
+</div>
+
+---
+
+**iRouter** is a cross-platform standalone desktop application for 9Router. It packages the gateway and dashboard into a true native desktop app powered by Electron—no system Node.js environment required and no need to open a separate browser tab.
+
+The gateway core is based on upstream [decolua/9router](https://github.com/decolua/9router) (MIT, **v0.5.81**) with custom extensions in the repository root (`src/`, `open-sse/`, `tests/`), while the desktop shell layer is maintained under `desktop/`. For architecture decisions and terms, see [CONTEXT.md](./CONTEXT.md) and [docs/adr/](./docs/adr/).
+
+---
+
+## ✨ Key Features
+
+- 🖥️ **Native Desktop Experience**: Built with Electron, supporting system tray residency, single-instance lock, and auto-start on boot. Closing the window simply minimizes it to the tray, keeping the background gateway service running seamlessly.
+- 🎯 **Effort Cap Degradation & Effort-Aware Routing**: Proactively clamps the request `reasoning_effort` to the supported tier set declared by each provider, prioritizing combo model members that natively support the target effort.
+- 🔄 **Intelligent Auto-Retry**: Automatically intercepts rate-limiting and temporary gateway errors (429, 503, 529) with jittered exponential backoff before the first byte is streamed, preventing external CLI agents (Claude Code, Codex, Cursor) from aborting immediately.
+- 🛡️ **Egress Request Redaction (DLP)**: Inspects and sanitizes outbound request bodies for sensitive credentials, private keys, national IDs, and payment card numbers before forwarding, operating with a fail-open guarantee.
+- 📊 **Full Usage Retention & Real-time Refresh**: Rolling 24-hour dynamic refresh with comprehensive historical detail preservation and precise status filtering.
+- 🔒 **Isolated Data Storage**: Gateway SQLite database, keys, and configurations are persisted in `~/.irouter`, isolated from app cache and uninstallation. Seamless one-click migration from legacy CLI `~/.9router` data is supported on first launch.
+
+---
+
+## 🚀 Installation & Downloads
+
+### Option 1: Download Pre-built Installers (Recommended)
+Download the latest pre-compiled binary package from [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases):
 - **macOS**: `iRouter-0.3.0.dmg`
-- **Windows / Linux**: 参见 Releases 发布包
+- **Windows**: `iRouter-0.3.0-setup.exe`
+- **Linux**: `iRouter-0.3.0.AppImage`
 
-下载后将 **iRouter** 拖入「应用程序（Applications）」即可。
+Drag **iRouter** into your `Applications` folder to start.
 
-> **macOS 首次打开提示**：
-> 个人开源项目未做付费企业签名与公证，macOS Gatekeeper 默认会拦截。解决办法二选一：
-> 1. 在「应用程序」里 **右键（按住 Control）点 iRouter → 打开 → 再点打开**
-> 2. 或进入 系统设置 → 隐私与安全性 → 找到被拦截提示 → 点「仍要打开」
-> 
-> 仅首次启动需要确认，之后正常双击即可。
+> **macOS Gatekeeper Notice**:
+> Since this is a personal open-source application without an Apple paid developer certificate (unsigned and un-notarized), macOS Gatekeeper may show a warning upon first launch. You can bypass it by:
+> 1. In Finder -> Applications, **Right-click (or Control-click) iRouter -> Open -> click Open** in the prompt;
+> 2. Or go to **System Settings -> Privacy & Security -> Security** and click **Open Anyway**.
+> This confirmation is only required once.
 
-### 方式二：从源码自主打包构建
+### Option 2: Build from Source
 ```bash
 git clone https://github.com/kevinjoy89/iRouter.git
 cd iRouter/desktop
 npm install --include=dev
-npm run dist:mac    # 产出 .dmg 安装包（位于 desktop/build/dist/）
-# Windows 请使用: npm run dist:win
-# Linux 请使用:   npm run dist:linux
+
+# Package installer for your platform
+npm run dist:mac    # macOS (.dmg)
+npm run dist:win    # Windows (NSIS .exe)
+npm run dist:linux  # Linux (.AppImage)
 ```
 
-## 日常使用
+---
 
-| 操作 | 行为 |
+## 💡 Daily Usage
+
+| Action | Behavior |
 | --- | --- |
-| 启动 iRouter | 窗口内直接显示 9Router 面板（内嵌网关已就绪） |
-| **关闭窗口** | 只是**隐藏到托盘**，网关继续运行；不是退出 |
-| 托盘菜单 | 打开面板 / 开机自启（默认关） / 退出 iRouter |
-| 托盘退出 | 网关进程一并终止（含其子进程，无残留） |
+| **Launch iRouter** | Opens the window with embedded 9Router dashboard (gateway ready) |
+| **Close Window** | Hides the window to system tray; the gateway service continues running |
+| **System Tray** | Click tray icon for quick actions: Open Dashboard / Auto-Start / Quit |
+| **Quit iRouter** | Right-click tray -> Quit; safely terminates gateway process and children |
 
-## 网关地址与外部 CLI 配置
+---
 
-面板和 OpenAI 兼容 API 共用同一个端口：
+## 🔌 Gateway Endpoint & CLI Configuration
+
+The desktop dashboard and the OpenAI-compatible API share the same port:
 
 ```
 Endpoint:  http://127.0.0.1:20128/v1
-API Key:   面板内复制
+API Key:   Copy directly from the embedded dashboard
 ```
 
-- **默认端口 20128**（与上游 CLI 一致）
-- 若 20128 已被占用（例如你的 CLI 正在跑），iRouter 会**自动向上顺延**到下一个空闲端口（如 20129），**绝不杀掉占用进程**；此时请查看**窗口标题或托盘提示**里的实际端口，并同步修改 Claude Code / Codex 等工具里的 endpoint
-- 只绑定 `127.0.0.1`，不会把网关暴露到局域网（上游 CLI 默认绑 `0.0.0.0`，这是桌面版的刻意收紧）
+- **Default Port 20128**: Matches upstream CLI convention.
+- **Port Escalation**: If port 20128 is already occupied (e.g., your CLI is running), iRouter **automatically probes and increments** to the next available port (e.g., 20129) without killing conflicting processes. Check the window title or tray tooltip for the active port.
+- **Localhost Only**: Binds strictly to `127.0.0.1` for loopback security and never exposes the gateway to local networks.
 
-## 数据放在哪
+---
 
-| 平台 | 核心数据库与配置路径 | 运行时缓存路径（GPUCache 等） |
+## 📂 Data Directories
+
+| Platform | Core Gateway Database & Settings (`DATA_DIR`) | Runtime & Chromium Cache |
 | --- | --- | --- |
-| macOS | `~/.irouter`（核心：`~/.irouter/db/data.sqlite`） | `~/Library/Application Support/iRouter` |
+| macOS | `~/.irouter` (Core DB: `~/.irouter/db/data.sqlite`) | `~/Library/Application Support/iRouter` |
 | Windows | `%USERPROFILE%\.irouter` | `%APPDATA%\iRouter` |
 | Linux | `~/.irouter` | `~/.config/iRouter` |
 
-**核心数据与应用卸载隔离**：核心 SQLite 数据库、密钥与配置持久化保存在用户主目录下的 `~/.irouter`，即便偶尔卸载应用或清理系统 Application Support 缓存，您的数据与配置依然完好无损。首次运行自动无感平滑迁移已有数据。
+**Uninstallation**: Quit from tray -> delete `iRouter.app` -> remove `~/.irouter` to leave zero traces.
 
-**首次运行**若检测到旧版 CLI 的 `~/.9router`，会弹窗询问是否导入（配置、数据库、密钥；不含 CLI 专用的 `runtime/`）。导入是**复制而非移动**，原数据始终保留，随时可退回 CLI 形态。
+---
 
-**卸载**：托盘退出 → 删除 `iRouter.app` → 删除上面的数据目录。不留任何残余。
-
-## 与 CLI 形态的关系
-
-两者数据目录各自独立，可以共存，但**默认端口相同（20128）**：先启动者拿到 20128，后启动者自动顺延到 20129。但**不要同时连接同一个供应商做 OAuth**，两边各自的数据目录互不同步。
-
-## 开发
-
-```
-iRouter/
-├── src/ open-sse/ tests/ cli/   # 9Router 源码（基于上游 v0.5.81 定制）
-├── desktop/          # 壳层：Electron 主进程 + 构建脚本 + 打包配置
-│   ├── main.js
-│   ├── scripts/      # build-server / smoke / test-import / test-single-instance / mask-icon
-│   ├── resources/    # 源资产（icon.png）
-│   └── build/        # 生成产物（gitignore）
-├── docs/adr/         # 架构决策记录
-├── openspec/         # 规格与变更管理
-└── CONTEXT.md        # 术语表
-```
-
-常用命令（在 `desktop/` 下，完整手动打包与排错指南见 [docs/PACKAGING.md](./docs/PACKAGING.md)）：
+## 🛠️ Local Development & Testing
 
 ```bash
-npm install --include=dev   # 本机 npm 若设了 NODE_ENV=production，必须显式带 --include=dev
-npm run build-server        # 构建内嵌网关（根目录 next build，产物拷进 build/gateway/server）
-npm run dev                 # 构建 + 启动开发实例
-npm run smoke               # 端到端冒烟（隔离数据目录，不碰真实数据）
-npm run test:import         # 首次运行导入的 4 场景验证
-npm run test:instance       # 单实例验证
-npm run dist:mac            # 产出 .dmg
-npm run smoke:packaged      # 对打包成品跑冒烟
+cd desktop
+
+# 1. Build server and launch desktop dev instance
+npm run dev
+
+# 2. Run end-to-end automated smoke tests (in isolated temp directory)
+npm run smoke
+
+# 3. Test migration import and single instance mutex
+npm run test:import
+npm run test:instance
 ```
 
-### 三个必须知道的坑
+See [CONTEXT.md](./CONTEXT.md), [docs/adr/](./docs/adr/), and [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed architecture decisions and development guides.
 
-1. **宿主环境变量泄漏**：如果构建环境里残留其他 Next.js 应用的变量（`__NEXT_PRIVATE_STANDALONE_CONFIG`、`PORT`、`HOSTNAME`、`NEXT_DIST_DIR`），`next build` 会**跳过本项目的 `next.config.mjs`**、改用泄漏配置而崩溃（`TypeError: generate is not a function`），或让网关绑到错误端口。`build-server.mjs` 与 `main.js` 都已做环境净化，改动时不要去掉。
-2. **electron-builder 的 node_modules 硬排除**：复制 `extraResources` 时，相对路径**恰好为** `node_modules` 的目录会被无条件剔除（`app-builder-lib/util/filter.js`），`filter: ["**/*"]` 也救不回来。所以网关产物必须嵌套一层放在 `build/gateway/server`，打包后落在 `Resources/gateway/server`。
-3. **子进程不能直接用主二进制启动**：`spawn(process.execPath, ...)` 在 macOS 会被 LaunchServices 当成独立应用，Dock 上多出一个通用 "exec" 图块（`ELECTRON_RUN_AS_NODE` 与 `__CFBundleIdentifier` 都挡不住）。现改为 spawn `Contents/Frameworks/iRouter Helper.app/Contents/MacOS/iRouter Helper`（其 Info.plist 已声明 `LSUIElement=true`），与 VS Code 跑扩展宿主同一套路。另外网关子进程用 `detached: true` 启动，主进程被强杀时它会孤儿化继续占端口，因此数据目录里有 `.gateway.pid`，启动时先回收孤儿。
+---
 
-## 已知限制
+## 🤝 Acknowledgements
 
-- 未签名、未公证、无自动更新（自用定位）；macOS 之外首次运行会有 SmartScreen / 包管理器提示
-- Windows 与 Linux 的打包配置已就位，但**未在实机验证**
-- 开机自启基于 Electron 的 login item API，Linux 下需要额外的 `.desktop` 方案，当前不保证生效
-- 存储走 `node:sqlite`（Node 内建）或 `sql.js` 回退，不含 `better-sqlite3` 原生模块
+This project builds upon the work and inspiration of several open-source projects:
 
-## 许可
+1. **[decolua/9router](https://github.com/decolua/9router)**:
+   - Thanks to decolua and the 9Router contributors for providing a powerful, extensible AI routing gateway. iRouter customizes and packages 9Router under the terms of the MIT License.
+2. **[momijineko/llm-retry-proxy](https://github.com/momijineko/llm-retry-proxy)**:
+   - Special thanks to momijineko for pioneering techniques in resilient LLM proxying. iRouter draws direct inspiration and adapts core designs from this project for its **intelligent rate-limit auto-retry strategy**, **egress request redaction / DLP engine**, and **virtual-scrolling console log presentation layer**.
 
-MIT（与上游一致）。上游 9Router 版权归 [decolua](https://github.com/decolua/9router) 所有。
+---
+
+## 📄 License
+
+This project is licensed under the **[MIT License](./LICENSE)**.
+- Upstream 9Router components: Copyright (c) 2024-2026 decolua and contributors.
+- iRouter desktop wrapper and custom enhancements: Copyright (c) 2026 kevinjoy89 and contributors.
