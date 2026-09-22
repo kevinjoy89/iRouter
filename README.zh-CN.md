@@ -1,4 +1,7 @@
 
+> 💡 **提示**：本文件是上游 9Router（decolua/9router CLI 版）的历史参考文档。
+> 如果您正在使用或了解 **iRouter 跨平台桌面应用**，请参阅项目主文档 👉 [README.md](./README.md)。
+
 <div align="center">
   <img src="./images/9router.png?1" alt="9Router Dashboard" width="800"/>
   

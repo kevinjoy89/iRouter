@@ -4,15 +4,31 @@
 
 9Router 源码基于上游 [decolua/9router](https://github.com/decolua/9router)（MIT）**v0.5.81** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/`），可自由修改（如思考强度上限降级、限流自动重试）；升级 = 对比上游新版本手工合并。桌面壳层在 `desktop/`。术语见 [CONTEXT.md](./CONTEXT.md)，技术决策见 [docs/adr/](./docs/adr/)。
 
-## 安装（macOS）
+## 安装与下载
 
-1. 打开 `desktop/build/dist/iRouter-0.1.8.dmg`
-2. 把 **iRouter** 拖进 `Applications`
-3. **首次打开**：应用未做签名与公证，Gatekeeper 会拦。解决办法二选一：
-   - 在「应用程序」里 **右键（按住 Control）点 iRouter → 打开 → 再点打开**
-   - 或 系统设置 → 隐私与安全性 → 找到被拦截提示 → 点「仍要打开」
+### 方式一：下载预编译安装包（推荐）
+前往 [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases) 下载最新版本的安装包：
+- **macOS**: `iRouter-0.3.0.dmg`
+- **Windows / Linux**: 参见 Releases 发布包
 
-之后正常双击即可，不需要再重复这一步。
+下载后将 **iRouter** 拖入「应用程序（Applications）」即可。
+
+> **macOS 首次打开提示**：
+> 个人开源项目未做付费企业签名与公证，macOS Gatekeeper 默认会拦截。解决办法二选一：
+> 1. 在「应用程序」里 **右键（按住 Control）点 iRouter → 打开 → 再点打开**
+> 2. 或进入 系统设置 → 隐私与安全性 → 找到被拦截提示 → 点「仍要打开」
+> 
+> 仅首次启动需要确认，之后正常双击即可。
+
+### 方式二：从源码自主打包构建
+```bash
+git clone https://github.com/kevinjoy89/iRouter.git
+cd iRouter/desktop
+npm install --include=dev
+npm run dist:mac    # 产出 .dmg 安装包（位于 desktop/build/dist/）
+# Windows 请使用: npm run dist:win
+# Linux 请使用:   npm run dist:linux
+```
 
 ## 日常使用
 

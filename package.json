@@ -1,8 +1,13 @@
 {
   "name": "9router-app",
   "version": "0.5.81",
-  "description": "9Router web dashboard",
+  "description": "9Router web dashboard (embedded in iRouter)",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kevinjoy89/iRouter.git"
+  },
+  "homepage": "https://github.com/kevinjoy89/iRouter#readme",
   "scripts": {
     "dev": "next dev --port 20127",
     "dev:webpack": "next dev --webpack --port 20127",

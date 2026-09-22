@@ -20,7 +20,18 @@ if (!resultsPath) { console.error("Missing results.json path"); process.exit(2);
 // thật của repo thay vì giả định "/app/".
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+/**
+ * 将测试文件绝对路径或任意环境路径转换为统一的相对路径键名
+ *
+ * @param {string} absPath 测试文件路径
+ * @return {string} 标准化后的相对路径，以 tests/ 开头
+ */
 function toRelKey(absPath) {
+  const normalized = absPath.split("\\").join("/");
+  const testIdx = normalized.indexOf("tests/");
+  if (testIdx !== -1) {
+    return normalized.slice(testIdx);
+  }
   const rel = relative(REPO_ROOT, absPath);
   return (isAbsolute(rel) ? absPath : rel).split("\\").join("/");
 }
