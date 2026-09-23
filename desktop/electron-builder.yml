@@ -38,7 +38,10 @@ publish: null
 
 mac:
   target:
-    - dmg
+    - target: dmg
+      arch:
+        - arm64
+        - x64
   category: public.app-category.developer-tools
   icon: resources/icon.png
   # 自用不签名：identity:null + gatekeeperAssess:false 跳过签名与公证检查
@@ -46,20 +49,33 @@ mac:
   gatekeeperAssess: false
 
 dmg:
-  artifactName: "${productName}-${version}.${ext}"
+  artifactName: "${productName}-${version}-macos-${arch}.${ext}"
 
 win:
   target:
-    - nsis
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
   icon: resources/icon.png
+  artifactName: "${productName}-${version}-windows-amd64-portable.${ext}"
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  artifactName: "${productName}-${version}-setup.${ext}"
+  artifactName: "${productName}-${version}-windows-amd64-installer.${ext}"
 
 linux:
   target:
-    - AppImage
+    - target: deb
+      arch:
+        - x64
+    - target: tar.gz
+      arch:
+        - x64
   category: Development
   icon: resources/icon.png
+  artifactName: "${productName}-${version}-linux-amd64.${ext}"
+

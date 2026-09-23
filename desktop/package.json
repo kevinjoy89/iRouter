@@ -20,9 +20,9 @@
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "test:import": "node scripts/test-import.mjs",
     "test:instance": "node scripts/test-single-instance.mjs",
-    "dist:mac": "npm run build-server && node scripts/package.mjs --mac",
-    "dist:win": "npm run build-server && node scripts/package.mjs --win",
-    "dist:linux": "npm run build-server && node scripts/package.mjs --linux"
+    "dist:mac": "npm run build-server && node scripts/package.mjs --mac --arm64 --x64",
+    "dist:win": "npm run build-server && node scripts/package.mjs --win --x64",
+    "dist:linux": "npm run build-server && node scripts/package.mjs --linux --x64"
   },
   "devDependencies": {
     "electron": "^44.2.0",

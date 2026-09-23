@@ -78,6 +78,17 @@ jobs:
         working-directory: desktop
         run: ${{ matrix.dist-cmd }}
 
+      # 将 macOS x64 产物重命名为标准的 amd64 规范
+      - name: Normalize macOS x64 artifact name to amd64
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          for f in desktop/build/dist/*-macos-x64.dmg; do
+            if [ -f "$f" ]; then
+              mv "$f" "${f/-macos-x64.dmg/-macos-amd64.dmg}"
+            fi
+          done
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -85,9 +96,10 @@ jobs:
           path: |
             desktop/build/dist/*.dmg
             desktop/build/dist/*.exe
-            desktop/build/dist/*.AppImage
+            desktop/build/dist/*.deb
+            desktop/build/dist/*.tar.gz
             desktop/build/dist/*.zip
-          if-no-files-found: warn
+          if-no-files-found: error
 
   release:
     name: Publish GitHub Release
@@ -104,7 +116,7 @@ jobs:
       - name: Generate consolidated checksums.txt
         run: |
           cd artifacts
-          find . -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.zip" \) -exec sha256sum {} + | while read -r hash path; do
+          find . -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.deb" -o -name "*.tar.gz" -o -name "*.zip" \) -exec sha256sum {} + | while read -r hash path; do
             echo "$hash  $(basename "$path")"
           done | sort -u > checksums.txt
           echo "== checksums.txt =="
@@ -116,8 +128,10 @@ jobs:
           files: |
             artifacts/**/*.dmg
             artifacts/**/*.exe
-            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.tar.gz
             artifacts/**/*.zip
             artifacts/checksums.txt
           draft: false
-          generate_release_notes: true
+          generate_release_notes: false
+
