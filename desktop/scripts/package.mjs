@@ -11,7 +11,15 @@ process.env.ELECTRON_MIRROR ??= "https://npmmirror.com/mirrors/electron/";
 process.env.ELECTRON_BUILDER_BINARIES_MIRROR ??= "https://npmmirror.com/mirrors/electron-builder-binaries/";
 
 const cli = require.resolve("electron-builder/out/cli/cli.js");
-const child = spawn(process.execPath, [cli, ...process.argv.slice(2)], {
+
+// 避免 CI/Tag 构建环境下 electron-builder 触发隐式发布导致的 GH_TOKEN 校验失败
+const userArgs = process.argv.slice(2);
+const hasPublishFlag = userArgs.some(
+  (arg) => arg.startsWith("--publish") || arg === "-p",
+);
+const defaultArgs = hasPublishFlag ? [] : ["--publish", "never"];
+
+const child = spawn(process.execPath, [cli, ...defaultArgs, ...userArgs], {
   stdio: "inherit",
   env: process.env,
 });
