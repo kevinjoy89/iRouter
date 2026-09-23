@@ -68,6 +68,7 @@ nsis:
   artifactName: "${productName}-${version}-windows-amd64-installer.${ext}"
 
 linux:
+  maintainer: "kevinjoy89 <kevinjoy89@126.com>"
   target:
     - target: deb
       arch:

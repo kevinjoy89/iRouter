@@ -5,7 +5,7 @@
   "private": true,
   "description": "iRouter — 9Router 的跨平台桌面版（Electron 壳层，网关源码基于上游 v0.5.81 定制）",
   "main": "main.js",
-  "author": "kevinjoy89",
+  "author": "kevinjoy89 <kevinjoy89@126.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
