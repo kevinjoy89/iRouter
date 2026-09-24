@@ -52,6 +52,7 @@ source/*
 docs/*
 !docs/ARCHITECTURE.md
 !docs/adr
+!docs/release-notes
 test/*
 open-sse/test/*
 RM.vn.md
