@@ -44,8 +44,9 @@ mac:
         - x64
   category: public.app-category.developer-tools
   icon: resources/icon.png
-  # 自用不签名：identity:null + gatekeeperAssess:false 跳过签名与公证检查
-  identity: null
+  # 启用标准 Ad-Hoc 深度自签名 (codesign -s -)，避免无付费证书开源应用被 macOS 误判为“文件已损坏”
+  identity: "-"
+  hardenedRuntime: false
   gatekeeperAssess: false
 
 dmg:
