@@ -35,9 +35,9 @@
 
 ### 方式一：下载预编译安装包（推荐）
 前往 [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases) 下载对应平台的最新安装包：
-- **macOS**: `iRouter-0.3.0.dmg`
-- **Windows**: `iRouter-0.3.0-setup.exe`
-- **Linux**: `iRouter-0.3.0.AppImage`
+- **macOS**: `iRouter-0.3.1.dmg`
+- **Windows**: `iRouter-0.3.1-setup.exe`
+- **Linux**: `iRouter-0.3.1.AppImage`
 
 下载后将 **iRouter** 拖入「应用程序（Applications）」即可。
 
