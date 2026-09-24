@@ -16,7 +16,7 @@ English | [简体中文](./README.zh-CN.md)
 
 **iRouter** is a cross-platform standalone desktop application for 9Router. It packages the gateway and dashboard into a true native desktop app powered by Electron—no system Node.js environment required and no need to open a separate browser tab.
 
-The gateway core is based on upstream [decolua/9router](https://github.com/decolua/9router) (MIT, **v0.5.81**) with custom extensions in the repository root (`src/`, `open-sse/`, `tests/`), while the desktop shell layer is maintained under `desktop/`. For architecture decisions and terms, see [CONTEXT.md](./CONTEXT.md) and [docs/adr/](./docs/adr/).
+The gateway core is based on upstream [decolua/9router](https://github.com/decolua/9router) (MIT, **v0.5.86**) with custom extensions in the repository root (`src/`, `open-sse/`, `tests/`), while the desktop shell layer is maintained under `desktop/`. For architecture decisions and terms, see [CONTEXT.md](./CONTEXT.md) and [docs/adr/](./docs/adr/).
 
 ---
 

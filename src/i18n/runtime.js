@@ -265,12 +265,13 @@ export function onLocaleChange(callback) {
 
 // Process text node
 export function processTextNode(node) {
-  if (!node.nodeValue || !node.nodeValue.trim()) return;
-  
+  const current = node.nodeValue;
+  if (!current || !current.trim()) return;
+
   // Skip if parent is script, style, code, or structural elements
   const parent = node.parentElement;
   if (!parent) return;
-  
+
   // Skip if parent or any ancestor has data-i18n-skip attribute
   let element = parent;
   while (element) {
@@ -279,31 +280,33 @@ export function processTextNode(node) {
     }
     element = element.parentElement;
   }
-  
+
   const tagName = parent.tagName?.toLowerCase();
-  
+
   // Skip elements that don't allow text nodes
   const skipTags = [
     "script", "style", "code", "pre",
     "colgroup", "select", "datalist", "optgroup"
   ];
-  
+
   if (skipTags.includes(tagName)) return;
-  
-  // Store original text if not already stored. React updates text nodes in place
-  // and characterData is not observed, so a cached original goes stale: re-capture
-  // whenever the node no longer holds what we wrote last, otherwise a later
-  // full-DOM pass (route/locale change) reverts dynamic text to its mount-time
-  // value — counters and connection labels would freeze while the rest re-renders.
-  if (!node._originalText || node._i18nApplied !== node.nodeValue) {
-    node._originalText = node.nodeValue;
+
+  // React reuses text nodes and rewrites their value on re-render (a
+  // characterData mutation, no childList event). When the current value is
+  // neither our last translation nor the recorded original, it is fresh
+  // source text — re-capture it as the new original before translating.
+  const isOurTranslation = (node._translated != null && current === node._translated) || (node._i18nApplied != null && current === node._i18nApplied);
+  const isSameAsOriginal = current === node._originalText;
+  if (!isOurTranslation && !isSameAsOriginal) {
+    node._originalText = current;
   }
-  
-  // Use original text for translation
-  const original = node._originalText;
-  const translated = translate(original);
+  if (node._originalText == null) node._originalText = current;
+
+  // Translate from the recorded original so locale switches stay idempotent
+  const translated = translate(node._originalText);
+  node._translated = translated;
   node._i18nApplied = translated;
-  
+
   // Only update if different to avoid unnecessary DOM mutations
   if (translated !== node.nodeValue) {
     node.nodeValue = translated;
@@ -394,7 +397,10 @@ export async function initRuntimeI18n() {
   // Process existing DOM
   processElement(document.body);
   
-  // Watch for new nodes
+  // Watch for new nodes AND in-place text rewrites. React reuses text nodes on
+  // re-render (only nodeValue changes → a characterData mutation with no
+  // childList event), so observing childList alone leaves later-updated labels
+  // untranslated.
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       // React re-renders reset title / placeholder attributes — re-translate on change
@@ -410,7 +416,7 @@ export async function initRuntimeI18n() {
       if (mutation.type === "characterData") {
         const node = mutation.target;
         // Skip if this change was made by our own translation to avoid infinite loops
-        if (node._i18nApplied === node.nodeValue) return;
+        if (node._translated === node.nodeValue || node._i18nApplied === node.nodeValue) return;
         processTextNode(node);
         return;
       }
