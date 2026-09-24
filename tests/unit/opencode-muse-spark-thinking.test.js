@@ -214,14 +214,17 @@ describe("OpenCode Free Muse Spark thinking", () => {
     // User message, function_call, function_call_output, and next user message survive
     const types = out.input.map((item) => item.type);
     expect(types).toEqual(["message", "function_call", "function_call_output", "message"]);
-    // Tools flattened and empty properties added
-    expect(out.tools).toEqual([
-      {
-        type: "function",
-        name: "shell",
-        description: "Run shell command",
-        parameters: { type: "object", properties: {} },
-      },
-    ]);
+    // 兼容上游 Free-Tier 指纹注入工具（shell 原工具有效保留，伴随注入防风控诱饵四件套工具）
+    expect(out.tools).toEqual(
+      expect.arrayContaining([
+        {
+          type: "function",
+          name: "shell",
+          description: "Run shell command",
+          parameters: { type: "object", properties: {} },
+        },
+      ])
+    );
+    expect(out.tools.length).toBe(5);
   });
 });

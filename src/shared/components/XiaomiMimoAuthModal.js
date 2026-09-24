@@ -354,7 +354,7 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
                 <button
                   type="button"
                   onClick={() => setShowClusterModal(false)}
-                  className="text-text-muted hover:text-text-primary p-1 rounded-md transition-colors cursor-pointer"
+                  className="text-text-muted hover:text-text-main p-1 rounded-md transition-colors cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-lg">close</span>
                 </button>

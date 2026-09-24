@@ -113,7 +113,7 @@ export const MODEL_CAPABILITIES = {
   "glm-4.6v":          { vision: true, videoInput: true, reasoning: true, thinkingFormat: "zai", contextWindow: 128000, maxOutput: 32768 },
   "glm-4.5v":          { vision: true, videoInput: true, reasoning: true, thinkingFormat: "zai", contextWindow: 64000, maxOutput: 16384 },
   // GLM-5.2 has 1M context — pattern *glm-5* only gives 200k, so override here
-  "glm-5.2":           { reasoning: true, thinkingFormat: "zai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 131072 },
+  "glm-5.2":           { reasoning: true, thinkingFormat: "zai", thinkingCanDisable: false, thinkingEffortSupported: true, contextWindow: 1000000, maxOutput: 131072 },
 
   // DeepSeek's first V4 model with image input; text limits match V4-Flash.
   "deepseek-v4-flash-vision-exp": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
@@ -430,17 +430,25 @@ export const PATTERN_CAPABILITIES = [
  */
 export function aggregateComboCapabilities(comboModels, comboLookup = null, _depth = 0) {
   if (!comboModels?.length || _depth > 6) return null;
-  const allCaps = comboModels.map((fullId) => {
-    // Nested combo: bare name (no slash) that exists in the lookup — recurse
+  const allCaps = [];
+  for (const raw of comboModels) {
+    // 兼容字符串或对象成员（如 { model: "..." } 或 { id: "..." }），并过滤空白字符
+    const fullId = typeof raw === "string" ? raw.trim() : String(raw?.model || raw?.id || "").trim();
+    if (!fullId) continue;
+    // 嵌套 Combo：无斜杠且存在于 lookup 映射中时递归解析
     if (!fullId.includes("/") && comboLookup?.[fullId]) {
-      return aggregateComboCapabilities(comboLookup[fullId], comboLookup, _depth + 1)
+      const nested = aggregateComboCapabilities(comboLookup[fullId], comboLookup, _depth + 1)
           ?? getCapabilitiesForModel(null, fullId);
+      if (nested) allCaps.push(nested);
+      continue;
     }
     const slash = fullId.indexOf("/");
     const provider = slash === -1 ? null : fullId.slice(0, slash);
     const model = slash === -1 ? fullId : fullId.slice(slash + 1);
-    return getCapabilitiesForModel(provider, model);
-  });
+    const caps = getCapabilitiesForModel(provider, model);
+    if (caps) allCaps.push(caps);
+  }
+  if (!allCaps.length) return null;
   const first = allCaps[0];
   return {
     vision:      allCaps.some((c) => c.vision),
