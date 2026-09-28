@@ -21,6 +21,7 @@ const {
   readSettings: readShellSettings,
   writeSettings: writeShellSettings,
 } = require("./settings.js");
+const updater = require("./updater");
 
 const DEFAULT_PORT = 20128;
 const PORT_SCAN_SPAN = 50;
@@ -41,6 +42,9 @@ let gateway = null;
 let gatewayPort = 0;
 let quitting = false;
 let smokeStarted = false;
+let currentDownloadAbortController = null;
+let latestCheckedUpdate = null;
+let downloadedPackagePath = null;
 
 // 应用名必须在任何 getPath 调用前固定：userData 目录名取自它（spec: 数据目录隔离）
 app.setName("iRouter");
@@ -671,6 +675,7 @@ function registerSettingsIpc() {
     ...readShellSettings(getGatewayDataDir()),
     // 开机自启的真相源是系统登录项，不是设置文件（见 desktop/settings.js 顶部注释）
     launchAtLogin: autostartEnabled(),
+    appVersion: app.getVersion(),
   }));
 
   ipcMain.handle("shell:set-setting", (_event, key, value) => {
@@ -683,8 +688,158 @@ function registerSettingsIpc() {
     return {
       ...readShellSettings(getGatewayDataDir()),
       launchAtLogin: autostartEnabled(),
+      appVersion: app.getVersion(),
     };
   });
+}
+
+/**
+ * 注册版本更新相关的 IPC 管道处理函数
+ */
+function registerUpdaterIpc() {
+  // 检查版本更新
+  ipcMain.handle("shell:check-update", async (_event, force = false) => {
+    return triggerUpdateCheck(force);
+  });
+
+  // 下载更新安装包
+  ipcMain.handle("shell:download-update", async () => {
+    if (!latestCheckedUpdate || !latestCheckedUpdate.downloadURL) {
+      throw new Error("No update asset available for download");
+    }
+    if (currentDownloadAbortController) {
+      currentDownloadAbortController.abort();
+    }
+    currentDownloadAbortController = new AbortController();
+
+    const assetName = latestCheckedUpdate.assetName || `iRouter-${latestCheckedUpdate.latest}`;
+    try {
+      const filePath = await updater.downloadFile({
+        url: latestCheckedUpdate.downloadURL,
+        fileName: assetName,
+        sizeHint: latestCheckedUpdate.assetSize,
+        abortSignal: currentDownloadAbortController.signal,
+        onProgress: (progress) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("shell:update-progress", progress);
+          }
+        },
+      });
+
+      // 完整性校验：若存在 checksums.txt 则比对 SHA-256
+      if (latestCheckedUpdate.checksumsURL) {
+        try {
+          const checksumText = await updater.fetchText(latestCheckedUpdate.checksumsURL);
+          const checksums = updater.parseChecksums(checksumText);
+          const expectedHash = checksums[assetName];
+          if (!expectedHash) {
+            throw new Error(`Checksum for ${assetName} not found in checksums.txt`);
+          }
+          const valid = await updater.verifyFileSha256(filePath, expectedHash);
+          if (!valid) {
+            throw new Error("SHA-256 verification failed");
+          }
+        } catch (verifyErr) {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("shell:update-error", verifyErr.message);
+          }
+          throw verifyErr;
+        }
+      }
+
+      downloadedPackagePath = filePath;
+      const downloadInfo = {
+        path: filePath,
+        assetName,
+        releaseURL: latestCheckedUpdate.releaseURL,
+        isArchive: updater.isArchivePackage(filePath),
+      };
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("shell:update-downloaded", downloadInfo);
+      }
+      return downloadInfo;
+    } catch (err) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("shell:update-error", err.message);
+      }
+      throw err;
+    } finally {
+      currentDownloadAbortController = null;
+    }
+  });
+
+  // 取消下载
+  ipcMain.handle("shell:cancel-download", () => {
+    if (currentDownloadAbortController) {
+      currentDownloadAbortController.abort();
+      currentDownloadAbortController = null;
+      return true;
+    }
+    return false;
+  });
+
+  // 安装更新并退出
+  ipcMain.handle("shell:install-update", async () => {
+    if (!downloadedPackagePath) {
+      throw new Error("No downloaded package found");
+    }
+    await updater.openInstaller(downloadedPackagePath, process.platform);
+    // 延迟 500ms 保证系统打开安装器后退出主进程
+    setTimeout(() => {
+      app.quit();
+    }, 500);
+    return true;
+  });
+
+  // 忽略特定版本
+  ipcMain.handle("shell:ignore-version", (_event, version) => {
+    const dataDir = getGatewayDataDir();
+    writeShellSettings(dataDir, { ignoredVersion: version });
+    return true;
+  });
+}
+
+/**
+ * 触发一次版本更新检测
+ * @param {boolean} [force=false] 是否强制检测（绕过 4h 缓存与忽略版本）
+ * @return {Promise<object>} 更新检查结果
+ */
+async function triggerUpdateCheck(force = false) {
+  const dataDir = getGatewayDataDir();
+  const settings = readShellSettings(dataDir);
+  const result = await updater.checkForUpdates({
+    currentVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    force,
+    settings,
+  });
+
+  if (!result.error) {
+    writeShellSettings(dataDir, {
+      lastCheckAt: new Date().toISOString(),
+      lastCheckResult: result,
+    });
+  }
+
+  latestCheckedUpdate = result;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("shell:update-available", result);
+  }
+
+  // 若为菜单栏手动点击检查，且已是最新版本，弹出原生系统对话框友好提示
+  if (force && !result.error && !result.updateAvailable) {
+    const t = getMenuI18n(currentLocale);
+    dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: t.checkForUpdates.replace("…", ""),
+      message: t.upToDate,
+      detail: `${t.upToDateDetail} (v${app.getVersion()})`,
+    });
+  }
+
+  return result;
 }
 
 function showGatewayError(detail) {
@@ -736,6 +891,11 @@ const MENU_TRANSLATIONS = {
     quitApp: "Quit iRouter",
     trayTooltip: "iRouter Gateway",
     settings: "Settings…",
+    help: "Help",
+    checkForUpdates: "Check for Updates…",
+    checkingForUpdates: "Checking for updates…",
+    upToDate: "iRouter is up to date",
+    upToDateDetail: "You are running the latest version.",
     copy: "Copy",
     paste: "Paste",
     cut: "Cut",
@@ -767,6 +927,11 @@ const MENU_TRANSLATIONS = {
     quitApp: "退出 iRouter",
     trayTooltip: "iRouter 网关",
     settings: "设置…",
+    help: "帮助",
+    checkForUpdates: "检查更新…",
+    checkingForUpdates: "正在检查更新…",
+    upToDate: "当前已是最新版本",
+    upToDateDetail: "您正在使用最新版本的 iRouter。",
     copy: "复制",
     paste: "粘贴",
     cut: "剪切",
@@ -798,6 +963,11 @@ const MENU_TRANSLATIONS = {
     quitApp: "結束 iRouter",
     trayTooltip: "iRouter 閘道",
     settings: "設定…",
+    help: "說明",
+    checkForUpdates: "檢查更新…",
+    checkingForUpdates: "正在檢查更新…",
+    upToDate: "目前已是最新版本",
+    upToDateDetail: "您正在使用最新版本的 iRouter。",
     copy: "複製",
     paste: "貼上",
     cut: "剪下",
@@ -1102,6 +1272,10 @@ function buildMenuTemplate(locale = currentLocale) {
             label: "iRouter",
             submenu: [
               { role: "about", label: t.about },
+              {
+                label: t.checkForUpdates,
+                click: () => triggerUpdateCheck(true),
+              },
               { type: "separator" },
               {
                 label: t.settings,
@@ -1164,6 +1338,32 @@ function buildMenuTemplate(locale = currentLocale) {
               { role: "close", label: t.close },
             ]
           : [{ role: "close", label: t.close }]),
+      ],
+    },
+    {
+      role: "help",
+      label: t.help,
+      submenu: [
+        {
+          label: t.checkForUpdates,
+          click: () => triggerUpdateCheck(true),
+        },
+        { type: "separator" },
+        {
+          label: t.about,
+          click: () => {
+            if (process.platform === "darwin") {
+              app.showAboutPanel();
+            } else {
+              dialog.showMessageBox(mainWindow, {
+                type: "info",
+                title: t.about,
+                message: `iRouter v${app.getVersion()}`,
+                detail: "跨平台本地 AI 路由网关 · MIT License",
+              });
+            }
+          },
+        },
       ],
     },
   ];
@@ -1232,6 +1432,7 @@ function updateTrayMenu() {
     { label: `${t.gatewayAddr}：${gatewayOrigin()}/v1`, enabled: false },
     { type: "separator" },
     { label: t.openDashboard, click: showWindow },
+    { label: t.checkForUpdates, click: () => triggerUpdateCheck(true) },
     // macOS 已把「设置…」放进 App 菜单（Cmd+,），托盘不再重复；其余平台无应用菜单
     ...(process.platform === "darwin"
       ? []
@@ -1674,6 +1875,7 @@ app.whenReady().then(async () => {
     });
   }
   registerSettingsIpc();
+  registerUpdaterIpc();
 
   // 初始语言设定：优先读取系统语言偏好
   currentLocale = normalizeMenuLocale(app.getLocale());
@@ -1717,6 +1919,16 @@ app.whenReady().then(async () => {
     console.log("[iRouter] 开机自启：驻留托盘，不显示窗口");
   } else {
     createWindow();
+  }
+
+  if (!SMOKE) {
+    // 启动 3 秒后执行后台静默检查，不阻塞启动生命周期（受 4h 限流缓存保护）
+    setTimeout(() => {
+      const cfg = readShellSettings(dataDir);
+      if (cfg.checkUpdates !== false) {
+        triggerUpdateCheck(false).catch(() => {});
+      }
+    }, 3000);
   }
 
   app.on("activate", showWindow);

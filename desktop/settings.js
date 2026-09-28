@@ -27,7 +27,13 @@ const DEFAULT_CLOSE_ACTION = "dock";
 const SETTINGS_FILE_NAME = "shell-settings.json";
 
 function defaultSettings() {
-  return { closeAction: DEFAULT_CLOSE_ACTION };
+  return {
+    closeAction: DEFAULT_CLOSE_ACTION,
+    checkUpdates: true,
+    lastCheckAt: null,
+    lastCheckResult: null,
+    ignoredVersion: null,
+  };
 }
 
 function settingsPath(dataDir) {
@@ -42,6 +48,17 @@ function normalize(raw) {
     closeAction: CLOSE_ACTIONS.includes(raw.closeAction)
       ? raw.closeAction
       : base.closeAction,
+    checkUpdates:
+      typeof raw.checkUpdates === "boolean"
+        ? raw.checkUpdates
+        : base.checkUpdates,
+    lastCheckAt: typeof raw.lastCheckAt === "string" ? raw.lastCheckAt : null,
+    lastCheckResult:
+      raw.lastCheckResult && typeof raw.lastCheckResult === "object"
+        ? raw.lastCheckResult
+        : null,
+    ignoredVersion:
+      typeof raw.ignoredVersion === "string" ? raw.ignoredVersion : null,
   };
 }
 

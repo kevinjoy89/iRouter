@@ -16,6 +16,7 @@ files:
   - main.js
   - preload.js
   - settings.js
+  - updater/**/*
   - package.json
 
 extraResources:

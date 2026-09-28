@@ -130,6 +130,231 @@ function shortenHome(p) {
 // 状态留在这个独立组件里，靠 Modal 关闭时返回 null 让它整体卸载——密码与状态
 // 提示因此自然归零，不必在 effect 里重置（那样会触发本仓的
 // react-hooks/set-state-in-effect error）。
+/**
+ * 软件更新管理段：检查更新、展示进度、校验完整性与安装引导
+ *
+ * @param {object} props 组件属性
+ * @param {object} props.shell 壳层配置对象
+ * @param {Function} props.onSettingChange 配置变更回调
+ * @return {JSX.Element} 软件更新交互区块
+ */
+function SoftwareUpdateSection({ shell, onSettingChange }) {
+  const [updateState, setUpdateState] = useState("idle");
+  const [updateResult, setUpdateResult] = useState(null);
+  const [progress, setProgress] = useState({ downloaded: 0, total: 0, percent: 0 });
+  const [downloadInfo, setDownloadInfo] = useState(null);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? window.irouterShell : null;
+    if (!api) return;
+
+    const unsubAvail = api.onUpdateAvailable?.((res) => {
+      setUpdateResult(res);
+      if (res.updateAvailable) {
+        setUpdateState("available");
+      } else if (res.error) {
+        setUpdateState("error");
+        setErrorMsg(res.error);
+      } else {
+        setUpdateState("idle");
+      }
+    });
+
+    const unsubProg = api.onUpdateProgress?.((p) => {
+      setUpdateState("downloading");
+      setProgress(p);
+    });
+
+    const unsubDown = api.onUpdateDownloaded?.((info) => {
+      setUpdateState("downloaded");
+      setDownloadInfo(info);
+    });
+
+    const unsubErr = api.onUpdateError?.((err) => {
+      setUpdateState("error");
+      setErrorMsg(err);
+    });
+
+    return () => {
+      unsubAvail?.();
+      unsubProg?.();
+      unsubDown?.();
+      unsubErr?.();
+    };
+  }, []);
+
+  const checkNow = async () => {
+    const api = typeof window !== "undefined" ? window.irouterShell : null;
+    if (!api || updateState === "checking") return;
+    setUpdateState("checking");
+    setErrorMsg("");
+    try {
+      const res = await api.checkUpdate(true);
+      setUpdateResult(res);
+      if (res.error) {
+        setUpdateState("error");
+        setErrorMsg(res.error);
+      } else if (res.updateAvailable) {
+        setUpdateState("available");
+      } else {
+        setUpdateState("idle");
+      }
+    } catch (e) {
+      setUpdateState("error");
+      setErrorMsg(e.message || "Update check failed");
+    }
+  };
+
+  const startDownload = async () => {
+    const api = typeof window !== "undefined" ? window.irouterShell : null;
+    if (!api) return;
+    setUpdateState("downloading");
+    setProgress({ downloaded: 0, total: updateResult?.assetSize || 0, percent: 0 });
+    try {
+      await api.downloadUpdate();
+    } catch (e) {
+      setUpdateState("error");
+      setErrorMsg(e.message || "Download failed");
+    }
+  };
+
+  const cancelDownload = async () => {
+    const api = typeof window !== "undefined" ? window.irouterShell : null;
+    if (!api) return;
+    await api.cancelDownload();
+    setUpdateState("available");
+  };
+
+  const installUpdate = async () => {
+    const api = typeof window !== "undefined" ? window.irouterShell : null;
+    if (!api) return;
+    await api.installUpdate();
+  };
+
+  const ignoreVersion = async () => {
+    const api = typeof window !== "undefined" ? window.irouterShell : null;
+    if (!api || !updateResult?.latest) return;
+    await api.ignoreVersion(updateResult.latest);
+    setUpdateState("idle");
+  };
+
+  const openReleaseUrl = () => {
+    const url = updateResult?.releaseURL || "https://github.com/kevinjoy89/iRouter/releases";
+    window.open(url, "_blank");
+  };
+
+  const isUpToDate = updateState === "idle" && updateResult && !updateResult.updateAvailable;
+
+  return (
+    <>
+      <div className="px-4 pt-4 pb-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+        Software update
+      </div>
+
+      <Row
+        label="Automatically check for updates"
+        hint="Check for new releases in the background"
+      >
+        <input
+          type="checkbox"
+          checked={shell.checkUpdates !== false}
+          onChange={(e) => onSettingChange("checkUpdates", e.target.checked)}
+          className="size-4 accent-primary"
+        />
+      </Row>
+
+      <Row
+        label="Check for Updates"
+        hint={
+          updateState === "available" && updateResult?.latest
+            ? "A new version is available"
+            : isUpToDate
+              ? "Current version is up to date"
+              : null
+        }
+      >
+        {updateState === "checking" ? (
+          <Button variant="secondary" size="sm" loading disabled>
+            Checking...
+          </Button>
+        ) : updateState === "available" ? (
+          <Button variant="primary" size="sm" onClick={startDownload}>
+            Download
+          </Button>
+        ) : updateState === "downloading" ? (
+          <Button variant="outline" size="sm" onClick={cancelDownload}>
+            Cancel
+          </Button>
+        ) : updateState === "downloaded" ? (
+          <Button variant="primary" size="sm" onClick={installUpdate}>
+            Install and Relaunch
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={checkNow}>
+            Check now
+          </Button>
+        )}
+      </Row>
+
+      {updateState === "downloading" ? (
+        <div className="px-4 py-2 space-y-2">
+          <div className="flex items-center justify-between text-xs text-text-muted">
+            <span>Downloading update...</span>
+            <span>{progress.percent}%</span>
+          </div>
+          <div className="w-full bg-surface-2 rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-primary h-2 rounded-full transition-all duration-200"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {updateState === "downloaded" ? (
+        <div className="px-4 py-2 space-y-1">
+          <p className="text-xs text-green-600 dark:text-green-400">
+            Update downloaded and verified via SHA-256
+          </p>
+          {downloadInfo?.isArchive ? (
+            <p className="text-xs text-text-muted">
+              Portable archive saved to Downloads folder
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {updateState === "available" ? (
+        <div className="px-4 py-2 flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={ignoreVersion}>
+            Ignore this version
+          </Button>
+          <Button variant="ghost" size="sm" onClick={openReleaseUrl}>
+            Release Notes
+          </Button>
+        </div>
+      ) : null}
+
+      {updateState === "error" ? (
+        <div className="px-4 py-2 space-y-2">
+          <p className="text-xs text-red-500">
+            {errorMsg || "Update check failed"}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={checkNow}>
+              Retry
+            </Button>
+            <Button variant="ghost" size="sm" onClick={openReleaseUrl}>
+              View on GitHub
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function GatewayDataSection() {
   const [authed, setAuthed] = useState(null);
   const [dbPath, setDbPath] = useState("");
@@ -486,6 +711,12 @@ export default function ShellSettingsModal({ isOpen, onClose }) {
                 bar.
               </div>
             ) : null}
+
+            {/* 软件版本更新（检查更新、下载与安装） */}
+            <SoftwareUpdateSection
+              shell={shell}
+              onSettingChange={applyShellSetting}
+            />
           </>
         ) : null}
 

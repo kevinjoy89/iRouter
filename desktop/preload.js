@@ -25,4 +25,38 @@ contextBridge.exposeInMainWorld("irouterShell", {
   },
   /** 平台标识，供界面按平台显隐 Dock 相关项 */
   platform: process.platform,
+  /** 检查版本更新（force 为 true 时绕过限流缓存） */
+  checkUpdate: (force = false) => ipcRenderer.invoke("shell:check-update", force),
+  /** 开始下载最新版本更新产物 */
+  downloadUpdate: () => ipcRenderer.invoke("shell:download-update"),
+  /** 取消当前正在进行的更新下载 */
+  cancelDownload: () => ipcRenderer.invoke("shell:cancel-download"),
+  /** 安装已下载完成并通过完整性校验的安装包并退出应用 */
+  installUpdate: () => ipcRenderer.invoke("shell:install-update"),
+  /** 记录用户选择忽略的版本号 */
+  ignoreVersion: (version) => ipcRenderer.invoke("shell:ignore-version", version),
+  /** 订阅下载进度事件 */
+  onUpdateProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on("shell:update-progress", handler);
+    return () => ipcRenderer.removeListener("shell:update-progress", handler);
+  },
+  /** 订阅发现新版本事件（含自动静默检查与菜单触发） */
+  onUpdateAvailable: (callback) => {
+    const handler = (_event, result) => callback(result);
+    ipcRenderer.on("shell:update-available", handler);
+    return () => ipcRenderer.removeListener("shell:update-available", handler);
+  },
+  /** 订阅更新包下载并校验成功事件 */
+  onUpdateDownloaded: (callback) => {
+    const handler = (_event, downloaded) => callback(downloaded);
+    ipcRenderer.on("shell:update-downloaded", handler);
+    return () => ipcRenderer.removeListener("shell:update-downloaded", handler);
+  },
+  /** 订阅更新过程异常事件 */
+  onUpdateError: (callback) => {
+    const handler = (_event, err) => callback(err);
+    ipcRenderer.on("shell:update-error", handler);
+    return () => ipcRenderer.removeListener("shell:update-error", handler);
+  },
 });
