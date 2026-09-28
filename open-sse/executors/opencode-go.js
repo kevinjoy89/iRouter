@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import { DefaultExecutor } from "./default.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
 import { translateSessionId, OPENCODE_SESSION_RE } from "./opencode.js";
-import { modelTargetFormat } from "../providers/models/schema.js";
-import { getProviderModels } from "../config/providerModels.js";
+import { getModelTargetFormat } from "../config/providerModels.js";
+import { FORMATS } from "../translator/formats.js";
 import {
   normalizeResponsesInput,
   clampResponsesCallId,
@@ -54,17 +54,10 @@ function translatedSession(sessionId, clientTool) {
   return translateSessionId(sessionId, clientTool || "opencode-go");
 }
 
-// Strip the thinking suffix "model(level)" so checks hit the base id.
-function baseModelId(model) {
-  return String(model || "").replace(/\([^()]+\)\s*$/, "").trim();
-}
-
-// 判定是否为 Responses 协议模型（包括 muse-spark 系列及注册表中声明为 openai-responses 的模型）
+// Responses-only per the provider registry (grok-4.6, gpt-5.6-luna, muse-spark, …),
+// including the family-regex fallback for passthrough ids — never hardcode model ids here.
 function isResponsesModel(model) {
-  const base = baseModelId(model);
-  if (isMuseSparkModel(base)) return true;
-  const entry = getProviderModels("opencode-go").find((m) => m.id === base);
-  return modelTargetFormat(entry) === "openai-responses";
+  return getModelTargetFormat("opencode-go", model) === FORMATS.OPENAI_RESPONSES;
 }
 
 // Flatten Chat Completions tool declarations into the Responses flat shape and
