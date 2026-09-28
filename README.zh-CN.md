@@ -27,6 +27,7 @@
 - 🔄 **智能限流重试 (Auto-Retry)**：请求遇限流（429 / 503 / 529）时触发带退避与抖动的自动重试机制，防止 Claude Code / Codex 等 CLI 工具因短暂限流直接报错退出。
 - 🛡️ **出站请求脱敏 (DLP)**：转发前检测并改写敏感凭证、私钥、身份证、银行卡等内容，四档模式切换，安全防泄密且引擎保持 fail-open。
 - 📊 **用量全量留存与实时刷新**：近 24 小时动态滚动刷新，历史详情无损持久化，状态精准过滤。
+- 🔄 **应用内智能更新 (In-App Auto-Updater)**：支持启动时静默检查与手动一键检测更新，流式下载带实时进度反馈与可控取消，集成 SHA-256 完整性安全校验防篡改，下载完成后自动引导安装。
 - 🔒 **数据目录安全隔离**：核心 SQLite 数据库、密钥与配置持久化保存于用户主目录下的 `~/.irouter`，应用升级、缓存清理与卸载均不影响核心数据；首次运行支持从 CLI 旧版 `~/.9router` 一键安全复制导入。
 
 ---
@@ -35,9 +36,12 @@
 
 ### 方式一：下载预编译安装包（推荐）
 前往 [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases) 下载对应平台的最新安装包：
-- **macOS**: `iRouter-0.3.2.dmg`
-- **Windows**: `iRouter-0.3.2-setup.exe`
-- **Linux**: `iRouter-0.3.2.AppImage`
+- **macOS (Apple Silicon)**: `iRouter-0.3.3-macos-arm64.dmg`
+- **macOS (Intel)**: `iRouter-0.3.3-macos-amd64.dmg`
+- **Windows (安装程序)**: `iRouter-0.3.3-windows-amd64-installer.exe`
+- **Windows (绿色便携版)**: `iRouter-0.3.3-windows-amd64-portable.zip`
+- **Linux (deb)**: `iRouter-0.3.3-linux-amd64.deb`
+- **Linux (tar.gz)**: `iRouter-0.3.3-linux-amd64.tar.gz`
 
 下载后将 **iRouter** 拖入「应用程序（Applications）」即可。
 

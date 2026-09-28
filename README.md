@@ -27,6 +27,7 @@ The gateway core is based on upstream [decolua/9router](https://github.com/decol
 - 🔄 **Intelligent Auto-Retry**: Automatically intercepts rate-limiting and temporary gateway errors (429, 503, 529) with jittered exponential backoff before the first byte is streamed, preventing external CLI agents (Claude Code, Codex, Cursor) from aborting immediately.
 - 🛡️ **Egress Request Redaction (DLP)**: Inspects and sanitizes outbound request bodies for sensitive credentials, private keys, national IDs, and payment card numbers before forwarding, operating with a fail-open guarantee.
 - 📊 **Full Usage Retention & Real-time Refresh**: Rolling 24-hour dynamic refresh with comprehensive historical detail preservation and precise status filtering.
+- 🔄 **In-App Auto-Updater**: Supports background silent update checks on launch and manual one-click checks, streaming downloads with real-time progress feedback and cancellation, cryptographic SHA-256 checksum verification against tampering, and automated native installer launch.
 - 🔒 **Isolated Data Storage**: Gateway SQLite database, keys, and configurations are persisted in `~/.irouter`, isolated from app cache and uninstallation. Seamless one-click migration from legacy CLI `~/.9router` data is supported on first launch.
 
 ---
@@ -35,9 +36,12 @@ The gateway core is based on upstream [decolua/9router](https://github.com/decol
 
 ### Option 1: Download Pre-built Installers (Recommended)
 Download the latest pre-compiled binary package from [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases):
-- **macOS**: `iRouter-0.3.2.dmg`
-- **Windows**: `iRouter-0.3.2-setup.exe`
-- **Linux**: `iRouter-0.3.2.AppImage`
+- **macOS (Apple Silicon)**: `iRouter-0.3.3-macos-arm64.dmg`
+- **macOS (Intel)**: `iRouter-0.3.3-macos-amd64.dmg`
+- **Windows (Installer)**: `iRouter-0.3.3-windows-amd64-installer.exe`
+- **Windows (Portable)**: `iRouter-0.3.3-windows-amd64-portable.zip`
+- **Linux (deb)**: `iRouter-0.3.3-linux-amd64.deb`
+- **Linux (tar.gz)**: `iRouter-0.3.3-linux-amd64.tar.gz`
 
 Drag **iRouter** into your `Applications` folder to start.
 
