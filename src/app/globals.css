@@ -3,9 +3,13 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Hide icon ligature text until font is ready */
-.material-symbols-outlined { opacity: 0; }
-.fonts-loaded .material-symbols-outlined { opacity: 1; transition: opacity .12s ease-out; }
+/* Hide icon ligature text until font is ready。
+   注意必须待在 @layer base 里：未分层的规则在层叠里**永远赢过**分层规则（与源码顺序
+   无关），而这些图标规则又会被组件用工具类覆盖（opacity-100 之类）。 */
+@layer base {
+  .material-symbols-outlined { opacity: 0; }
+  .fonts-loaded .material-symbols-outlined { opacity: 1; transition: opacity .12s ease-out; }
+}
 
 /* ============================================================
    9Router palette — adopted from 9remote_private/web
@@ -336,7 +340,27 @@ input, textarea {
   background: rgba(38, 38, 38, 0.72);
 }
 
-/* Material Symbols */
+/* Material Symbols。**整块必须待在 @layer base 里**——Tailwind v4 把工具类放进
+   @layer utilities，而「未分层的规则在层叠里永远赢过分层规则」（与源码顺序无关）。
+   这段以前既没分层、又是从 layout.js 直接 import 进来的，它那句 font-size: 24px
+   就把全仓的 text-[Npx] 全压掉了：侧栏写 18px、面板导航 17px、读数瓦片 14px，
+   实测三处一律渲染成 24px。放进 base 之后工具类恢复生效，没写尺寸的图标仍是 24px。
+
+   字体文件自持在 public/fonts/（来源：npm 包 material-symbols，Apache-2.0）。
+   不直接 @import 包里的 outlined.css：那份 CSS 的 src 是相对包目录的 url()，
+   一旦被 Tailwind 内联进本文件，生产构建解析不到也不会报错——产物里**根本没有**
+   字体，图标会退化成显示 "api"、"dns" 这类 ligature 原文（dev 因为 CSS 管线不同
+   看不出来，只在打包后暴露）。public/ 的 URL 与打包方式无关，构建脚本会把整个
+   public/ 拷进产物。 */
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: block;
+  src: url('/fonts/material-symbols-outlined.woff2') format('woff2');
+}
+
+@layer base {
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined', sans-serif;
   font-weight: normal;
@@ -356,6 +380,7 @@ input, textarea {
 }
 .material-symbols-outlined.fill-1 {
   font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
 }
 
 /* Disable text selection on buttons */

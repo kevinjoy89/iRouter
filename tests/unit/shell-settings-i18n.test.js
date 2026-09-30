@@ -8,7 +8,7 @@
 //
 // 这里把「模态框源码里出现的英文源串都在字典里」钉成可执行断言。
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -358,12 +358,27 @@ describe("壳层设置模态框：结构与接线", () => {
     });
   });
 
-  it("状态条图标必须用行内 font-size（工具类 text-[Npx] 在全仓是失效的）", () => {
+  it("状态条图标尺寸走工具类，且图标字体基础样式在 base 层", () => {
     const parts = readPanel("parts.js");
-    // globals.css 的 .material-symbols-outlined{font-size:24px} 排在工具类之后，
-    // 同为单类选择器 → text-[15px] 赢不了，12px 文字配 24px 图标就是「上下未居中」
-    expect(parts).toMatch(/style=\{\{ fontSize: 15, lineHeight: 1 \}\}/);
+    expect(parts, "图标尺寸用工具类即可").toMatch(/material-symbols-outlined text-\[15px\]/);
+    expect(parts, "不得再用行内 style 绕开层叠").not.toMatch(/style=\{\{ fontSize:/);
     expect(parts, "图标外层需与正文首行同高").toMatch(/flex h-\[18px\] shrink-0 items-center/);
+    // 根因守卫：图标字体的基础样式（含默认 font-size:24px）必须待在 base 层里，
+    // 否则未分层的规则会压掉全仓的 text-[Npx]（真实事故：三处图标一律渲染成 24px）
+    const css = readFileSync(join(REPO, "src", "app", "globals.css"), "utf8");
+    // 字体自持：@import 包里那份 CSS 会让生产构建丢掉相对 url 的字体文件
+    // （产物里没有字体，图标退化成 ligature 原文），而且它是未分层的。
+    expect(css).toMatch(/src: url\('\/fonts\/material-symbols-outlined\.woff2'\)/);
+    expect(css, "不得 @import 该包（未分层 + 生产构建丢字体）").not.toMatch(
+      /@import "material-symbols\/outlined\.css"/,
+    );
+    expect(
+      existsSync(join(REPO, "public", "fonts", "material-symbols-outlined.woff2")),
+      "字体文件必须随仓库分发",
+    ).toBe(true);
+    expect(readFileSync(join(REPO, "src", "app", "layout.js"), "utf8")).not.toMatch(
+      /material-symbols\/outlined\.css/,
+    );
   });
 
   it("网关设置是原生嵌入 profile 页，而不是跳转过去（用户要求）", () => {

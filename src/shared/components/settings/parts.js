@@ -253,18 +253,15 @@ export function Notice({ tone = "info", children, className }) {
         className,
       )}
     >
-      {/* 图标尺寸必须走行内 style：globals.css 的 .material-symbols-outlined 定义了
-          font-size: 24px，且它排在 Tailwind 工具类之后——同为单类选择器，于是
-          `text-[15px]` 这类声明在**全仓**都是失效的（实测侧栏/导航/瓦片图标一律 24px）。
-          这里不改全局顺序（那会一次性改变整个应用的图标大小），只在状态条里钉住：
-          外层 h-[18px] 与正文 12px×1.5 的行高同高，单行时上下居中、多行时贴首行。 */}
+      {/* 外层 h-[18px] 与正文 12px×1.5 的行高同高：单行时上下居中，多行时贴首行。
+          图标尺寸直接写工具类即可——图标字体的基础样式已随包 CSS 一起进 @layer base
+          （见 globals.css），text-[15px] 现在真的能生效。 */}
       <span className="flex h-[18px] shrink-0 items-center">
         <span
           className={cn(
-            "material-symbols-outlined",
+            "material-symbols-outlined text-[15px]",
             tone === "progress" && "animate-spin",
           )}
-          style={{ fontSize: 15, lineHeight: 1 }}
         >
           {t.icon}
         </span>
