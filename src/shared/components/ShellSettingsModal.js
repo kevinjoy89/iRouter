@@ -120,6 +120,17 @@ export default function ShellSettingsModal({ isOpen, onClose, initialSection }) 
   );
 
   const renderSection = () => {
+    // 「窗口」「软件更新」读的是壳层设置（异步 getSettings 取回）。导航在 shell 就绪前
+    // 会把它们藏起来，但内容分支此前不看这个条件——一旦 active 落在这两段（外部指定
+    // 分段、或 shell 加载中切换），就把 null 传下去崩在 shell.checkUpdates 上。
+    // 这里统一挡住：与 items 用同一个判据，未就绪就显示占位。
+    if (!shellReady && SECTIONS.some((s) => s.key === active && s.shellOnly)) {
+      return (
+        <div className="px-6 py-8 text-center text-[12px] text-text-muted">
+          Loading shell settings...
+        </div>
+      );
+    }
     switch (active) {
       case "window":
         return (

@@ -12,6 +12,8 @@
 - **Storage**: 新库默认 `PRAGMA auto_vacuum=INCREMENTAL`，滚动清理用 `PRAGMA incremental_vacuum` 廉价归还空间；老库（auto_vacuum=0）由首次清理自动完成一次性 VACUUM 转换，此后不再整库重写
 
 ## Fixes
+- **Settings/i18n**: 「下载中」文案此前是写死的 JSX 文本、**字典里没有条目**，界面上一直显示 `Downloading update...`（用户实测）。同类漏网的还有「可观测性保存失败」提示与新增的壳层设置占位文案，一并入典（zh-CN / zh-TW）。守卫漏掉它们的原因是抽取规则只认**被换行包着**的 JSX 文本（`>\n文本\n<`），而这几处是同行写法（`<span className="...">Downloading update...</span>`）；已补一条同行抽取规则，并用变异测试验证（删掉条目 → 立刻报「未入典："Downloading update..."」）
+- **Settings**: 修「窗口」「软件更新」分段的**白屏崩溃**：这两段读的是异步取回的壳层设置（`getSettings()`），导航会按 `shellReady` 隐藏它们，但 `renderSection()` 的内容分支不看这个条件——外部指定分段或加载中切过去就会把 `shell=null` 传下去，崩在 `shell.checkUpdates`。现改为同一判据统一挡住并显示占位（含多语言）
 - **Usage/数据完整性**: 并行写入会**静默丢使用量记录**（真实缺陷，不是测试假红）：`saveRequestUsage` 按 `(timestamp, provider, model, account, key, tokens)` 找同款记录并合并，而时间戳只有毫秒精度——同一毫秒内形状相同的**不同**请求被并成一条。压测实测 100 条并行只落 1 条、50 条落 13 条。去重的本意只是「同一次请求先缺 endpoint、后补上」时合并，所以改为**只在能补全缺失 endpoint 时才合并**，其余一律插入。新增 `usage-record-dedup.test.js` 双向钉住：字段全同也不许丢、互补记录仍要合并
 - **UI**: 修「`text-[Npx]` 在全仓失效」——图标字体由 npm 包 `material-symbols/outlined.css` 提供，此前从 `layout.js` 直接 import（**未分层**），而 Tailwind v4 的工具类在 `@layer utilities` 里；层叠规则是「未分层永远赢过分层」（与源码顺序无关），于是包里那句 `font-size:24px` 把侧栏(声明18px)/面板导航(17px)/读数瓦片(14px) 全部压成 24px。改为在 globals.css 里以 `@import "material-symbols/outlined.css" layer(base)` 引入，本地只留包没设的变量轴默认值；设置面板状态条里那处行内 style 绕法随之删除
 - **UI**: 端点页两处安全横幅（「打开设置」/「改密码」）不再跳 `/dashboard/profile`，改为直接打开设置面板并落到「安全设置」（`irouter:open-settings` 事件支持 `detail.section`；宿主用 key 重挂载套用分段，不在 effect 里 setState）。文案同步改为「Settings → Security」并补中英字典

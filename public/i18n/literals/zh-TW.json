@@ -1093,5 +1093,8 @@
   "The SQLite file that holds your data": "保存資料的 SQLite 檔案",
   "Who can open this dashboard: login requirement, password and single sign-on": "誰能開啟這個面板：登入要求、密碼與單一登入",
   "Loading security settings...": "正在載入安全設定…",
-  "Dashboard uses the default password — change it in Settings → Security.": "面板使用的是預設密碼 —— 請到「設定 → 安全設定」裡改掉。"
+  "Dashboard uses the default password — change it in Settings → Security.": "面板使用的是預設密碼 —— 請到「設定 → 安全設定」裡改掉。",
+  "Downloading update...": "正在下載更新…",
+  "Failed to update observability settings": "更新可觀測性設定失敗",
+  "Loading shell settings...": "正在讀取殼層設定…"
 }

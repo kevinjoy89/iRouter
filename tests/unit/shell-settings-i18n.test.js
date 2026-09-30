@@ -85,6 +85,16 @@ function collectFrom(src, out) {
     />\s*\n\s*([A-Z][^<>{}\n]{1,200}?)\s*\n\s*</g,
   ))
     out.add(m[1].replace(/\s+/g, " ").trim());
+  // 同行写法：`<span className="...">Downloading update...</span>` 这类文本没被换行
+  // 包着，上面那条抽不到——「正在下载更新」就是这么漏掉整条多语言的（用户实测）。
+  // 只在标签之间取，且要求以大写字母起头、含空格或省略号，避免把属性值与
+  // 变量名当成文案；`{...}` 表达式用字符类排除。
+  for (const m of src.matchAll(/>([A-Z][^<>{}"'\n]{3,200}?)</g)) {
+    const text = m[1].replace(/\s+/g, " ").trim();
+    // 单字（含大写开头的组件名残留）不算文案；含空格或句末省略号的才算，
+    // 这样 "Downloading update..." 会带着省略号一起入典（键必须逐字一致）
+    if (/[ .]/.test(text)) out.add(text);
+  }
 }
 
 const LOCALES = ["zh-CN", "zh-TW"];
@@ -356,6 +366,21 @@ describe("壳层设置模态框：结构与接线", () => {
         }
       }
     });
+  });
+
+  it("shellOnly 分段在壳层设置就绪前必须有占位（否则崩在 shell.xxx 上）", () => {
+    // 真实事故：外部指定分段（端点页横幅）或 shell 加载中切到「窗口」/「软件更新」，
+    // renderSection 会把 shell=null 传下去 → 白屏 TypeError。导航 items 有 shellReady
+    // 过滤，内容分支当时没有，两处判据必须一致。
+    // 该 describe 里已经把模态框源码读作 `src`
+    expect(src).toMatch(
+      /if \(!shellReady && SECTIONS\.some\(\(s\) => s\.key === active && s\.shellOnly\)\)/,
+    );
+    expect(src, "占位文案也要入典").toMatch(/Loading shell settings\.\.\./);
+    // 窗口/更新两段都读 shell，必须由上面那条统一挡住
+    for (const key of ['case "window"', 'case "updates"']) {
+      expect(src).toContain(key);
+    }
   });
 
   it("状态条图标尺寸走工具类，且图标字体基础样式在 base 层", () => {
