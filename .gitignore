@@ -64,6 +64,9 @@ PUBLIC.en.md
 PR/*
 package-lock.json
 
+# vitest --reporter=json 的产物（CI 在本仓根生成后喂给回归门禁）
+/test-results.json
+
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md

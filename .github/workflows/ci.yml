@@ -26,8 +26,29 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run baseline regression gate
-        run: node tests/__baseline__/verify-no-regression.mjs tests/__baseline__/current.json
+      - name: Install test dependencies
+        working-directory: tests
+        run: npm install
+
+      # 套件自带已知红（tests/__baseline__/known-fails.txt），退出码必然是 1。
+      # 放行这一步，交给下一步门禁裁决：失败集合里有没有不在基线内的新面孔。
+      # 之前这里只读已提交的 __baseline__/current.json —— 那份快照不会随代码变化，
+      # 于是「门禁」对任何改动都恒绿，等于没有测试保护。
+      - name: Run test suite
+        working-directory: tests
+        continue-on-error: true
+        run: npx vitest run --reporter=json --outputFile=../test-results.json
+
+      - name: Regression gate (no pass → fail outside known-fails)
+        run: node tests/__baseline__/verify-no-regression.mjs test-results.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-results
+          path: test-results.json
+          if-no-files-found: warn
 
   build-smoke:
     name: Build Gateway Smoke (${{ matrix.os }})
