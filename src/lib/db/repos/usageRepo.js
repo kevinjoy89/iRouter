@@ -255,28 +255,38 @@ export async function saveRequestUsage(entry) {
     // All 3 writes (history insert, daily upsert, lifetime counter) in ONE transaction.
     // better-sqlite3 is sync → no JS yield mid-transaction → no race in same process.
     db.transaction(() => {
-      const existing = db.get(
-        `SELECT id, endpoint FROM usageHistory
-         WHERE timestamp = ?
-           AND COALESCE(provider, '') = COALESCE(?, '')
-           AND COALESCE(model, '') = COALESCE(?, '')
-           AND COALESCE(connectionId, '') = COALESCE(?, '')
-           AND COALESCE(apiKey, '') = COALESCE(?, '')
-           AND promptTokens = ?
-           AND completionTokens = ?
-         ORDER BY id DESC LIMIT 1`,
-        [
-          entry.timestamp, entry.provider || null, entry.model || null,
-          entry.connectionId || null, entry.apiKey || null,
-          promptTokens, completionTokens,
-        ]
-      );
+      // 去重只为一件具体的事：同一次请求被记两遍时（先没有 endpoint、后有），
+      // 把 endpoint 补上，而不是多插一行。所以只在**能补全**时才合并——其余情况下
+      // 合并除了丢一条记录之外什么也没做。
+      //
+      // 旧写法无条件按 (timestamp, provider, model, account, key, tokens) 找同款记录，
+      // 于是同一毫秒内形状相同的**不同**请求会被并成一条：db-concurrent.test.js 实测
+      // 100 条并行只落 1 条、50 条落 13 条。时间戳只有毫秒精度，这个键本来就区分不出
+      // 「同一请求的第二次记录」与「恰好同毫秒的另一个请求」。加上 `endpoint IS NULL`
+      // 之后，两条互补记录仍会合并，而两条完整记录各算各的。
+      if (entry.endpoint) {
+        const existing = db.get(
+          `SELECT id FROM usageHistory
+           WHERE endpoint IS NULL
+             AND timestamp = ?
+             AND COALESCE(provider, '') = COALESCE(?, '')
+             AND COALESCE(model, '') = COALESCE(?, '')
+             AND COALESCE(connectionId, '') = COALESCE(?, '')
+             AND COALESCE(apiKey, '') = COALESCE(?, '')
+             AND promptTokens = ?
+             AND completionTokens = ?
+           ORDER BY id DESC LIMIT 1`,
+          [
+            entry.timestamp, entry.provider || null, entry.model || null,
+            entry.connectionId || null, entry.apiKey || null,
+            promptTokens, completionTokens,
+          ]
+        );
 
-      if (existing) {
-        if (!existing.endpoint && entry.endpoint) {
+        if (existing) {
           db.run(`UPDATE usageHistory SET endpoint = ? WHERE id = ?`, [entry.endpoint, existing.id]);
+          return;
         }
-        return;
       }
 
       db.run(
