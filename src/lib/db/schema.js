@@ -6,6 +6,11 @@
 export const SCHEMA_VERSION = 1;
 
 export const PRAGMA_SQL = `
+-- 必须排在 journal_mode 之前：库里已有内容或已切到 WAL 后，auto_vacuum 的设置会被忽略
+-- （实测：先 WAL 再设 INCREMENTAL 仍读回 0）。数值含义 0=NONE / 1=FULL / 2=INCREMENTAL。
+-- 增量自动回收让滚动清理删掉记录后能把空闲页廉价地还给操作系统，而不是永远留在文件里；
+-- 老库（auto_vacuum=0）由 requestDetailsRepo.releaseFreedSpace 用一次 VACUUM 转换。
+PRAGMA auto_vacuum = INCREMENTAL;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA temp_store = MEMORY;

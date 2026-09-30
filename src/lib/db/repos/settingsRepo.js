@@ -65,7 +65,11 @@ export const DEFAULT_SETTINGS = {
   verboseErrorLog: false,
   observabilityBatchSize: 20,
   observabilityFlushIntervalMs: 5000,
+  // 单字段落盘上限（KB）。写库时还会被 requestDetailsRepo.clampJsonSize 钳到 256KB 硬顶：
+  // 该值可被历史版本或直接 PATCH 写成很大（线上实测 2048 = 2MB/字段 × 4 字段/行）。
   observabilityMaxJsonSize: 5,
+  // 请求详情保留天数（0 = 永久保留）。超期记录由启动清理 + 每 6 小时一次的定时任务裁剪。
+  observabilityRetentionDays: 7,
   // 请求脱敏（自维护特性，ADR 0005）：转发前检测并改写请求体中的敏感内容。
   // 默认 off——升级不改变流量行为。仅覆盖出站字节；本机 requestDetails 落盘
   // 仍是明文（那是独立的「落盘脱敏」，见 ADR 0005）。
