@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { handleImageGenerationCore } from "../../open-sse/handlers/imageGenerationCore.js";
+import { CODEX_CLI_VERSION } from "../../open-sse/config/appConstants.js";
 
 const originalFetch = global.fetch;
 
@@ -351,7 +352,9 @@ describe("handleImageGenerationCore", () => {
         headers: expect.objectContaining({
           authorization: "Bearer codex-token",
           "chatgpt-account-id": "account-123",
-          version: "0.154.0",
+          // 用例名就是「current Codex version header」——期望值必须取自常量，
+          // 否则上游一升版本号这 4 项就整片变红（真实发生过：0.154 → 0.155）
+          version: CODEX_CLI_VERSION,
         }),
       })
     );

@@ -31,7 +31,42 @@ afterEach(() => {
 describe("壳层设置：默认值与校验", () => {
   it("默认关窗行为是 dock（与历史行为一致，升级不改观感）", () => {
     expect(DEFAULT_CLOSE_ACTION).toBe("dock");
-    expect(defaultSettings()).toEqual({ closeAction: "dock" });
+    expect(defaultSettings().closeAction).toBe("dock");
+  });
+
+  // 应用内更新落地后 settings.js 多了 4 个键（本文件原先只钉 closeAction，
+  // 上游同步/新特性加键时就会整片变红——契约改成显式钉全量形状）。
+  it("默认值形状固定（新增键必须显式登记，不能悄悄长出来）", () => {
+    expect(defaultSettings()).toEqual({
+      closeAction: "dock",
+      checkUpdates: true,
+      lastCheckAt: null,
+      lastCheckResult: null,
+      ignoredVersion: null,
+    });
+  });
+
+  it("更新器相关键：非法类型回退默认，不抛", () => {
+    const n = normalize({
+      checkUpdates: "yes",
+      ignoredVersion: 42,
+      lastCheckAt: 123,
+      lastCheckResult: "oops",
+    });
+    expect(n.checkUpdates).toBe(true);
+    expect(n.ignoredVersion).toBeNull();
+    expect(n.lastCheckAt).toBeNull();
+    expect(n.lastCheckResult).toBeNull();
+  });
+
+  it("更新器相关键：合法值原样保留（写入后能读回）", () => {
+    const raw = {
+      checkUpdates: false,
+      ignoredVersion: "0.3.4",
+      lastCheckAt: "2026-09-30T00:00:00.000Z",
+      lastCheckResult: { updateAvailable: false },
+    };
+    expect(normalize(raw)).toEqual({ ...defaultSettings(), ...raw });
   });
 
   it("三档取值全部合法（与 /settings 页面的 CLOSE_ACTIONS 对应）", () => {
@@ -49,12 +84,13 @@ describe("壳层设置：默认值与校验", () => {
 
   it("非对象输入回退默认（null / 数组 / 字符串）", () => {
     for (const bad of [null, undefined, [], "quit", 7]) {
-      expect(normalize(bad)).toEqual({ closeAction: "dock" });
+      expect(normalize(bad)).toEqual(defaultSettings());
     }
   });
 
   it("不认识的键被丢弃（防止旧版本字段遗留）", () => {
     expect(normalize({ closeAction: "tray", legacyKey: true })).toEqual({
+      ...defaultSettings(),
       closeAction: "tray",
     });
   });
@@ -62,12 +98,15 @@ describe("壳层设置：默认值与校验", () => {
 
 describe("壳层设置：文件读写", () => {
   it("文件不存在时读默认值（升级路径）", () => {
-    expect(readSettings(dir)).toEqual({ closeAction: "dock" });
+    expect(readSettings(dir)).toEqual(defaultSettings());
   });
 
   it("写入后可读回", () => {
     writeSettings(dir, { closeAction: "tray" });
-    expect(readSettings(dir)).toEqual({ closeAction: "tray" });
+    expect(readSettings(dir)).toEqual({
+      ...defaultSettings(),
+      closeAction: "tray",
+    });
   });
 
   it("写入是合并式的，不会丢掉未提及的键", () => {
@@ -78,7 +117,7 @@ describe("壳层设置：文件读写", () => {
 
   it("文件损坏时读默认值（fail-safe，不抛）", () => {
     writeFileSync(settingsPath(dir), "{ not json");
-    expect(readSettings(dir)).toEqual({ closeAction: "dock" });
+    expect(readSettings(dir)).toEqual(defaultSettings());
   });
 
   it("目录不存在时写入会创建它", () => {
@@ -90,7 +129,7 @@ describe("壳层设置：文件读写", () => {
   it("落盘内容是规范化后的结果，不是原始输入", () => {
     writeSettings(dir, { closeAction: "bogus" });
     const raw = JSON.parse(readFileSync(join(dir, SETTINGS_FILE_NAME), "utf8"));
-    expect(raw).toEqual({ closeAction: "dock" });
+    expect(raw).toEqual(defaultSettings());
   });
 
   it("文件名固定在 dataDir 下（与 .gateway.pid 同类）", () => {
