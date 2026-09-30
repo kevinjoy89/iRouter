@@ -1,18 +1,37 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getDefaultPricing, formatCost } from "open-sse/providers/pricing.js";
 
 export default function PricingModal({ isOpen, onClose, onSave }) {
   const [pricingData, setPricingData] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const rootRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
       loadPricing();
     }
   }, [isOpen]);
+
+  // Escape 关闭自己。
+  //
+  // 这个弹层是自己画的容器（没走共享 Modal），所以共享 Modal 里的「只关最上层」
+  // 判定看不见它——而它现在会被嵌进壳层设置面板（网关设置那一段直接嵌入
+  // /dashboard/profile，这个弹层就在其中）。不标 data-modal-root、不处理 Escape
+  // 的话，按一次 Esc 会由下面那层面板接管，把面板连同这个弹层一起关掉。
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape" || !isOpen) return;
+      // 与 Modal 同一套约定：DOM 里更靠后的 data-modal-root 才是最上层
+      const roots = document.querySelectorAll("[data-modal-root]");
+      if (roots.length > 1 && roots[roots.length - 1] !== rootRef.current) return;
+      onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
 
   const loadPricing = async () => {
     setLoading(true);
@@ -94,7 +113,11 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
   const pricingFields = ["input", "output", "cached", "reasoning", "cache_creation"];
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div
+      ref={rootRef}
+      data-modal-root=""
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+    >
       <div className="bg-surface border border-border rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-border flex items-center justify-between">

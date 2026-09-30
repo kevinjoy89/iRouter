@@ -34,7 +34,19 @@ function resolveSystemLocale() {
   return "en";
 }
 
-export default function ProfilePage() {
+/**
+ * 网关设置页（提供商、路由、安全、脱敏、定价…）
+ *
+ * @param {object} props 组件属性
+ * @param {boolean} [props.showAppInfo] 页尾是否显示「应用名 + 版本 / 本地或远程模式」。
+ *   壳层设置面板把这一页**原生嵌入**时置 false：那两行已并入面板页脚，
+ *   留在嵌入内容里就是同一份信息在同一个框里出现两次（用户实测反馈）。
+ * @return {JSX.Element} 页面
+ */
+export default function ProfilePage({
+  showAppInfo = true,
+  groups = ["security", "routing", "retry", "redaction", "pricing"],
+}) {
   const { copied, copy } = useCopyToClipboard();
   const [pricingOpen, setPricingOpen] = useState(false);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
@@ -99,18 +111,15 @@ export default function ProfilePage() {
   const idpMetadataFileRef = useRef(null);
   const certFileRef = useRef(null);
 
-  const [proxyForm, setProxyForm] = useState({
-    outboundProxyEnabled: false,
-    outboundProxyUrl: "",
-    outboundNoProxy: "",
-  });
-  const [proxyStatus, setProxyStatus] = useState({ type: "", message: "" });
-  const [proxyLoading, setProxyLoading] = useState(false);
-  const [proxyTestLoading, setProxyTestLoading] = useState(false);
-
   // 是否远程访问：环境探测（window.location）→ useSyncExternalStore，
   // 首屏给 false（服务端无 window），水合后切真值。
   // 不用 useEffect+setState：本仓 react-hooks/set-state-in-effect 是 error。
+  // 分段渲染：壳层设置面板把这一页拆成「安全设置」与「网关设置」两个分段，
+  // 各自只渲染自己那部分。不把这段 JSX 拆成两个文件是因为它的状态（settings、
+  // 密码、OIDC/SAML 表单…）在这里是一整块，硬拆要搬三十来个 useState 与十几个
+  // handler；而面板一次只挂载一个分段，分组渲染不会产生第二份状态。
+  const shows = (group) => groups.includes(group);
+
   const isRemoteHost = useSyncExternalStore(
     () => () => {},
     () => !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname),
@@ -147,11 +156,6 @@ export default function ProfilePage() {
         ) {
           setOidcExpanded(true);
         }
-        setProxyForm({
-          outboundProxyEnabled: data?.outboundProxyEnabled === true,
-          outboundProxyUrl: data?.outboundProxyUrl || "",
-          outboundNoProxy: data?.outboundNoProxy || "",
-        });
         setLoading(false);
       })
       .catch((err) => {
@@ -159,103 +163,6 @@ export default function ProfilePage() {
         setLoading(false);
       });
   }, []);
-
-  const updateOutboundProxy = async (e) => {
-    e.preventDefault();
-    if (settings.outboundProxyEnabled !== true) return;
-    setProxyLoading(true);
-    setProxyStatus({ type: "", message: "" });
-
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          outboundProxyUrl: proxyForm.outboundProxyUrl,
-          outboundNoProxy: proxyForm.outboundNoProxy,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        setSettings((prev) => ({ ...prev, ...data }));
-        setProxyStatus({ type: "success", message: "Proxy settings applied" });
-      } else {
-        setProxyStatus({ type: "error", message: data.error || "Failed to update proxy settings" });
-      }
-    } catch (err) {
-      setProxyStatus({ type: "error", message: "An error occurred" });
-    } finally {
-      setProxyLoading(false);
-    }
-  };
-
-  const testOutboundProxy = async () => {
-    if (settings.outboundProxyEnabled !== true) return;
-
-    const proxyUrl = (proxyForm.outboundProxyUrl || "").trim();
-    if (!proxyUrl) {
-      setProxyStatus({ type: "error", message: "Please enter a Proxy URL to test" });
-      return;
-    }
-
-    setProxyTestLoading(true);
-    setProxyStatus({ type: "", message: "" });
-
-    try {
-      const res = await fetch("/api/settings/proxy-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proxyUrl }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data?.ok) {
-        setProxyStatus({
-          type: "success",
-          message: `Proxy test OK (${data.status}) in ${data.elapsedMs}ms`,
-        });
-      } else {
-        setProxyStatus({
-          type: "error",
-          message: data?.error || "Proxy test failed",
-        });
-      }
-    } catch (err) {
-      setProxyStatus({ type: "error", message: "An error occurred" });
-    } finally {
-      setProxyTestLoading(false);
-    }
-  };
-
-  const updateOutboundProxyEnabled = async (outboundProxyEnabled) => {
-    setProxyLoading(true);
-    setProxyStatus({ type: "", message: "" });
-
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ outboundProxyEnabled }),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        setSettings((prev) => ({ ...prev, ...data }));
-        setProxyForm((prev) => ({ ...prev, outboundProxyEnabled: data?.outboundProxyEnabled === true }));
-        setProxyStatus({
-          type: "success",
-          message: outboundProxyEnabled ? "Proxy enabled" : "Proxy disabled",
-        });
-      } else {
-        setProxyStatus({ type: "error", message: data.error || "Failed to update proxy settings" });
-      }
-    } catch (err) {
-      setProxyStatus({ type: "error", message: "An error occurred" });
-    } finally {
-      setProxyLoading(false);
-    }
-  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -691,36 +598,6 @@ export default function ProfilePage() {
     }
   };
 
-  const updateObservabilityEnabled = async (enabled) => {
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enableObservability: enabled }),
-      });
-      if (res.ok) {
-        setSettings(prev => ({ ...prev, enableObservability: enabled }));
-      }
-    } catch (err) {
-      console.error("Failed to update enableObservability:", err);
-    }
-  };
-
-  const updateVerboseErrorLog = async (enabled) => {
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ verboseErrorLog: enabled }),
-      });
-      if (res.ok) {
-        setSettings(prev => ({ ...prev, verboseErrorLog: enabled }));
-      }
-    } catch (err) {
-      console.error("Failed to update verboseErrorLog:", err);
-    }
-  };
-
   // 请求脱敏（ADR 0005）：4 个字段共用一个 PATCH 助手
   const updateDlpSetting = async (patch) => {
     try {
@@ -734,8 +611,6 @@ export default function ProfilePage() {
       console.error("Failed to update DLP settings:", err);
     }
   };
-  const observabilityEnabled = settings.enableObservability === true;
-  const verboseErrorLog = settings.verboseErrorLog === true;
   const dlpMode = settings.dlpMode || "off";
   const dlpKnownSecrets = settings.dlpKnownSecrets !== false;
   const dlpAllowExemptions = settings.dlpAllowExemptions === true;
@@ -743,8 +618,10 @@ export default function ProfilePage() {
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-0">
       <div className="flex flex-col gap-6">
-        {/* Security */}
-        <Card>
+        {shows("security") ? (
+          <>
+            {/* Security */}
+            <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
               <span className="material-symbols-outlined text-[20px]">shield</span>
@@ -1326,8 +1203,12 @@ export default function ProfilePage() {
           )}
         </Card>
 
-        {/* Routing Preferences */}
-        <Card>
+          </>
+        ) : null}
+
+        {/* Routing Preferences（回退策略 / 轮询 / 粘性 / effort-aware） */}
+        {shows("routing") ? (
+          <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 shrink-0">
               <span className="material-symbols-outlined text-[20px]">route</span>
@@ -1448,13 +1329,18 @@ export default function ProfilePage() {
             </p>
           </div>
         </Card>
+        ) : null}
 
         {/* Retry Strategy（自维护特性，ADR 0003） */}
-        <RetryStrategyCard settings={settings} onChange={updateAutoRetry} loading={loading} />
+        {shows("retry") ? (
+          <RetryStrategyCard settings={settings} onChange={updateAutoRetry} loading={loading} />
+        ) : null}
 
         {/* Redaction Policy（ADR 0005）：转发前检测并改写敏感内容。
-            仅覆盖出站字节——本机 requestDetails 落盘仍是明文。 */}
-        <Card>
+            仅覆盖出站字节——本机 requestDetails 落盘仍是明文。
+            归「网关设置」：它改的是转发出去的字节，不是「谁能进面板」。 */}
+        {shows("redaction") ? (
+          <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-rose-500/10 text-rose-500 shrink-0">
               <span className="material-symbols-outlined text-[20px]">policy</span>
@@ -1555,119 +1441,12 @@ export default function ProfilePage() {
               />
             </div>
           </div>
-        </Card>
-
-
-        {/* Network */}
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500 shrink-0">
-              <span className="material-symbols-outlined text-[20px]">wifi</span>
-            </div>
-            <h3 className="text-base sm:text-lg font-semibold">Network</h3>
-          </div>
-
-          <div className="flex flex-col gap-4">
-            <div className="flex items-start sm:items-center justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Outbound Proxy</p>
-                <p className="text-xs sm:text-sm text-text-muted">Enable proxy for OAuth + provider outbound requests.</p>
-              </div>
-              <Toggle
-                checked={settings.outboundProxyEnabled === true}
-                onChange={() => updateOutboundProxyEnabled(!(settings.outboundProxyEnabled === true))}
-                disabled={loading || proxyLoading}
-              />
-            </div>
-
-            {settings.outboundProxyEnabled === true && (
-              <form onSubmit={updateOutboundProxy} className="flex flex-col gap-4 pt-2 border-t border-border/50">
-                <div className="flex flex-col gap-2">
-                  <label className="font-medium text-sm sm:text-base">Proxy URL</label>
-                  <Input
-                    placeholder="http://127.0.0.1:7897"
-                    value={proxyForm.outboundProxyUrl}
-                    onChange={(e) => setProxyForm((prev) => ({ ...prev, outboundProxyUrl: e.target.value }))}
-                    disabled={loading || proxyLoading}
-                  />
-                  <p className="text-xs sm:text-sm text-text-muted">Leave empty to inherit existing env proxy (if any).</p>
-                </div>
-
-                <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
-                  <label className="font-medium text-sm sm:text-base">No Proxy</label>
-                  <Input
-                    placeholder="localhost,127.0.0.1"
-                    value={proxyForm.outboundNoProxy}
-                    onChange={(e) => setProxyForm((prev) => ({ ...prev, outboundNoProxy: e.target.value }))}
-                    disabled={loading || proxyLoading}
-                  />
-                  <p className="text-xs sm:text-sm text-text-muted">Comma-separated hostnames/domains to bypass the proxy.</p>
-                </div>
-
-                <div className="pt-2 border-t border-border/50 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    loading={proxyTestLoading}
-                    disabled={loading || proxyLoading}
-                    onClick={testOutboundProxy}
-                    className="w-full sm:w-auto"
-                  >
-                    Test proxy URL
-                  </Button>
-                  <Button type="submit" variant="primary" loading={proxyLoading} className="w-full sm:w-auto">
-                    Apply
-                  </Button>
-                </div>
-              </form>
-            )}
-
-            {proxyStatus.message && (
-              <p className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}>
-                {proxyStatus.message}
-              </p>
-            )}
-          </div>
-        </Card>
-
-        {/* Observability Settings */}
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500 shrink-0">
-              <span className="material-symbols-outlined text-[20px]">monitoring</span>
-            </div>
-            <h3 className="text-base sm:text-lg font-semibold">Observability</h3>
-          </div>
-          <div className="flex items-start sm:items-center justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm sm:text-base">Enable Observability</p>
-              <p className="text-xs sm:text-sm text-text-muted">
-                Record request details for inspection in the logs view
-              </p>
-            </div>
-            <Toggle
-              checked={observabilityEnabled}
-              onChange={updateObservabilityEnabled}
-              disabled={loading}
-            />
-          </div>
-          <div className="flex items-start sm:items-center justify-between gap-4 pt-4 mt-4 border-t border-border">
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm sm:text-base">Print Full Error Logs</p>
-              <p className="text-xs sm:text-sm text-text-muted">
-                Include the full request sent to the model and the full upstream response body in the console log (off by default)
-              </p>
-            </div>
-            <Toggle
-              checked={verboseErrorLog}
-              onChange={updateVerboseErrorLog}
-              disabled={loading}
-            />
-          </div>
-        </Card>
+          </Card>
+        ) : null}
 
         {/* Pricing rates (used by the usage cost estimates) */}
-        <Card>
+        {shows("pricing") ? (
+          <Card>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 shrink-0">
@@ -1685,12 +1464,15 @@ export default function ProfilePage() {
             </Button>
           </div>
         </Card>
+        ) : null}
 
-        {/* App Info */}
-        <div className="text-center text-xs sm:text-sm text-text-muted py-4">
-          <p>{APP_CONFIG.name} v{APP_CONFIG.version}</p>
-          <p className="mt-1">{isRemoteHost ? "Remote Mode" : "Local Mode - All data stored on your machine"}</p>
-        </div>
+        {/* App Info（嵌入壳层设置面板时隐藏，见 showAppInfo） */}
+        {showAppInfo ? (
+          <div className="text-center text-xs sm:text-sm text-text-muted py-4">
+            <p>{APP_CONFIG.name} v{APP_CONFIG.version}</p>
+            <p className="mt-1">{isRemoteHost ? "Remote Mode" : "Local Mode - All data stored on your machine"}</p>
+          </div>
+        ) : null}
       </div>
 
       <PricingModal isOpen={pricingOpen} onClose={() => setPricingOpen(false)} />

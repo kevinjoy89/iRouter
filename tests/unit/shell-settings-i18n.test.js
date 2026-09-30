@@ -8,29 +8,50 @@
 //
 // 这里把「模态框源码里出现的英文源串都在字典里」钉成可执行断言。
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const MODAL = join(
-  REPO,
-  "src",
-  "shared",
-  "components",
-  "ShellSettingsModal.js",
-);
+const MODAL_REL = "src/shared/components/ShellSettingsModal.js";
+const MODAL = join(REPO, MODAL_REL);
+const SETTINGS_DIR = join(REPO, "src", "shared", "components", "settings");
 
-/** 抽模态框源码里会被 runtime i18n 翻译的英文源串 */
+// 面板本体 + settings/ 下的全部文件。
+//
+// 早先这里是手写的文件清单，2026-09-29 面板拆成「模态框 + 每段一个文件」后，
+// 手写清单立刻会漏——漏掉的文件里的文案缺字典条目是**静默**的（英文原文照显）。
+// 改成扫目录：新增分段文件自动纳入守卫，不再依赖有人记得改清单。
+const SETTINGS_FILES = [
+  MODAL_REL,
+  ...readdirSync(SETTINGS_DIR)
+    .filter((f) => f.endsWith(".js"))
+    .sort()
+    .map((f) => `src/shared/components/settings/${f}`),
+];
+
+/** 抽设置面板源码里会被 runtime i18n 翻译的英文源串 */
 function extractSourceStrings() {
-  const src = readFileSync(MODAL, "utf8");
   const out = new Set();
+  for (const rel of SETTINGS_FILES) {
+    collectFrom(readFileSync(join(REPO, rel), "utf8"), out);
+  }
+  return [...out].sort();
+}
 
-  // 选项数组：{ value: "...", label: "..." }
+/** 从一份源码里抽取可翻译源串，累加进 out */
+function collectFrom(src, out) {
+
+  // translate("...") 显式调用的片段（动态文案用它们拼接，缺条目就显示英文）
+  for (const m of src.matchAll(/\btranslate\(\s*"([^"]{2,})"/g)) out.add(m[1]);
+  // 选项数组与分段表：{ value: "...", label: "..." } / { key: "...", label: "..." }
   for (const m of src.matchAll(/\blabel:\s*"([^"]{2,})"/g)) out.add(m[1]);
   // Row 的 label= / hint= 属性
   for (const m of src.matchAll(/\blabel="([^"]{2,})"/g)) out.add(m[1]);
   for (const m of src.matchAll(/\bhint="([^"]{2,})"/g)) out.add(m[1]);
+  // SectionHeader 的 title= / description= 属性
+  for (const m of src.matchAll(/\bdescription="([^"]{2,})"/g)) out.add(m[1]);
+  // 行内三元表达式里的两句 hint（关窗行为那句）
   for (const m of src.matchAll(
     /\bhint=\{\s*\n?\s*shell\.closeAction === "quit"\s*\n?\s*\?\s*"([^"]+)"/g,
   ))
@@ -41,6 +62,12 @@ function extractSourceStrings() {
     out.add(m[1]);
     out.add(m[2]);
   }
+  // 变量赋值与对象字面量里的文案（`? "..."` / `: "..."` / `|| "..."` / `?? "..."`）。
+  // 页脚那行「有新版本 / 已是最新」是嵌套三元，上面那条只认成对的两个分支，
+  // 会漏掉它；这里补一条只看「问号/冒号/短路后面紧跟一个大写起头的串」的规则。
+  // 误伤很小：HTTP 头、MIME 类型、console.error 的首参都是小写或落在括号里。
+  for (const m of src.matchAll(/(?:\?\?|\|\||[?:])\s*"([A-Z][^"]{6,})"/g))
+    out.add(m[1]);
   // Modal 的 title=
   for (const m of src.matchAll(/\btitle="([^"]{2,})"/g)) out.add(m[1]);
   // JSX 文本节点：被换行包着、以大写字母起头的英文串。
@@ -50,12 +77,14 @@ function extractSourceStrings() {
   // 提前截断（`onClick={() => ...}` 的 `=>`），含箭头函数的按钮文案因此漏抽；
   // 而 12 字符的标签正好掉进“长”“短”两档之间。只看 `> \n 文本 \n <` 这个
   // 形状，两处缝一并消失。
+  //
+  // 长度上限放到 200：设置段里最长的说明（存储的清理提示）超过 60 字符，
+  // 卡在 60 会让它悄悄逃出守卫。字符类已排除 `{`/`}`/`<`/`>`/换行，
+  // 放宽长度不会把 JSX 表达式或标签吞进来。
   for (const m of src.matchAll(
-    />\s*\n\s*([A-Z][^<>{}\n]{1,60}?)\s*\n\s*</g,
+    />\s*\n\s*([A-Z][^<>{}\n]{1,200}?)\s*\n\s*</g,
   ))
     out.add(m[1].replace(/\s+/g, " ").trim());
-
-  return [...out].sort();
 }
 
 const LOCALES = ["zh-CN", "zh-TW"];
@@ -90,7 +119,7 @@ describe("壳层设置模态框 i18n 覆盖", () => {
     expect(strings).toContain("When closing the window");
     // 按钮文本也是会被翻译的文本节点，抽取必须覆盖到
     expect(strings).toContain("Close");
-    expect(strings).toContain("Open");
+    expect(strings).toContain("Apply");
   });
 
   it("主题与语言的选项文案已入典", () => {
@@ -128,28 +157,263 @@ describe("壳层设置模态框 i18n 覆盖", () => {
   }
 });
 
+// 面板拆成「模态框（布局/导航）+ 每段一个文件」后，这些契约各自落在哪个文件变了，
+// 但契约本身不变，逐条跟着搬家。读文件的地方一律走 settingsSrc()，方便后续再拆。
+const readPanel = (name) =>
+  readFileSync(join(SETTINGS_DIR, name), "utf8");
+
 describe("壳层设置模态框：结构与接线", () => {
   const src = readFileSync(MODAL, "utf8");
 
-  it("模态框读的是面板的 themeStore，不是自带一套主题状态", () => {
+  it("外观段读的是面板的 themeStore，不是自带一套主题状态", () => {
     // 第一版的错误：独立窗口用自己的 document，改主题只影响它自己
-    expect(src).toMatch(/from "@\/store\/themeStore"/);
-    expect(src).toMatch(/useThemeStore\(\)/);
+    const appearance = readPanel("AppearanceSettings.js");
+    expect(appearance).toMatch(/from "@\/store\/themeStore"/);
+    expect(appearance).toMatch(/useThemeStore\(\)/);
   });
 
   it("语言切换调用 reloadTranslations，就地重译整个 DOM", () => {
-    expect(src).toMatch(/from "@\/i18n\/runtime"/);
-    expect(src).toMatch(/await reloadTranslations\(\)/);
+    const appearance = readPanel("AppearanceSettings.js");
+    expect(appearance).toMatch(/from "@\/i18n\/runtime"/);
+    expect(appearance).toMatch(/await reloadTranslations\(\)/);
   });
 
-  it("壳层专属项按 window.irouterShell 是否存在决定渲染（浏览器下不出现）", () => {
+  it("壳层专属段按 window.irouterShell 是否存在决定是否进导航（浏览器下不出现）", () => {
     expect(src).toMatch(/window\.irouterShell/);
-    // 关窗行为与开机自启都必须包在这个条件里
-    const gateIdx = src.indexOf("isShell && shell");
-    expect(gateIdx, "缺少 isShell 判定").toBeGreaterThan(-1);
-    const gated = src.slice(gateIdx);
-    expect(gated).toMatch(/Launch at Login/);
-    expect(gated).toMatch(/When closing the window/);
+    expect(src).toMatch(/Boolean\(window\.irouterShell\)/);
+    // 窗口 / 更新两段必须带 shellOnly，并在 shellReady 为真时才进导航
+    for (const key of ["window", "updates"]) {
+      const entry = src.slice(src.indexOf(`key: "${key}"`));
+      expect(entry.slice(0, 240), `${key} 段缺少 shellOnly`).toMatch(
+        /shellOnly: true/,
+      );
+    }
+    expect(src).toMatch(/SECTIONS\.filter\(\(s\) => !s\.shellOnly \|\| shellReady\)/);
+  });
+
+  it("窗口行为两项都落在窗口段里（跟着分段走，不在模态框内联）", () => {
+    const win = readPanel("WindowSettings.js");
+    expect(win).toMatch(/Launch at Login/);
+    expect(win).toMatch(/When closing the window/);
+  });
+
+  it("导航是双栏而不是一条长滚动（左栏导航 + 右栏独立滚动）", () => {
+    expect(src).toMatch(/<SettingsNav/);
+    expect(src).toMatch(/flex-1 overflow-y-auto/);
+    // Modal 默认的 p-6 + 自身滚动必须让位，否则双栏里会套一层滚动
+    expect(src).toMatch(/bodyClassName="p-0"/);
+  });
+
+  it("分段表的每个 key 都有对应的内容分支（防止加了导航项却没有内容）", () => {
+    // 只在 SECTIONS 数组这一段里取 key：整份源码里还有其它 key: "..." 字面量
+    const table = src.slice(
+      src.indexOf("const SECTIONS = ["),
+      src.indexOf("];", src.indexOf("const SECTIONS = [")),
+    );
+    const keys = [...table.matchAll(/key: "([a-z]+)"/g)].map((m) => m[1]);
+    expect(keys.length).toBeGreaterThanOrEqual(6);
+    for (const key of keys) {
+      expect(src, `分段 ${key} 没有 case 分支`).toMatch(
+        new RegExp(`case "${key}":`),
+      );
+    }
+  });
+
+  it("左栏是平铺导航：无分组标题、无应用名/图标（用户反馈的三条）", () => {
+    const nav = readPanel("SettingsNav.js");
+    // ① 不展示 logo 与应用名
+    expect(nav, "左栏不应再有 logo").not.toMatch(/logo\.png/);
+    expect(nav, "SettingsNav 不应再接收应用名").not.toMatch(/appName/);
+    // ② 不做「应用 / 网关」两级分类：入参是扁平 items，源码里没有分组渲染
+    expect(nav).toMatch(/\{ items, active, onSelect/);
+    expect(nav, "不应再有分组渲染").not.toMatch(/groups/);
+    expect(src, "分段表不应再有 group 字段").not.toMatch(/group: "app"/);
+    expect(src, "分段表不应再有分组表").not.toMatch(/NAV_GROUPS/);
+  });
+
+  it("「网关设置」是最后一项（它是出口，不是设置项）", () => {
+    const table = src.slice(
+      src.indexOf("const SECTIONS = ["),
+      src.indexOf("];", src.indexOf("const SECTIONS = [")),
+    );
+    const keys = [...table.matchAll(/key: "([a-z]+)"/g)].map((m) => m[1]);
+    expect(keys[keys.length - 1]).toBe("gateway");
+    // 网关数据不再单列导航项，改为并入存储页
+    expect(keys).not.toContain("data");
+  });
+
+  it("存储与网关数据合并为一页（数据位置 + 读数 + 保留策略 + 配置导出导入）", () => {
+    const storage = readPanel("StorageSettings.js");
+    expect(storage, "存储页应渲染两张网关数据卡片").toMatch(
+      /import \{ ConfigFileCard, DataLocationCard \} from "\.\/GatewayDataCards"/,
+    );
+    expect(storage).toMatch(/<DataLocationCard \/>/);
+    expect(storage).toMatch(/<ConfigFileCard \/>/);
+    // 卡片组件自己不再带段头（否则一页里会出现两个标题）
+    const data = readPanel("GatewayDataCards.js");
+    expect(data).not.toMatch(/<SectionHeader/);
+    expect(data).not.toMatch(/<SectionBody/);
+  });
+
+  it("数据位置排在第一位，且文案落在「数据」而非「网关配置」上（用户要求）", () => {
+    const storage = readPanel("StorageSettings.js");
+    const at = (needle) => storage.indexOf(needle);
+    expect(at("<DataLocationCard />")).toBeGreaterThan(-1);
+    expect(at("<DataLocationCard />")).toBeLessThan(at("<StatGrid>"));
+    expect(at("<DataLocationCard />")).toBeLessThan(at("<ConfigFileCard />"));
+    const data = readPanel("GatewayDataCards.js");
+    expect(data, "标签应改名为 Data Location").toMatch(/label="Data Location"/);
+    expect(data, "说明应改为保存「数据」").toMatch(
+      /The SQLite file that holds your data/,
+    );
+    expect(data, "旧文案不应残留").not.toMatch(/Database Location/);
+  });
+
+  it("保留详情天数是左右结构：一行内天数与按钮不换行（用户要求）", () => {
+    const storage = readPanel("StorageSettings.js");
+    const start = storage.indexOf('label="Keep details for (days)"');
+    // 切到这一行的 </Row> 为止：文件顶部的注释里也出现过 "Save & clean now"，
+    // 用它当右边界会把区间切反（第一版就踩了这个坑）
+    const block = storage.slice(start, storage.indexOf("</Row>", start));
+    expect(block.length).toBeGreaterThan(0);
+    // 用 Row（左标签右控件）而不是 Field（上下堆叠）
+    expect(storage).toMatch(/<Row\s+label="Keep details for \(days\)"/);
+    // 控件行不得带 flex-wrap：宽度不够时宁可挤压左侧说明
+    // 只看 className 本身——注释里就写着「不用 flex-wrap」，对整段做正则会被注释误伤
+    const controlClass = (block.match(/<div className="([^"]+)"/) || [])[1] || "";
+    expect(controlClass).toContain("flex");
+    expect(controlClass).toContain("items-center");
+    expect(controlClass, "控件行不应允许换行").not.toContain("flex-wrap");
+  });
+
+  it("安全设置是与网关设置平级的独立分段（用户要求）", () => {
+    const security = readPanel("SecuritySettings.js");
+    // 复用同一页组件 + groups 过滤，避免搬三十来个 useState
+    expect(security).toMatch(/groups=\{\["security"\]\}/);
+    expect(security).toMatch(/showAppInfo=\{false\}/);
+    // 网关设置那一段不再渲染安全/单点登录
+    expect(readPanel("GatewaySettingsSection.js")).toMatch(
+      /groups=\{\["routing", "retry", "redaction", "pricing"\]\}/,
+    );
+    // 分段表里两项相邻，且安全在网关之前
+    const table = src.slice(
+      src.indexOf("const SECTIONS = ["),
+      src.indexOf("];", src.indexOf("const SECTIONS = [")),
+    );
+    const keys = [...table.matchAll(/key: "([a-z]+)"/g)].map((m) => m[1]);
+    expect(keys).toContain("security");
+    expect(keys.indexOf("security")).toBe(keys.indexOf("gateway") - 1);
+  });
+
+  it("每个分段只含自己的卡片：漏包一张就会串到别的分段（真实事故）", () => {
+    // 事故：脱敏策略卡当时没被 shows() 包住，于是它跟着「安全设置」一起渲染了
+    //（用户实测截图）。这里按分段区间断言，未门控的卡会落进上一个分段的区间而被抓到。
+    const page = readFileSync(
+      join(REPO, "src", "app", "(dashboard)", "dashboard", "profile", "page.js"),
+      "utf8",
+    );
+    const at = (k) => {
+      const i = page.indexOf(`{shows("${k}") ? (`);
+      expect(i, `分段 ${k} 没有 shows() 包裹`).toBeGreaterThan(-1);
+      return i;
+    };
+    // 判据用「卡片内的独有内容」而不是段头注释：注释写在 shows() 之前，
+    // 按注释切区间会把下一段的注释算进本段（上一版就误报在这）。
+    const OWN = {
+      security: ["{/* Security */}", "Single Sign-On (SSO)"],
+      routing: ["Routing Strategy", "updateFallbackStrategy"],
+      retry: ["<RetryStrategyCard"],
+      redaction: ["Redaction Policy"],
+      pricing: ["Token rates behind the estimated cost"],
+    };
+    const keys = Object.keys(OWN);
+    keys.forEach((k, i) => {
+      const start = at(k);
+      // 右边界取「下一段的 shows() 起点」与「下一段锚点注释」中更靠前的那个：
+      // 注释写在 shows() 之前，只取前者会把下一段的注释算进本段（误报）
+      // 右边界取「下一段的 shows() 起点」与「下一段内容的首次出现」中更靠前者：
+      // 段头注释写在 shows() 之前，只取起点会把下一段的注释算进本段
+      let end;
+      if (i + 1 < keys.length) {
+        const nextOpener = at(keys[i + 1]);
+        const nextAnchor = page.indexOf(OWN[keys[i + 1]][0], start);
+        end = nextAnchor === -1 ? nextOpener : Math.min(nextOpener, nextAnchor);
+      } else {
+        end = page.indexOf("{/* App Info", start);
+      }
+      expect(end, `${k} 右边界没找到`).toBeGreaterThan(start);
+      const block = page.slice(start, end);
+      expect(block.length, `${k} 区间为空`).toBeGreaterThan(0);
+      for (const own of OWN[k]) {
+        expect(block, `${k} 段缺少自己的卡片：${own}`).toContain(own);
+      }
+      for (const other of keys.filter((x) => x !== k)) {
+        for (const alien of OWN[other]) {
+          expect(
+            block,
+            `${k} 段里混进了 ${other} 的卡片（多半是那张卡没被 shows() 包住）：${alien}`,
+          ).not.toContain(alien);
+        }
+      }
+    });
+  });
+
+  it("状态条图标必须用行内 font-size（工具类 text-[Npx] 在全仓是失效的）", () => {
+    const parts = readPanel("parts.js");
+    // globals.css 的 .material-symbols-outlined{font-size:24px} 排在工具类之后，
+    // 同为单类选择器 → text-[15px] 赢不了，12px 文字配 24px 图标就是「上下未居中」
+    expect(parts).toMatch(/style=\{\{ fontSize: 15, lineHeight: 1 \}\}/);
+    expect(parts, "图标外层需与正文首行同高").toMatch(/flex h-\[18px\] shrink-0 items-center/);
+  });
+
+  it("网关设置是原生嵌入 profile 页，而不是跳转过去（用户要求）", () => {
+    const section = readPanel("GatewaySettingsSection.js");
+    // 原生嵌入：动态 import 那一页本身，不开 iframe
+    expect(section).toMatch(/dynamic\(/);
+    expect(section).toMatch(
+      /import\("@\/app\/\(dashboard\)\/dashboard\/profile\/page"\)/,
+    );
+    expect(section, "不得用 iframe 嵌入").not.toMatch(/<iframe/);
+    // 懒加载：面板挂在 root layout，静态 import 会把这页打进每个路由的首屏
+    expect(section).toMatch(/ssr: false/);
+    // 模态框本体不再需要路由跳转
+    expect(src, "模态框不应再有 router.push").not.toMatch(/router\.push/);
+    expect(src).not.toMatch(/from "next\/navigation"/);
+  });
+
+  it("页尾 App Info 并入面板页脚（嵌进去的那一页不再重复渲染它）", () => {
+    // 嵌入时关掉原页的页尾块
+    expect(readPanel("GatewaySettingsSection.js")).toMatch(
+      /showAppInfo=\{false\}/,
+    );
+    const page = readFileSync(
+      join(REPO, "src", "app", "(dashboard)", "dashboard", "profile", "page.js"),
+      "utf8",
+    );
+    expect(page, "profile 页要支持隐藏页尾块").toMatch(
+      /showAppInfo = true/,
+    );
+    expect(page).toMatch(/\{showAppInfo \? \(/);
+    // 面板页脚承担这份信息：应用名 + 版本 + 本地/远程模式
+    expect(src).toMatch(/APP_CONFIG\.name/);
+    expect(src).toMatch(/APP_CONFIG\.version/);
+    expect(src).toMatch(/isRemoteHost/);
+  });
+
+  it("仪表盘侧栏不再有「网关设置」入口（只从设置面板进）", () => {
+    const sidebar = readFileSync(
+      join(REPO, "src", "shared", "components", "Sidebar.js"),
+      "utf8",
+    );
+    expect(sidebar, "侧栏不应再链接到 profile 页").not.toMatch(
+      /dashboard\/profile/,
+    );
+    expect(sidebar, "侧栏不应再有 Gateway Settings 入口").not.toMatch(
+      /Gateway Settings/,
+    );
+    // 入口仍在面板里（分段表最后一项 + 内容分支）
+    expect(src).toMatch(/label: "Gateway Settings"/);
+    expect(src).toMatch(/case "gateway":/);
   });
 
   it("保留交通灯关闭按钮（关掉后 macOS 上无法关闭）", () => {
@@ -166,9 +430,11 @@ describe("壳层设置模态框：结构与接线", () => {
   it("有显式关闭按钮（交通灯红点太小且需悬停才显形）", () => {
     const footerIdx = src.indexOf("footer={");
     expect(footerIdx, "缺少 footer 关闭按钮").toBeGreaterThan(-1);
-    const footer = src.slice(footerIdx, footerIdx + 200);
+    // 窗口开到下一处 JSX 属性级缩进为止：footer 里还有版本与更新状态一行，
+    // 固定字长会在那段变长后把 Close 按钮截出窗口（假红）。
+    const footer = src.slice(footerIdx, src.indexOf("\n      }\n", footerIdx));
     expect(footer).toMatch(/onClick=\{onClose\}/);
-    expect(footer).toMatch(/Close/);
+    expect(footer).toMatch(/>\s*\n\s*Close\s*\n\s*</);
   });
 });
 
@@ -188,11 +454,16 @@ describe("壳层设置模态框：挂载点", () => {
 });
 
 // 配置导出/导入（ADR 0006）：从面板的 profile 页迁入模态框，因此是桌面专属。
-describe("壳层设置模态框：配置导出/导入", () => {
-  const src = readFileSync(MODAL, "utf8");
+// 2026-09-29 面板分栏后这一段独立成文件；存储与网关数据合并后改名为
+// GatewayDataCards.js（只输出卡片），契约逐条跟着搬。
+describe("壳层设置面板：配置导出/导入", () => {
+  const src = readPanel("GatewayDataCards.js");
+  const modal = readFileSync(MODAL, "utf8");
 
-  it("有 Gateway data 段与两个入口", () => {
-    expect(src).toMatch(/Gateway data/);
+  it("有网关数据卡片与两个入口", () => {
+    // 合并进存储页后不再有独立的段标题，卡片本身（数据位置 / 配置文件）就是标识
+    expect(src).toMatch(/Data Location/);
+    expect(src).toMatch(/Configuration file/);
     expect(src).toMatch(/Export Configuration/);
     expect(src).toMatch(/Import Configuration/);
   });
@@ -200,7 +471,14 @@ describe("壳层设置模态框：配置导出/导入", () => {
   it("密码就地输入，不再嵌套第二个 Modal", () => {
     // 嵌套会让 Escape 一次关掉两个（两者的监听都挂在 document 上），
     // 且内层卸载会把外层的 body 滚动锁一并清掉。
-    expect(src.match(/<Modal\b/g) || [], "不应出现第二个 Modal").toHaveLength(1);
+    // 整个面板（模态框 + 全部设置段）里只能有一个 Modal。
+    const all = SETTINGS_FILES.map((rel) => readFileSync(join(REPO, rel), "utf8"));
+    const modalCount = all.reduce(
+      (n, text) => n + (text.match(/<Modal\b/g) || []).length,
+      0,
+    );
+    expect(modalCount, "不应出现第二个 Modal").toBe(1);
+    expect(modal).toMatch(/<Modal\b/);
     expect(src).toMatch(/type="password"/);
   });
 

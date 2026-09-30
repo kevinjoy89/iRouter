@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { cn } from "@/shared/utils/cn";
 import Button from "./Button";
 import Tooltip from "./Tooltip";
 
+// headerClassName / bodyClassName / footerClassName 是「加法式」扩展：不传时沿用
+// 下面三个默认串，其余调用方的观感零变化。设置面板要用它们把 body 的 p-6 与
+// 自身滚动去掉（面板是双栏、左栏固定、右栏自己滚），所以传值即整体替换默认串，
+// 而不是叠加——本仓的 cn() 只做拼接，不去重冲突的 Tailwind 类。
 export default function Modal({
   isOpen,
   onClose,
@@ -15,6 +19,9 @@ export default function Modal({
   closeOnOverlay = true,
   showTrafficLights = true,
   className,
+  headerClassName,
+  bodyClassName,
+  footerClassName,
 }) {
   const sizes = {
     sm: "max-w-sm",
@@ -33,9 +40,19 @@ export default function Modal({
     return () => { document.body.style.overflow = ""; };
   }, [isOpen]);
 
+  // Escape 只关最上层的模态框。
+  //
+  // 每个 Modal 都把监听挂在 document 上，嵌套时（设置面板里嵌了网关设置页，
+  // 那页自己会开 PricingModal）一次 Escape 会把两层一起关掉——ADR 0006 里
+  // 为同一个原因放弃了「密码用第二个模态框」。这里按 DOM 顺序判定最上层：
+  // 两层同为 z-50 时，后挂载的在后，也就是视觉上在上面那层。
+  const rootRef = useRef(null);
   useEffect(() => {
     const handleEscape = (e) => {
-      if (e.key === "Escape" && isOpen) onClose();
+      if (e.key !== "Escape" || !isOpen) return;
+      const roots = document.querySelectorAll("[data-modal-root]");
+      if (roots.length > 1 && roots[roots.length - 1] !== rootRef.current) return;
+      onClose();
     };
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
@@ -53,6 +70,8 @@ export default function Modal({
 
       {/* Modal content */}
       <div
+        ref={rootRef}
+        data-modal-root=""
         className={cn(
           "relative w-full bg-surface",
           "border border-border-subtle",
@@ -64,7 +83,12 @@ export default function Modal({
       >
         {/* Header */}
         {(title || showTrafficLights) && (
-          <div className="flex items-center justify-between p-2 border-b border-border-subtle">
+          <div
+            className={
+              headerClassName ||
+              "flex items-center justify-between p-2 border-b border-border-subtle"
+            }
+          >
             <div className="flex items-center">
               {/* Traffic lights — desktop only */}
               {showTrafficLights && (
@@ -99,11 +123,23 @@ export default function Modal({
         )}
 
         {/* Body */}
-        <div className="p-6 max-h-[calc(85vh-100px)] overflow-y-auto custom-scrollbar">{children}</div>
+        <div
+          className={
+            bodyClassName ||
+            "p-6 max-h-[calc(85vh-100px)] overflow-y-auto custom-scrollbar"
+          }
+        >
+          {children}
+        </div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-border-subtle">
+          <div
+            className={
+              footerClassName ||
+              "flex items-center justify-end gap-3 p-6 border-t border-border-subtle"
+            }
+          >
             {footer}
           </div>
         )}

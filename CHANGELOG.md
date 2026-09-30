@@ -1,3 +1,41 @@
+# Unreleased
+
+## Features
+- **Settings**: 设置面板重构为分段结构（Appearance / Window / Software update / Network / Observability / Storage / More gateway settings / Gateway data），每段带标题与说明
+- **Settings/UI**: 面板从「512px 窄列 + 一条长滚动」改为**双栏**（左栏分段索引 + 右栏卡片式内容，宽 896px、右栏独立滚动）。此前 8 个分组堆在一列里（实测内容高约 3300px），既找不到设置、也不知道还剩多少；分栏后每段独立成文件（`settings/` 下的 `AppearanceSettings` / `WindowSettings` / `UpdateSettings` / `NetworkSettings` / `ObservabilitySettings` / `StorageSettings` / `GatewayLinkSection` / `GatewayDataCards`，导航在 `SettingsNav`），模态框只留布局与分段表，分段表同时驱动导航与内容
+- **Settings/UI**: 控件统一到 `settings/parts.js`：`Switch`（轨道+滑块，`role="switch"`）替掉裸露的原生 checkbox，`Select`（原生 select + 自绘箭头，保住键盘与读屏）替掉裸 select，新增 `Notice` 内联状态条（图标 + 语气色）与 `StatTile` 读数瓦片。存储的四个读数（库体积/记录数/最早记录/单字段上限）从「与开关同款的行」改为瓦片
+- **Settings/UI**: 更新可见性：「软件更新」导航项在有新版本时点小圆点，页脚常驻版本与更新状态；面板挂载时用 `checkUpdate(false)` 同步一次已知结论（走主进程 4h 缓存，不额外打网络）——主进程的自动检查若早于面板挂载，那次 push 会丢，界面将永远显示「空闲」
+- **Settings**: 网关的**网络设置（出站代理）与可观测性**从 dashboard Profile 页迁入壳层设置面板（`src/shared/components/settings/*`，各自自带取数与保存），Profile 页只保留提供商/路由/安全/脱敏/定价等其余配置
+- **Settings**: **存储配置**迁入设置面板：保留天数 + 一个 **Save & clean now**，删除与磁盘空间回收由服务端在同一次请求内完成（`GET|POST /api/usage/storage`），界面不出现 VACUUM/压缩这类概念
+- **Settings**: 面板新增渲染进程入口（HeaderMenu → Settings，window 事件 `irouter:open-settings`），浏览器形态也能打开设置面板——否则迁入的网络/可观测性/存储将无从访问
+- **Storage**: 请求详情按保留天数**滚动自动清理并释放空间**（`observabilityRetentionDays`，默认 7 天，0 = 永久）：服务启动后延迟 30s 执行一次，之后每 6 小时一次
+- **Storage**: 新库默认 `PRAGMA auto_vacuum=INCREMENTAL`，滚动清理用 `PRAGMA incremental_vacuum` 廉价归还空间；老库（auto_vacuum=0）由首次清理自动完成一次性 VACUUM 转换，此后不再整库重写
+
+## Fixes
+- **Settings/UI**: 修「安全设置」里混进脱敏卡的问题（用户实测截图）：分组渲染时**漏包了 Redaction Policy 那张卡**——它没被 `shows()` 门控，于是跟着每个分段一起渲染。现已归入「网关设置」（它改的是转发给上游的字节，不是「谁能进面板」）。同时补了一条能真正抓住这类漏网的守卫：按分段区间断言「每段只含自己的卡片」，未门控的卡会落进上一段的区间而被抓到；已用变异测试验证（去掉门控 → 立即失败，恢复 → 通过）
+- **Settings/UI**: 信息架构再收敛（用户反馈五条）：① 状态条的图标与文字**上下居中**——`globals.css` 的 `.material-symbols-outlined{font-size:24px}` 排在 Tailwind 工具类之后，同为单类选择器，`text-[15px]` 这类声明在**全仓都是失效的**（实测侧栏 18px / 导航 17px / 瓦片 14px 三处一律渲染成 24px），12px 正文配 24px 图标就是「没居中」；状态条内改用行内 `fontSize:15` + 与首行同高的图标盒（未改全局规则，那会一次性改变整个应用的图标大小）；② 「存储」更名「**数据存储**」；③ 「数据库位置」提前到该页**第一位**并更名「**数据位置**」，文案改为「保存数据的 SQLite 文件」（两张卡因此拆成 `DataLocationCard` / `ConfigFileCard` 两个组件，各自只取自己需要的数据）；④ 「保留详情天数」改为**左右结构**（左标签、右输入框+按钮，同一行不换行）；⑤ 「安全设置」与「单点登录」从网关设置里拆出，成为与「网关设置」平级的独立分段（复用同一页组件 + `groups` 过滤，避免搬三十来个 useState 与十几个 handler；面板一次只挂载一个分段，不会出现两份状态）
+- **Settings/UI**: 页脚合并：`/dashboard/profile` 页尾的 App Info（应用名 + 版本 / 本地或远程模式）并入设置面板页脚，形成一行 `iRouter Proxy v0.3.3 · 本地模式 — 所有数据存储在您的机器上 · 当前已是最新版本`；嵌入到面板里的那一页**不再重复渲染**这一块（`ProfilePage` 新增 `showAppInfo`，嵌入时传 `false`，路由直开仍保留）。原来同一份信息在同一个框里出现两次
+- **Dashboard**: 移除侧栏的「网关设置」入口（用户要求）——网关设置此后只从设置面板的「网关设置」分段进入。`/dashboard/profile` 路由本身保留（深链仍可用），但应用内不再有导航指向它。（注：端点页的两处安全告警 CTA 仍指向该路由，未改）
+- **Settings/UI**: 「网关设置」从**跳转**改为**原生嵌入** `/dashboard/profile`（用户要求）。那一页本身就是 `max-w-2xl`（672px）的竖排卡片列，与面板右栏可用宽度（≈652px）吻合，不需要改它的布局；不走 iframe 是因为 iframe 会把 dashboard 的侧栏/头部一起装进来、多一层滚动，且嵌套文档各自一份 i18n 观察器。用 `next/dynamic`（`ssr: false`）按需加载：面板挂在 root layout 上，静态 import 会把这 1567 行页面连同它的 PricingModal 打进**每个路由**（含登录页）的首屏 chunk
+- **Modal**: Escape 只关**最上层**的模态框。每个 Modal 都把监听挂在 document 上，嵌套时一次 Escape 会连关两层（设置面板里嵌入的网关设置页会再开定价弹层）。判定按 `[data-modal-root]` 的 DOM 顺序——两层同为 z-50 时后挂载的在上面。`PricingModal` 是自己画的容器（没走共享 Modal），一并补上 `data-modal-root` 与 Escape 处理，否则它下面的面板会替它「接住」Escape。实测：定价弹层打开时按 Esc 只关弹层，再按一次才关面板
+- **Settings/UI**: 交通灯气泡提示被裁成半截：我给设置模态框加的 `overflow-hidden`（本意是收圆角）把 `bottom-full` 的绝对定位提示裁在了顶边。改为不加裁剪——头/脚两条横条没有自己的底色，四角本来就不会溢出，只有左右两栏底色在 body 内部，够不到圆角
+- **Desktop/打包**: `build-server` 新增 **CSS 完整性守卫**，拦住一类「打包零报错、界面半残」的事故。真实案例：Next 的 webpack 文件缓存让 Tailwind 复用上一次编译的 CSS 模块——新加的 `divide-border-subtle` / `rounded-[12px]` / 左栏宽度等不生成，而旧的 `divide-border` 还在。后果是**行分隔线没有颜色、回退成 `currentColor`（深色主题下一条条白线）**，卡片圆角与选中态底色一并丢失，装完才发现。现在产物自检里同时校验语义类与任意值类（`divide-border-subtle`、`bg-bg-alt/60`、`text-text-subtle`、`rounded-[12px]`、`min-h-[380px]`），缺任一条即失败并打印修复命令（`rm -rf .next .next-cli-build` 后重跑）。命名这类类名时要同步更新清单
+- **Settings/UI**: 按用户反馈收敛信息架构：① 左栏**不再展示 logo 与应用名**；② **取消「应用 / 网关」两级分类**，7 项平铺；③ **存储与网关数据合并为一页**（读数瓦片 → 保留策略 → 数据库位置 → 配置导出/导入），导航里不再单列「网关数据」；④ **「网关设置」固定放最后一项**（它是跳面板的出口，不是设置项）
+- **Settings/i18n**: 面板拆成「模态框 + 每段一个文件」后，i18n 覆盖守卫改为扫描 `src/shared/components/settings/` **整个目录**（原先手写文件清单，拆文件必漏，而漏掉的文案是**静默**的英文原文照显）；同时补上 `description=`、嵌套三元、`||`/`??` 兜底文案的抽取，JSX 文本节点长度上限 60 → 200 字符（存储的清理提示超过 60 字符，此前一直逃出守卫）
+- **Storage**: 清理彻底移出网关进程，且**运行期不再做整库重写**。第一版修复只做了「分批 + 让出事件循环」，但分批本身仍是同步 SQL：实测网关主线程 2303/2305 个采样卡在 `node::sqlite::DatabaseSync::Exec`（`incremental_vacuum` 在 GB 级库上单次数秒），请求仍要排队 4–5 秒；把整库重写放进子进程也不够——`VACUUM` 需要**独占**整个库，运行期执行会让网关每一次写都报 `database is locked`。现在：① 删除与增量回收全部交给 detached 子进程，进度写状态文件、网关只读；② 老库（auto_vacuum=NONE）运行期只标记「需要离线压缩」，不做 VACUUM；③ 真正的整库重写挪到**启动窗口**里执行一次（网关尚未启动，独占锁不影响任何人），失败/超时都不阻塞启动。实测：POST 8ms 返回，清理期间 `/api/health` 延迟 1.8–6.7ms
+- **Desktop**: 修复启动期离线压缩把应用卡死（用户实测「点不开、多出一个 Dock 图标、无法唤到前台」）。原因是 `spawnSync(process.execPath, ["-e", …])` **没有带 `ELECTRON_RUN_AS_NODE`**：打包版里 `process.execPath` 是 iRouter.app 本体，于是它又启动了一个 GUI 实例（多一个图标、抢单实例锁失败后自己退出），而主实例同步卡在 `spawnSync` 里等待，主窗口再也建不出来。现在两处子进程调用都显式带 `ELECTRON_RUN_AS_NODE=1`，并改为**异步 spawn**（不阻塞主进程事件循环），超时/失败一律继续启动。已用真实 Electron 二进制做 A/B 验证：不带该变量时无任何输出（GUI 实例），带上后正确输出探测结果；并实测老库 116MB → 删除一半后离线压缩到 84MB、auto_vacuum 0 → 2
+- **Observability**: 后台维护补齐生命周期日志（原先只有「已派发」一行，日志里看不到这次清理做了什么、有没有失败）：开始行带保留天数与当前库体积，结束行带删除条数/释放空间/用时，失败与异常结束（未写结果）分别单独告警。新增单测捕获 console 输出，钉住开始/完成两行与「成功路径不得出现失败日志」
+- **Settings/Storage**: 面板反馈重做。① 打开设置面板不再显示绿色「没有需要清理的内容」——那是把状态文件里**上一次**运行的历史结果当成本次结果渲染（用户实测反馈：完全不知道指的是什么；它只是「超期记录为 0」的那次空跑）；② 点「Save & clean now」后不再一闪而过：立即进入「正在后台清理 · N 条已删除」并轮询，完成后**常驻**显示结果，且带上本次回收的空间；③ 空结果文案改为自解释的「保留窗口内没有过期记录，无需清理」。判定逻辑抽到 `settings/storageFeedback.js`（纯函数）并新增 8 项单测钉住这些分支；i18n 守卫同时扩展到 `translate("…")` 片段，防止动态文案再漏翻
+- **i18n**: 设置面板「Current version is up to date」等 4 条更新状态文案此前未入字典，中文界面下显示英文；已补 zh-CN/zh-TW。i18n 覆盖守卫（`shell-settings-i18n.test.js`）同时扩展到迁入的 Network/Observability/Storage 三段，防止再次静默漏翻
+- **Settings**: 面板不再提供「删除全部详情」（清除全部诊断信息没有合理的日常用途）；`/api/usage/storage` 相应只保留 `apply` 一个写动作，`clearRequestDetails()`/`compactDatabase()` 一并移除
+- **Storage**: `observabilityMaxJsonSize` 增加 256KB 硬顶钳制。该值可被历史版本或接口 PATCH 放大到 2048（2MB/字段 × 4 字段/行），打包版实例 9 天即把 `data.sqlite` 撑到 10.31GB（8982 条、平均 1MB/条）
+- **Storage**: 空间回收补齐 WAL checkpoint。WAL 模式下主文件截断发生在 checkpoint，否则界面上会显示「回收 0 字节」（实测 VACUUM 后主文件仍 10.2MB，checkpoint 后 176KB）
+- **Storage**: 库体积统计同时计入 `-wal`，避免只 stat 主文件严重低估占用
+- **Storage**: `PRAGMA auto_vacuum` 必须在 `journal_mode = WAL` 之前设置，否则被 SQLite 静默忽略（实测先切 WAL 再设 INCREMENTAL 仍读回 0）
+- **RequestDetails**: 内存写缓冲加 200 条上限，并在排空无进展时跳出循环——原先 `unshift` 回填 + `while` 排空在持久化持续失败时会无界增长并同步死循环
+- **Desktop**: 版本变化时清理跨版本堆积的渲染缓存（实测 Code Cache 累积 128MB，859 个文件中 819 个早于当前安装）
+- **Desktop**: 打包只保留面板实际支持的 7 个语言包，Electron 默认会打进 220 个语言目录（约 48.8MB）
+
 # v0.5.91 (2026-09-26)
 
 ## Features

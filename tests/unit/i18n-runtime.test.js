@@ -46,8 +46,10 @@ describe("面板新增文案的字典覆盖", () => {
   }
 
   // 卡片排序是刻意的产品决策（脱敏紧随重试）。源码扫描钉住它，否则后续重构
-  // 悄悄挪回去没有任何信号——这三个注释锚点在 profile 页里各出现一次。
-  it("脱敏策略卡片紧随重试策略、且在 Network 之前", () => {
+  // 悄悄挪回去没有任何信号——这两个注释锚点在 profile 页里各出现一次。
+  // 注意：Network / Observability / Storage 三段已迁到壳层设置面板，
+  // 因此这里不再拿它们当锚点（见 tests/unit/shell-settings-i18n.test.js）。
+  it("脱敏策略卡片紧随重试策略、且在定价之前", () => {
     const src = readFileSync(PROFILE, "utf8");
     const idx = (anchor) => {
       const at = src.indexOf(anchor);
@@ -56,7 +58,7 @@ describe("面板新增文案的字典覆盖", () => {
       return at;
     };
     expect(idx("{/* Retry Strategy")).toBeLessThan(idx("{/* Redaction Policy"));
-    expect(idx("{/* Redaction Policy")).toBeLessThan(idx("{/* Network */}"));
+    expect(idx("{/* Redaction Policy")).toBeLessThan(idx("{/* Pricing rates"));
   });
 
   it("Redaction Policy 卡片的所有可翻译文案都在 zh-CN / zh-TW 字典中", () => {

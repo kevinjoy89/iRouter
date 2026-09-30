@@ -80,6 +80,17 @@ export default function HeaderMenu({ onLogout }) {
         {isOpen && (
           <div className="absolute right-0 top-full mt-2 w-60 bg-surface border border-black/10 dark:border-white/10 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150 overflow-hidden py-1">
             <MenuItem
+              icon="settings"
+              label="Settings"
+              onClick={() => {
+                close();
+                // 打开设置面板。桌面壳内该面板也能由主进程菜单/托盘唤起（IPC），
+                // 这里补一条渲染进程自己的入口，浏览器形态才够得着它——
+                // 面板里的网络/可观测性/存储原先挂在 profile 页，现已迁入。
+                window.dispatchEvent(new Event("irouter:open-settings"));
+              }}
+            />
+            <MenuItem
               icon="history"
               label="Change Log"
               onClick={() => { close(); setChangelogOpen(true); }}

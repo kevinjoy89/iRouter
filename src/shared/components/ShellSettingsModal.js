@@ -7,565 +7,62 @@
 // 感知，切主题看不到任何变化；语言同理，且那个窗口的 DOM 不在主窗口 i18n 的
 // MutationObserver 观察范围内。模态框与面板同一个 document，两个问题一起消失。
 //
-// 壳层专属项（关窗行为 / 开机自启）经 preload 暴露的 window.irouterShell 读写；
-// 浏览器打开时该对象不存在，这些项整段不渲染。
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
+// 这一版把「一条长滚动」换成双栏：左栏是分段索引，右栏只渲染当前段。
+// 此前 8 个分组堆在 512px 宽的列里（实测内容 3300px 高），找不到也看不到底。
+// 分段表 SECTIONS 同时驱动导航与内容，两者不会走偏。
+//
+// 壳层专属项（关窗行为 / 开机自启 / 软件更新）经 preload 暴露的 window.irouterShell
+// 读写；浏览器打开时该对象不存在，这些段整段不进导航，也不渲染。
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Modal from "@/shared/components/Modal";
 import Button from "@/shared/components/Button";
-import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
-import { reloadTranslations, translate } from "@/i18n/runtime";
-import useThemeStore from "@/store/themeStore";
+import SettingsNav from "@/shared/components/settings/SettingsNav";
+import AppearanceSettings from "@/shared/components/settings/AppearanceSettings";
+import WindowSettings from "@/shared/components/settings/WindowSettings";
+import UpdateSettings, {
+  useSoftwareUpdate,
+} from "@/shared/components/settings/UpdateSettings";
+import NetworkSettings from "@/shared/components/settings/NetworkSettings";
+import ObservabilitySettings from "@/shared/components/settings/ObservabilitySettings";
+import StorageSettings from "@/shared/components/settings/StorageSettings";
+import GatewaySettingsSection from "@/shared/components/settings/GatewaySettingsSection";
+import SecuritySettings from "@/shared/components/settings/SecuritySettings";
+import { APP_CONFIG } from "@/shared/constants/config";
 
-// 关窗行为三档。值与 desktop/settings.js 的 CLOSE_ACTIONS 一一对应——那边是
-// CommonJS 壳层模块、这边是 ESM 面板，无法共享常量，改动必须同步两处。
-const CLOSE_ACTIONS = [
-  { value: "quit", label: "Quit iRouter" },
-  { value: "dock", label: "Hide to tray, keep in Dock" },
-  { value: "tray", label: "Hide to tray, remove from Dock" },
+// 分段表。顺序即左栏顺序，**平铺不分簇**：
+//   前四项是应用自己的行为，后面是网关怎么跑、留下什么、数据怎么搬；
+//   「网关设置」（跳面板 profile 页的入口）固定放最后一项——它是出口，不是设置项。
+// shellOnly 的分段只在桌面壳内出现（浏览器形态没有 preload）。
+//
+// 存储与网关数据合成一段：两者都是「网关在本地留下/搬走什么」，
+// 拆成两个导航项只会让人先点错一次（用户反馈：应该归到一起）。
+const SECTIONS = [
+  { key: "appearance", icon: "palette", label: "Appearance" },
+  {
+    key: "window",
+    icon: "desktop_windows",
+    label: "Window",
+    shellOnly: true,
+  },
+  {
+    key: "updates",
+    icon: "system_update_alt",
+    label: "Software Update",
+    shellOnly: true,
+  },
+  { key: "network", icon: "lan", label: "Network" },
+  { key: "observability", icon: "visibility", label: "Observability" },
+  { key: "storage", icon: "database", label: "Data Storage" },
+  // 安全设置与网关设置平级：它管「谁能进面板」，不是网关怎么路由
+  { key: "security", icon: "shield", label: "Security" },
+  // 左栏宽度 196px，英文下 "More gateway settings" 会被截断；导航用短名，
+  // 段头仍用完整标题（两处文案都是既有字典条目）。
+  { key: "gateway", icon: "tune", label: "Gateway Settings" },
 ];
-
-const THEME_OPTIONS = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "Follow system" },
-];
-
-const LOCALE_OPTIONS = [
-  { value: "system", label: "Follow system" },
-  { value: "en", label: "English" },
-  { value: "zh-CN", label: "简体中文" },
-  { value: "zh-TW", label: "繁體中文" },
-];
-
-const LOCALE_PREF_EVENT = "irouter:locale-pref";
-
-function readLocalePreference() {
-  if (typeof document === "undefined") return "system";
-  try {
-    const saved = localStorage.getItem("irouter_locale_preference");
-    if (saved) return saved;
-  } catch {
-    /* 隐私模式等 */
-  }
-  const cookie = document.cookie
-    .split(";")
-    .find((c) => c.trim().startsWith(`${LOCALE_COOKIE}=`));
-  return cookie
-    ? normalizeLocale(decodeURIComponent(cookie.split("=")[1]))
-    : "system";
-}
-
-function resolveSystemLocale() {
-  if (typeof navigator === "undefined") return "en";
-  const nav = (navigator.language || "en").toLowerCase();
-  if (nav.includes("tw") || nav.includes("hk") || nav.includes("hant"))
-    return "zh-TW";
-  if (nav.startsWith("zh")) return "zh-CN";
-  return "en";
-}
-
-function subscribeLocalePref(onChange) {
-  window.addEventListener(LOCALE_PREF_EVENT, onChange);
-  return () => window.removeEventListener(LOCALE_PREF_EVENT, onChange);
-}
 
 const NOOP_UNSUBSCRIBE = () => {};
 
-function Row({ label, hint, children }) {
-  return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3">
-      <div className="min-w-0">
-        <div className="text-sm font-medium text-text-main">{label}</div>
-        {hint ? (
-          <div className="text-xs text-text-muted mt-0.5">{hint}</div>
-        ) : null}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
-
-// data-* 属性供冒烟断言定位：按钮文字会被 runtime i18n 就地译成中文
-//（「Dark」→「深色」），按文字找不到，故按值定位。
-function Segmented({ options, value, onChange, group }) {
-  return (
-    <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-surface-2">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          data-settings-option={`${group}:${o.value}`}
-          onClick={() => onChange(o.value)}
-          className={
-            "px-3 h-7 rounded-md text-xs font-medium transition-colors " +
-            (value === o.value
-              ? "bg-surface text-text-main shadow-sm"
-              : "text-text-muted hover:text-text-main")
-          }
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// 家目录前缀缩成 ~：完整路径会撑爆这一行
-function shortenHome(p) {
-  return p.replace(/^\/(?:Users|home)\/[^/]+/, "~");
-}
-
-// 网关数据段：配置导出/导入。原先在面板的 /dashboard/profile（Local Mode 卡片），
-// 迁到此处后即为桌面专属——模态框只能由壳层主进程经 IPC 唤起，浏览器形态打不开
-// （ADR 0006）。
-//
-// 单列一段并标出「Gateway data」：上面各行的语义是窗口与外观行为，这一段动的是
-// 网关的数据，边界得读得出来。
-//
-// 密码就地输入而非第二个模态框：Modal 的 Escape 监听挂在 document 上，
-// document.body.style.overflow 又由各自独立写入，嵌套会导致按一次 Escape 关掉两个、
-// 内层卸载清掉外层的滚动锁。
-//
-// 状态留在这个独立组件里，靠 Modal 关闭时返回 null 让它整体卸载——密码与状态
-// 提示因此自然归零，不必在 effect 里重置（那样会触发本仓的
-// react-hooks/set-state-in-effect error）。
-/**
- * 软件更新管理段：检查更新、展示进度、校验完整性与安装引导
- *
- * @param {object} props 组件属性
- * @param {object} props.shell 壳层配置对象
- * @param {Function} props.onSettingChange 配置变更回调
- * @return {JSX.Element} 软件更新交互区块
- */
-function SoftwareUpdateSection({ shell, onSettingChange }) {
-  const [updateState, setUpdateState] = useState("idle");
-  const [updateResult, setUpdateResult] = useState(null);
-  const [progress, setProgress] = useState({ downloaded: 0, total: 0, percent: 0 });
-  const [downloadInfo, setDownloadInfo] = useState(null);
-  const [errorMsg, setErrorMsg] = useState("");
-
-  useEffect(() => {
-    const api = typeof window !== "undefined" ? window.irouterShell : null;
-    if (!api) return;
-
-    const unsubAvail = api.onUpdateAvailable?.((res) => {
-      setUpdateResult(res);
-      if (res.updateAvailable) {
-        setUpdateState("available");
-      } else if (res.error) {
-        setUpdateState("error");
-        setErrorMsg(res.error);
-      } else {
-        setUpdateState("idle");
-      }
-    });
-
-    const unsubProg = api.onUpdateProgress?.((p) => {
-      setUpdateState("downloading");
-      setProgress(p);
-    });
-
-    const unsubDown = api.onUpdateDownloaded?.((info) => {
-      setUpdateState("downloaded");
-      setDownloadInfo(info);
-    });
-
-    const unsubErr = api.onUpdateError?.((err) => {
-      setUpdateState("error");
-      setErrorMsg(err);
-    });
-
-    return () => {
-      unsubAvail?.();
-      unsubProg?.();
-      unsubDown?.();
-      unsubErr?.();
-    };
-  }, []);
-
-  const checkNow = async () => {
-    const api = typeof window !== "undefined" ? window.irouterShell : null;
-    if (!api || updateState === "checking") return;
-    setUpdateState("checking");
-    setErrorMsg("");
-    try {
-      const res = await api.checkUpdate(true);
-      setUpdateResult(res);
-      if (res.error) {
-        setUpdateState("error");
-        setErrorMsg(res.error);
-      } else if (res.updateAvailable) {
-        setUpdateState("available");
-      } else {
-        setUpdateState("idle");
-      }
-    } catch (e) {
-      setUpdateState("error");
-      setErrorMsg(e.message || "Update check failed");
-    }
-  };
-
-  const startDownload = async () => {
-    const api = typeof window !== "undefined" ? window.irouterShell : null;
-    if (!api) return;
-    setUpdateState("downloading");
-    setProgress({ downloaded: 0, total: updateResult?.assetSize || 0, percent: 0 });
-    try {
-      await api.downloadUpdate();
-    } catch (e) {
-      setUpdateState("error");
-      setErrorMsg(e.message || "Download failed");
-    }
-  };
-
-  const cancelDownload = async () => {
-    const api = typeof window !== "undefined" ? window.irouterShell : null;
-    if (!api) return;
-    await api.cancelDownload();
-    setUpdateState("available");
-  };
-
-  const installUpdate = async () => {
-    const api = typeof window !== "undefined" ? window.irouterShell : null;
-    if (!api) return;
-    await api.installUpdate();
-  };
-
-  const ignoreVersion = async () => {
-    const api = typeof window !== "undefined" ? window.irouterShell : null;
-    if (!api || !updateResult?.latest) return;
-    await api.ignoreVersion(updateResult.latest);
-    setUpdateState("idle");
-  };
-
-  const openReleaseUrl = () => {
-    const url = updateResult?.releaseURL || "https://github.com/kevinjoy89/iRouter/releases";
-    window.open(url, "_blank");
-  };
-
-  const isUpToDate = updateState === "idle" && updateResult && !updateResult.updateAvailable;
-
-  return (
-    <>
-      <div className="px-4 pt-4 pb-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-        Software update
-      </div>
-
-      <Row
-        label="Automatically check for updates"
-        hint="Check for new releases in the background"
-      >
-        <input
-          type="checkbox"
-          checked={shell.checkUpdates !== false}
-          onChange={(e) => onSettingChange("checkUpdates", e.target.checked)}
-          className="size-4 accent-primary"
-        />
-      </Row>
-
-      <Row
-        label="Check for Updates"
-        hint={
-          updateState === "available" && updateResult?.latest
-            ? "A new version is available"
-            : isUpToDate
-              ? "Current version is up to date"
-              : null
-        }
-      >
-        {updateState === "checking" ? (
-          <Button variant="secondary" size="sm" loading disabled>
-            Checking...
-          </Button>
-        ) : updateState === "available" ? (
-          <Button variant="primary" size="sm" onClick={startDownload}>
-            Download
-          </Button>
-        ) : updateState === "downloading" ? (
-          <Button variant="outline" size="sm" onClick={cancelDownload}>
-            Cancel
-          </Button>
-        ) : updateState === "downloaded" ? (
-          <Button variant="primary" size="sm" onClick={installUpdate}>
-            Install and Relaunch
-          </Button>
-        ) : (
-          <Button variant="secondary" size="sm" onClick={checkNow}>
-            Check now
-          </Button>
-        )}
-      </Row>
-
-      {updateState === "downloading" ? (
-        <div className="px-4 py-2 space-y-2">
-          <div className="flex items-center justify-between text-xs text-text-muted">
-            <span>Downloading update...</span>
-            <span>{progress.percent}%</span>
-          </div>
-          <div className="w-full bg-surface-2 rounded-full h-2 overflow-hidden">
-            <div
-              className="bg-primary h-2 rounded-full transition-all duration-200"
-              style={{ width: `${progress.percent}%` }}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {updateState === "downloaded" ? (
-        <div className="px-4 py-2 space-y-1">
-          <p className="text-xs text-green-600 dark:text-green-400">
-            Update downloaded and verified via SHA-256
-          </p>
-          {downloadInfo?.isArchive ? (
-            <p className="text-xs text-text-muted">
-              Portable archive saved to Downloads folder
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {updateState === "available" ? (
-        <div className="px-4 py-2 flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={ignoreVersion}>
-            Ignore this version
-          </Button>
-          <Button variant="ghost" size="sm" onClick={openReleaseUrl}>
-            Release Notes
-          </Button>
-        </div>
-      ) : null}
-
-      {updateState === "error" ? (
-        <div className="px-4 py-2 space-y-2">
-          <p className="text-xs text-red-500">
-            {errorMsg || "Update check failed"}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={checkNow}>
-              Retry
-            </Button>
-            <Button variant="ghost" size="sm" onClick={openReleaseUrl}>
-              View on GitHub
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function GatewayDataSection() {
-  const [authed, setAuthed] = useState(null);
-  const [dbPath, setDbPath] = useState("");
-  const [pending, setPending] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState({ type: "", message: "" });
-  const fileRef = useRef(null);
-  const pickedFileRef = useRef(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/auth/status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (alive) setAuthed(d?.authenticated === true);
-      })
-      .catch(() => {
-        if (alive) setAuthed(false);
-      });
-    // 路径由网关回报：桌面版默认 ~/.irouter，上游默认 ~/.9router，DATA_DIR 还可覆盖。
-    // 未登录时该请求 401，路径留空。
-    fetch("/api/settings/database/info")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (alive) setDbPath(d?.path || "");
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const reset = () => {
-    setPending("");
-    setPassword("");
-    pickedFileRef.current = null;
-  };
-
-  const startExport = () => {
-    setStatus({ type: "", message: "" });
-    setPassword("");
-    setPending("export");
-  };
-
-  const onFilePicked = (event) => {
-    const file = event.target.files?.[0];
-    if (fileRef.current) fileRef.current.value = "";
-    if (!file) return;
-    pickedFileRef.current = file;
-    setStatus({ type: "", message: "" });
-    setPassword("");
-    setPending("import");
-  };
-
-  const confirm = async () => {
-    if (!password || busy) return;
-    setBusy(true);
-    setStatus({ type: "", message: "" });
-    try {
-      if (pending === "export") {
-        const res = await fetch("/api/settings/database", {
-          headers: { "x-9r-password": password },
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(translate(data.error || "Failed to export database"));
-        }
-        const blob = new Blob([JSON.stringify(await res.json(), null, 2)], {
-          type: "application/json",
-        });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `irouter-config-${new Date().toISOString().replace(/[.:]/g, "-")}.json`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        URL.revokeObjectURL(url);
-        setStatus({ type: "success", message: "Configuration exported" });
-        reset();
-      } else {
-        const file = pickedFileRef.current;
-        if (!file) {
-          reset();
-          return;
-        }
-        const payload = JSON.parse(await file.text());
-        const res = await fetch("/api/settings/database", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, password }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(translate(data.error || "Failed to import database"));
-        }
-        setStatus({ type: "success", message: "Configuration imported" });
-        reset();
-      }
-    } catch (err) {
-      setStatus({
-        type: "error",
-        message: err.message || translate("Invalid backup file"),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <div className="px-4 pt-4 pb-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-        Gateway data
-      </div>
-
-      <div className="px-4 py-3">
-        <div className="text-sm font-medium text-text-main">
-          Database Location
-        </div>
-        <div className="text-xs text-text-muted font-mono mt-0.5 break-all">
-          {dbPath ? shortenHome(dbPath) : "—"}
-        </div>
-
-        {authed === false ? (
-          <div className="text-xs text-text-muted mt-2">
-            Sign in to manage backups.
-          </div>
-        ) : null}
-
-        {pending ? (
-          <div className="flex items-center gap-2 mt-3">
-            <input
-              type="password"
-              autoFocus
-              value={password}
-              placeholder="Password"
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") confirm();
-              }}
-              className="h-9 flex-1 min-w-0 px-3 rounded-lg bg-surface-2 text-sm text-text-main border border-border"
-            />
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={confirm}
-              disabled={!password}
-              loading={busy}
-            >
-              Confirm
-            </Button>
-            <Button variant="ghost" size="sm" onClick={reset} disabled={busy}>
-              Cancel
-            </Button>
-          </div>
-        ) : null}
-
-        <div className="flex flex-col sm:flex-row gap-2 mt-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon="download"
-            onClick={startExport}
-            disabled={!authed || busy}
-          >
-            Export Configuration
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            icon="upload"
-            onClick={() => fileRef.current?.click()}
-            disabled={!authed || busy}
-          >
-            Import Configuration
-          </Button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={onFilePicked}
-          />
-        </div>
-
-        {status.message ? (
-          <p
-            className={
-              "text-xs mt-2 " +
-              (status.type === "error"
-                ? "text-red-500"
-                : "text-green-600 dark:text-green-400")
-            }
-          >
-            {status.message}
-          </p>
-        ) : null}
-      </div>
-    </>
-  );
-}
-
 export default function ShellSettingsModal({ isOpen, onClose }) {
-  const router = useRouter();
-  const { theme, setTheme } = useThemeStore();
-  const localePref = useSyncExternalStore(
-    subscribeLocalePref,
-    readLocalePreference,
-    () => "system",
-  );
   // 壳层探测：preload 注入了 window.irouterShell 才是桌面壳内。外部系统读值，
   // 故用 useSyncExternalStore 而非 effect+setState（本仓该规则是 eslint error）。
   const isShell = useSyncExternalStore(
@@ -574,6 +71,9 @@ export default function ShellSettingsModal({ isOpen, onClose }) {
     () => false,
   );
   const [shell, setShell] = useState(null);
+  const [active, setActive] = useState("appearance");
+  // 更新状态提到这里：左栏「软件更新」要能在不滚到底的情况下点出一个小圆点
+  const update = useSoftwareUpdate();
 
   useEffect(() => {
     const api = typeof window !== "undefined" ? window.irouterShell : null;
@@ -584,37 +84,64 @@ export default function ShellSettingsModal({ isOpen, onClose }) {
       .catch(() => setShell(null));
   }, [isOpen]);
 
-  const applyLocale = async (value) => {
-    try {
-      localStorage.setItem("irouter_locale_preference", value);
-    } catch {
-      /* 忽略 */
-    }
-    const target = value === "system" ? resolveSystemLocale() : value;
-    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(target)}; path=/; max-age=31536000`;
-    try {
-      await fetch("/api/locale", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locale: target }),
-      });
-    } catch {
-      /* 忽略 */
-    }
-    // 就地重译整个 DOM，零整页刷新；壳层主进程监听 locale cookie 变化刷新原生菜单
-    await reloadTranslations();
-    window.dispatchEvent(new Event(LOCALE_PREF_EVENT));
-  };
-
   const applyShellSetting = async (key, value) => {
     if (!window.irouterShell) return;
     const next = await window.irouterShell.setSetting(key, value);
     setShell(next);
   };
 
-  const openGatewaySettings = () => {
-    onClose();
-    router.push("/dashboard/profile");
+  const shellReady = isShell && shell;
+  const items = SECTIONS.filter((s) => !s.shellOnly || shellReady);
+
+  // 页脚左侧的一行状态：版本 + 更新结论。版本只在这里出现一次，
+  // 左栏不再重复（原先两处都印 v0.3.3）。
+  const upToDate =
+    update.state === "idle" && update.result && !update.result.updateAvailable;
+  const footerStatus = update.updateAvailable
+    ? "A new version is available"
+    : upToDate
+      ? "Current version is up to date"
+      : null;
+
+  // 页脚左边一行：应用名 + 版本 · 本地/远程模式 · 更新结论。
+  // 前两段原本是 /dashboard/profile 页尾的 App Info 块，嵌进面板后与页脚重复，
+  // 于是并到这里（用户要求），原块在嵌入时不渲染。
+  // 环境探测走 useSyncExternalStore：首屏给 false（服务端无 window），水合后切真值。
+  const isRemoteHost = useSyncExternalStore(
+    NOOP_UNSUBSCRIBE,
+    () =>
+      !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname),
+    () => false,
+  );
+
+  const renderSection = () => {
+    switch (active) {
+      case "window":
+        return (
+          <WindowSettings shell={shell} onSettingChange={applyShellSetting} />
+        );
+      case "updates":
+        return (
+          <UpdateSettings
+            shell={shell}
+            onSettingChange={applyShellSetting}
+            update={update}
+          />
+        );
+      case "network":
+        return <NetworkSettings />;
+      case "observability":
+        return <ObservabilitySettings />;
+      case "storage":
+        return <StorageSettings />;
+      case "security":
+        return <SecuritySettings />;
+      case "gateway":
+        return <GatewaySettingsSection />;
+      case "appearance":
+      default:
+        return <AppearanceSettings />;
+    }
   };
 
   return (
@@ -622,106 +149,74 @@ export default function ShellSettingsModal({ isOpen, onClose }) {
       isOpen={isOpen}
       onClose={onClose}
       title="Settings"
-      size="lg"
+      size="full"
       // 不能关交通灯：它是桌面端唯一的关闭入口（Modal 的 X 按钮带 `md:hidden`，
       // 只在窄屏出现）。设为 false 后 macOS 上面板将无法关闭。
       showTrafficLights
       // 点遮罩不关：设置项是即时生效的开关，误触遮罩就关掉会让用户以为改动丢了。
       closeOnOverlay={false}
+      // 这里**不能**用 overflow-hidden 收圆角：交通灯的气泡提示是 bottom-full 的
+      // 绝对定位元素，要从模态框顶边溢出去，一旦裁剪就只剩半截（用户实测截图）。
+      // 圆角本身由 Modal 的 `rounded-[14px]` + 头/脚两条透明横条保证——它们没有自己的
+      // 底色，四角不会溢出，只有左右两栏的底色在 body 内部，够不到圆角。
       className="shell-settings-modal"
+      // body 的三处默认（p-6 / max-h / 自身滚动）都要让位给双栏布局：左栏固定，
+      // 右栏自己滚。整体替换而非叠加，见 Modal.js 的注释。
+      bodyClassName="p-0"
+      headerClassName="flex items-center justify-between border-b border-border-subtle p-2"
+      footerClassName="flex items-center justify-between gap-3 border-t border-border-subtle px-4 py-3"
       // 显式关闭按钮。交通灯红点在 macOS 上是标准，但它很小且需要悬停才显形，
       // 不足以保证「一眼看到怎么关」；宽屏时 Modal 自带的 X 又不渲染（带 md:hidden）。
       footer={
-        <Button variant="secondary" onClick={onClose}>
-          Close
-        </Button>
+        <>
+          <div className="flex min-w-0 items-center gap-2 text-[12px] text-text-muted">
+            <span className="shrink-0">
+              {APP_CONFIG.name}{" "}
+              <span className="tabular-nums">v{APP_CONFIG.version}</span>
+            </span>
+            <span className="shrink-0 text-text-subtle">·</span>
+            <span className="truncate">
+              {isRemoteHost
+                ? "Remote Mode"
+                : "Local Mode - All data stored on your machine"}
+            </span>
+            {footerStatus ? (
+              <>
+                <span className="shrink-0 text-text-subtle">·</span>
+                <span
+                  className={
+                    update.updateAvailable
+                      ? "shrink-0 text-brand-600 dark:text-brand-300"
+                      : "shrink-0"
+                  }
+                >
+                  {footerStatus}
+                </span>
+              </>
+            ) : null}
+          </div>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </>
       }
     >
-      <div className="divide-y divide-border -mx-6">
-        <Row label="Theme" hint="Applies to the whole app">
-          <Segmented
-            group="theme"
-            options={THEME_OPTIONS}
-            value={theme}
-            onChange={setTheme}
-          />
-        </Row>
-
-        <Row label="Language" hint="Menu bar and interface text">
-          <Segmented
-            group="locale"
-            options={LOCALE_OPTIONS}
-            value={localePref}
-            onChange={applyLocale}
-          />
-        </Row>
-
-        {/* 网关设置快捷入口：跳转到面板的 /dashboard/profile。
-            壳层设置只覆盖窗口行为（主题/语言/关窗/自启），而提供商、路由、
-            安全等配置在网关侧——不给个入口，用户得自己扶清两个「设置」的区别。
-            跳转前先关模态框，否则遮罩会留在新页面上。 */}
-        <Row label="Gateway Settings" hint="Manage your preferences">
-          <Button variant="outline" size="sm" onClick={openGatewaySettings}>
-            Open
-          </Button>
-        </Row>
-
-        {isShell && shell ? (
-          <>
-            <Row
-              label="Launch at Login"
-              hint="Open iRouter automatically when you sign in"
-            >
-              <input
-                type="checkbox"
-                checked={shell.launchAtLogin === true}
-                onChange={(e) =>
-                  applyShellSetting("launchAtLogin", e.target.checked)
-                }
-                className="size-4 accent-primary"
-              />
-            </Row>
-
-            <Row
-              label="When closing the window"
-              hint={
-                shell.closeAction === "quit"
-                  ? "Quitting stops the gateway"
-                  : "The gateway keeps running in the background"
-              }
-            >
-              <select
-                value={shell.closeAction}
-                onChange={(e) =>
-                  applyShellSetting("closeAction", e.target.value)
-                }
-                className="h-9 px-3 rounded-lg bg-surface-2 text-sm text-text-main border border-border"
-              >
-                {CLOSE_ACTIONS.map((a) => (
-                  <option key={a.value} value={a.value}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </Row>
-
-            {shell.closeAction === "tray" ? (
-              <div className="px-4 py-3 text-xs text-text-muted">
-                With the Dock icon hidden, bring the window back from the menu
-                bar.
-              </div>
-            ) : null}
-
-            {/* 软件版本更新（检查更新、下载与安装） */}
-            <SoftwareUpdateSection
-              shell={shell}
-              onSettingChange={applyShellSetting}
-            />
-          </>
-        ) : null}
-
-        {/* 网关数据：配置导出/导入。桌面专属（ADR 0006）。 */}
-        <GatewayDataSection />
+      <div className="flex max-h-[min(560px,72vh)] min-h-[380px]">
+        <SettingsNav
+          items={items}
+          active={active}
+          onSelect={setActive}
+          updateAvailable={update.updateAvailable}
+        />
+        {/* 高度随内容、上限 560px：最长的网络段 489px、存储 465px，最短的
+            「更多网关设置」178px。固定高度会在短段留下半屏空白。 */}
+        <div
+          id="shell-settings-panel"
+          role="tabpanel"
+          className="custom-scrollbar flex-1 overflow-y-auto bg-bg"
+        >
+          {renderSection()}
+        </div>
       </div>
     </Modal>
   );
