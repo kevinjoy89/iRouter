@@ -26,7 +26,9 @@ describe("usage dispatch", () => {
     const { getUsageForProvider } = await load();
     const res = await getUsageForProvider({ provider: "totally-unknown" });
     expect(res).toEqual({ message: "Usage API not implemented for totally-unknown" });
-  });
+    // open-sse/services/usage.js 的模块图很大（隔离跑约 2.5s），全量并发下光 import
+    // 就可能超过默认 5s 超时——曾因此在 CI 上报过一次假回归。
+  }, 20000);
 
   it("every supported provider routes to its handler (no fallback message)", async () => {
     const { getUsageForProvider } = await load();
@@ -36,5 +38,5 @@ describe("usage dispatch", () => {
       expect(res, `${provider} routed`).toBeTypeOf("object");
       expect(res?.message).not.toBe(`Usage API not implemented for ${provider}`);
     }
-  });
+  }, 20000);
 });
