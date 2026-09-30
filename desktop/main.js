@@ -11,7 +11,7 @@ const {
   nativeTheme,
   ipcMain,
 } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -1822,6 +1822,142 @@ async function runSmoke() {
   app.exit(ok ? 0 : 1);
 }
 
+// 覆盖安装后旧构建的 V8 code cache / HTTP 缓存再也不会被复用，但 Chromium 不会自动回收：
+// 实测累积到 128MB（859 个文件，其中 819 个早于当前安装，见 docs/packaged-runtime-footprint.zh-CN.md）。
+// 版本号变化时清一次，代价只是首次加载重新编译脚本。
+const RENDERER_CACHE_VERSION_FILE = ".renderer-cache-version";
+
+async function clearStaleRendererCaches() {
+  try {
+    const marker = path.join(app.getPath("userData"), RENDERER_CACHE_VERSION_FILE);
+    const current = app.getVersion();
+    let previous = "";
+    try {
+      previous = fs.readFileSync(marker, "utf8").trim();
+    } catch {
+      // 首次运行或标记缺失：按「需要清理」处理
+    }
+    if (previous === current) return;
+    await session.defaultSession.clearCodeCaches({});
+    await session.defaultSession.clearCache();
+    fs.writeFileSync(marker, current);
+    console.log(`[iRouter] 已清理旧版本渲染缓存（${previous || "首次运行"} → ${current}）`);
+  } catch (e) {
+    console.warn(`[iRouter] 清理渲染缓存失败: ${e.message}`);
+  }
+}
+
+// ── 一次性离线压缩（老库）────────────────────────────────────────────
+// 老库（auto_vacuum=NONE）要缩小文件只能整库重写，而 VACUUM 需要**独占**整个库：
+// 运行期做这件事，网关每一次写都会等满 busy_timeout 后报 "database is locked"，
+// 读也会被挡住（实测网关主线程 2303/2305 个采样卡在 DatabaseSync::Exec）。
+// 因此挪到「网关还没起来」的启动窗口里做一次；做完再启动网关，此后滚动清理
+// 走增量回收，永远不需要再重写。
+const LEGACY_COMPACT_MIN_BYTES = 64 * 1024 * 1024; // 小于这个体积不值得动
+const LEGACY_COMPACT_TIMEOUT_MS = 15 * 60 * 1000;
+
+const SQLITE_PROBE_SCRIPT = [
+  'const { DatabaseSync } = require("node:sqlite");',
+  "const db = new DatabaseSync(process.argv[1]);",
+  'process.stdout.write(String(Number(Object.values(db.prepare("PRAGMA auto_vacuum").get())[0]) || 0));',
+  "db.close();",
+].join("");
+
+const SQLITE_COMPACT_SCRIPT = [
+  'const { DatabaseSync } = require("node:sqlite");',
+  "const db = new DatabaseSync(process.argv[1]);",
+  'db.exec("PRAGMA busy_timeout = 60000");',
+  'db.exec("PRAGMA auto_vacuum = INCREMENTAL");',
+  'db.exec("VACUUM");',
+  'try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}',
+  "db.close();",
+].join("");
+
+/**
+ * 用「Node 模式」的子进程跑一段内联脚本
+ *
+ * ⚠️ ELECTRON_RUN_AS_NODE 不是可选项：打包版里 process.execPath 是 iRouter.app 本体，
+ * 不带这个变量就会**再启动一个 GUI 实例**（多一个 Dock 图标、抢单实例锁后自己退出），
+ * 而父进程若同步等待它，主窗口就再也建不出来——第一版启动压缩正是这样把应用卡死的。
+ * 这里另外用异步 spawn：父进程事件循环不被阻塞，不会被系统判为无响应。
+ *
+ * @param {string[]} args 传给 node 的参数（-e 脚本 及脚本参数）
+ * @param {number} timeoutMs 超时（毫秒），超时 kill 子进程
+ * @return {Promise<{out: string, code?: number, timedOut?: boolean, error?: Error}>} 执行结果
+ * @author wei
+ * @since 2026-09-29
+ */
+function runNodeScript(args, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (payload) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(payload);
+    };
+    let child;
+    try {
+      child = spawn(process.execPath, args, {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      });
+    } catch (e) {
+      resolve({ out: "", error: e });
+      return;
+    }
+    let out = "";
+    child.stdout?.on("data", (d) => { out += d.toString(); });
+    const timer = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch { /* 已退出 */ }
+      finish({ out, timedOut: true });
+    }, timeoutMs);
+    child.once("error", (e) => finish({ out, error: e }));
+    child.once("exit", (code) => finish({ out, code }));
+  });
+}
+
+/**
+ * 启动网关前，把老库一次性转换成增量回收并压掉空闲空间
+ *
+ * 失败/超时都不阻塞启动（宁可继续用旧库，也不能让应用起不来）。
+ *
+ * @param {string} dataDir 网关数据目录
+ * @return {Promise<void>} 完成（或被跳过/超时）后 resolve
+ * @author wei
+ * @since 2026-09-29
+ */
+async function compactLegacyDatabaseIfNeeded(dataDir) {
+  const dbPath = path.join(dataDir, "db", "data.sqlite");
+  try {
+    if (!fs.existsSync(dbPath)) return;
+    const sizeBefore = fs.statSync(dbPath).size;
+    if (sizeBefore < LEGACY_COMPACT_MIN_BYTES) return;
+
+    const probe = await runNodeScript(["-e", SQLITE_PROBE_SCRIPT, dbPath], 30000);
+    if (Number((probe.out || "").trim()) !== 0) return; // 已是 FULL/INCREMENTAL
+
+    console.log(
+      `[iRouter] 检测到老数据库（${(sizeBefore / 1048576).toFixed(0)}MB，auto_vacuum=NONE），` +
+      "开始一次性压缩，本次启动会稍慢…"
+    );
+    const started = Date.now();
+    const res = await runNodeScript(["-e", SQLITE_COMPACT_SCRIPT, dbPath], LEGACY_COMPACT_TIMEOUT_MS);
+    if (res.error || res.timedOut) {
+      console.warn(`[iRouter] 一次性压缩未完成（${res.error?.message || "超时"}），继续启动`);
+      return;
+    }
+    const sizeAfter = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : sizeBefore;
+    console.log(
+      `[iRouter] 一次性压缩完成：${(sizeBefore / 1048576).toFixed(0)}MB → ` +
+      `${(sizeAfter / 1048576).toFixed(0)}MB，用时 ${((Date.now() - started) / 1000).toFixed(0)}s`
+    );
+  } catch (e) {
+    console.warn(`[iRouter] 一次性压缩检查失败: ${e.message}`);
+  }
+}
+
 app.whenReady().then(async () => {
   // 单实例锁被占用时：若为冒烟测试则直接退出；若为桌面用户操作则弹出原生对话框引导
   if (!gotTheLock) {
@@ -1877,6 +2013,9 @@ app.whenReady().then(async () => {
   registerSettingsIpc();
   registerUpdaterIpc();
 
+  // 版本变化时回收跨版本堆积的渲染缓存（code cache + HTTP 缓存）
+  await clearStaleRendererCaches();
+
   // 初始语言设定：优先读取系统语言偏好
   currentLocale = normalizeMenuLocale(app.getLocale());
   setupApplicationMenu(currentLocale);
@@ -1898,6 +2037,9 @@ app.whenReady().then(async () => {
     app.exit(0);
     return;
   }
+
+  // 网关起来之前做一次性离线压缩：此时没有任何请求在跑，独占锁不会影响任何人
+  await compactLegacyDatabaseIfNeeded(dataDir);
 
   const started = await startGatewayWithRetry(dataDir);
   if (!started) {
