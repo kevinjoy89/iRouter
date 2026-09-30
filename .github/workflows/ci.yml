@@ -23,14 +23,17 @@ jobs:
         with:
           node-version: 22
 
-      # 网关依赖 + 测试运行器**一次装完**：runner 的 npm 10 在第二次 `npm install`
-      # （对已经建好的树再 reify 一次）时会崩 "Cannot read properties of null
-      # (reading 'edgesOut')" —— 两次调用踩过两次（根+子目录、以及「根装完再装 vitest」）。
-      # 单次装完就只有一个 reify。vitest 必须落在仓库根：tests/vitest.config.js 里
-      # 那句 `import { defineConfig } from "vitest/config"` 是按文件位置向上查找的。
-      # tests/ 自己的独立 package.json 保留给本地开发（本地 npm 11 无此问题）。
+      # vitest 声明在**根** devDependencies 里，因此这一条普通的 npm install 就把
+      # 网关依赖与测试运行器一起装好了。
+      #
+      # 为什么不按本地习惯 `cd tests && npm install`、也不在命令行追加装（--no-save
+      # 或 npm install <pkg>）：runner 的 npm 10 在这几条路径上都会崩
+      # "Cannot read properties of null (reading 'edgesOut')"（实测三次，纯 npm install
+      # 两次都正常）。vitest 也必须落在仓库根——tests/vitest.config.js 那句
+      # `import { defineConfig } from "vitest/config"` 是按配置文件位置向上查找的。
+      # tests/package.json 原样保留，本地两条路都能用（本地 npm 11 无此问题）。
       - name: Install dependencies (gateway + test runner)
-        run: npm install --no-save vitest@^4
+        run: npm install
 
       # 套件自带已知红（tests/__baseline__/known-fails.txt），退出码必然是 1。
       # 放行这一步，交给下一步门禁裁决：失败集合里有没有不在基线内的新面孔。
