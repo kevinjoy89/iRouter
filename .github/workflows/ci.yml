@@ -26,9 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install test dependencies
-        working-directory: tests
-        run: npm install
+      # tests/ 是独立包，但它自己的 `npm install` 在 CI 上会撞上 npm 自身的一个崩溃：
+      # 在已经装过 node_modules 的目录**子目录**里再装 → "Cannot read properties of
+      # null (reading 'edgesOut')"（runner 的 npm 10.x 实测；本地 npm 11 复现不了）。
+      # 改为把 vitest 装到根：npx 会沿目录树找到父级 node_modules/.bin。
+      - name: Install test runner
+        run: npm install --no-save vitest@^4
 
       # 套件自带已知红（tests/__baseline__/known-fails.txt），退出码必然是 1。
       # 放行这一步，交给下一步门禁裁决：失败集合里有没有不在基线内的新面孔。
@@ -37,7 +40,7 @@ jobs:
       - name: Run test suite
         working-directory: tests
         continue-on-error: true
-        run: npx vitest run --reporter=json --outputFile=../test-results.json
+        run: npx --no-install vitest run --reporter=json --outputFile=../test-results.json
 
       - name: Regression gate (no pass → fail outside known-fails)
         run: node tests/__baseline__/verify-no-regression.mjs test-results.json

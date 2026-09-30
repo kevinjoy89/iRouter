@@ -47,6 +47,7 @@ npx vitest run unit/capabilities.test.js   # single file (path relative to tests
 > cd tests && npx vitest run --reporter=json --outputFile=../test-results.json
 > node tests/__baseline__/verify-no-regression.mjs test-results.json
 > ```
+> Note: CI does **not** run `cd tests && npm install` — on the GitHub runner that nested install crashes npm 10 (`Cannot read properties of null (reading 'edgesOut')`). CI installs `vitest` at the repo root instead and calls `npx --no-install vitest` from `tests/`. Locally either way works.
 > `known-fails.txt` (105 entries) is a **superset**: entries whose tests now pass are harmless, but every currently-failing test must appear in it. Fixing a known-fail? Delete its line so the gate keeps guarding it. Expected red categories:
 > - translator/oauth/cursor fallbacks catalogued in `tests/__baseline__/known-fails.txt` (rtk, oauth-cursor-auto-import, translator-request-normalization, …).
 > - `unit/embeddings.cloud.test.js` imports `cloud/src/handlers/embeddings.js` — the `cloud/` worker dir is **not in this repo**, so it always fails here.
