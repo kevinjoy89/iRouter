@@ -18,6 +18,21 @@ import EndpointRow from "./components/EndpointRow";
 import StatusAlert from "./components/StatusAlert";
 import Tooltip from "./components/Tooltip";
 import SecurityWarning from "./components/SecurityWarning";
+
+/**
+ * 打开壳层设置面板并落到指定分段。
+ *
+ * 端点页以前直接把用户送去 /dashboard/profile；设置面板改版后「安全设置」
+ *（登录要求/密码/单点登录）与「网关设置」都在面板里，跳页面等于把人丢在
+ * 一堆无关卡片中间。浏览器形态同样有面板（ShellSettingsHost 挂在 root layout），
+ * 不需要按平台分支。
+ */
+function openSettingsSection(section) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("irouter:open-settings", { detail: { section } }),
+  );
+}
 export default function APIPageClient({ machineId }) {
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -910,7 +925,7 @@ export default function APIPageClient({ machineId }) {
           <div className="mt-4">
             <SecurityWarning
               message={unsafeReason}
-              action={{ label: "Open settings", href: "/dashboard/profile" }}
+              action={{ label: "Open settings", onClick: () => openSettingsSection("security") }}
             />
           </div>
         )}
@@ -929,11 +944,11 @@ export default function APIPageClient({ machineId }) {
                 message={
                   !requireLogin
                     ? "Require login is disabled — anyone can access your dashboard via tunnel."
-                    : "Dashboard uses the default password — change it in Profile settings."
+                    : "Dashboard uses the default password — change it in Settings → Security."
                 }
                 action={{
                   label: !requireLogin ? "Enable" : "Change password",
-                  href: "/dashboard/profile",
+                  onClick: () => openSettingsSection("security"),
                 }}
               />
             )}

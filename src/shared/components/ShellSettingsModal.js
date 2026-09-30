@@ -62,7 +62,7 @@ const SECTIONS = [
 
 const NOOP_UNSUBSCRIBE = () => {};
 
-export default function ShellSettingsModal({ isOpen, onClose }) {
+export default function ShellSettingsModal({ isOpen, onClose, initialSection }) {
   // 壳层探测：preload 注入了 window.irouterShell 才是桌面壳内。外部系统读值，
   // 故用 useSyncExternalStore 而非 effect+setState（本仓该规则是 eslint error）。
   const isShell = useSyncExternalStore(
@@ -71,7 +71,12 @@ export default function ShellSettingsModal({ isOpen, onClose }) {
     () => false,
   );
   const [shell, setShell] = useState(null);
-  const [active, setActive] = useState("appearance");
+  // 外部（端点页的安全横幅）可以指定要打开哪一段。宿主用 key 重挂载本组件来切换，
+  // 所以这里只需要把请求值当初始值——不在 effect 里 setState（本仓把
+  // react-hooks/set-state-in-effect 定为 error）。
+  const [active, setActive] = useState(
+    SECTIONS.some((s) => s.key === initialSection) ? initialSection : "appearance",
+  );
   // 更新状态提到这里：左栏「软件更新」要能在不滚到底的情况下点出一个小圆点
   const update = useSoftwareUpdate();
 

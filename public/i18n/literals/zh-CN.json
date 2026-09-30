@@ -2070,5 +2070,6 @@
   "Data Location": "数据位置",
   "The SQLite file that holds your data": "保存数据的 SQLite 文件",
   "Who can open this dashboard: login requirement, password and single sign-on": "谁能打开这个面板：登录要求、密码与单点登录",
-  "Loading security settings...": "正在加载安全设置…"
+  "Loading security settings...": "正在加载安全设置…",
+  "Dashboard uses the default password — change it in Settings → Security.": "面板使用的是默认密码 —— 请到「设置 → 安全设置」里改掉。"
 }

@@ -1092,5 +1092,6 @@
   "Data Location": "資料位置",
   "The SQLite file that holds your data": "保存資料的 SQLite 檔案",
   "Who can open this dashboard: login requirement, password and single sign-on": "誰能開啟這個面板：登入要求、密碼與單一登入",
-  "Loading security settings...": "正在載入安全設定…"
+  "Loading security settings...": "正在載入安全設定…",
+  "Dashboard uses the default password — change it in Settings → Security.": "面板使用的是預設密碼 —— 請到「設定 → 安全設定」裡改掉。"
 }

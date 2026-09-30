@@ -17,9 +17,20 @@ const OPEN_EVENT = "irouter:open-settings";
 
 export default function ShellSettingsHost() {
   const [isOpen, setIsOpen] = useState(false);
+  // 事件可以带上要打开的分段（CustomEvent detail.section）：端点页的安全横幅
+  // 需要直接落到「安全设置」，而不是把用户丢在默认的「外观」上。
+  // seq 只在「明确指定了分段」时递增，用作模态框的 key——重挂载一次以套用新分段；
+  // 普通打开（菜单/快捷键）不动 key，面板保留用户上次停留的分段。
+  const [requested, setRequested] = useState({ section: null, seq: 0 });
 
   useEffect(() => {
-    const onOpen = () => setIsOpen(true);
+    const onOpen = (event) => {
+      const section = event?.detail?.section;
+      if (typeof section === "string") {
+        setRequested((prev) => ({ section, seq: prev.seq + 1 }));
+      }
+      setIsOpen(true);
+    };
     window.addEventListener(OPEN_EVENT, onOpen);
 
     const api = typeof window !== "undefined" ? window.irouterShell : null;
@@ -33,6 +44,11 @@ export default function ShellSettingsHost() {
   }, []);
 
   return (
-    <ShellSettingsModal isOpen={isOpen} onClose={() => setIsOpen(false)} />
+    <ShellSettingsModal
+      key={requested.seq}
+      isOpen={isOpen}
+      initialSection={requested.section}
+      onClose={() => setIsOpen(false)}
+    />
   );
 }

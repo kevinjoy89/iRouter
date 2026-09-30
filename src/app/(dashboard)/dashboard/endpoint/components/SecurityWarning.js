@@ -8,12 +8,21 @@ export default function SecurityWarning({ message, action }) {
       <p className="text-xs flex-1">{message}</p>
       {action && (
         <a
-          href={action.href}
+          href={action.href || "#"}
           className="text-xs font-medium underline shrink-0 hover:opacity-80"
-          onClick={action.href.startsWith("#") ? (e) => {
+          onClick={(e) => {
+            // 面板内的动作优先：href 只是给个可聚焦/可复制的兜底
+            if (action.onClick) {
+              e.preventDefault();
+              action.onClick();
+              return;
+            }
+            if (!action.href?.startsWith("#")) return;
             e.preventDefault();
-            document.getElementById(action.href.slice(1))?.scrollIntoView({ behavior: "smooth" });
-          } : undefined}
+            document
+              .getElementById(action.href.slice(1))
+              ?.scrollIntoView({ behavior: "smooth" });
+          }}
         >
           {action.label}
         </a>
