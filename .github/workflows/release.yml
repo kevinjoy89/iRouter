@@ -104,6 +104,9 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: build
+    # 只在 tag 上发布。workflow_dispatch 手动触发时 GITHUB_REF_NAME 是分支名，
+    # 既拼不出发版说明路径，也不该把 Release 挂到分支上。
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -122,9 +125,22 @@ jobs:
           echo "== checksums.txt =="
           cat checksums.txt
 
+      # 发版说明是发版的必填项。此前这里不设 name/body，发布出来的 Release
+      # 标题是 tag 名、正文为空（v0.3.3 那次 4193 字的正文是事后手工补的）。
+      - name: Verify release notes exist
+        run: |
+          FILE="docs/release-notes/${GITHUB_REF_NAME}.zh-CN.md"
+          if [ ! -f "$FILE" ]; then
+            echo "::error::缺少发版说明 $FILE —— 打 tag 前先补 docs/release-notes/${GITHUB_REF_NAME}.zh-CN.md"
+            exit 1
+          fi
+          echo "使用发版说明：$FILE"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: iRouter ${{ github.ref_name }}
+          body_path: docs/release-notes/${{ github.ref_name }}.zh-CN.md
           files: |
             artifacts/**/*.dmg
             artifacts/**/*.exe
