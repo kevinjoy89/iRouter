@@ -23,16 +23,19 @@ jobs:
         with:
           node-version: 22
 
-      # vitest 声明在**根** devDependencies 里，因此这一条普通的 npm install 就把
-      # 网关依赖与测试运行器一起装好了。
-      #
-      # 为什么不按本地习惯 `cd tests && npm install`、也不在命令行追加装（--no-save
-      # 或 npm install <pkg>）：runner 的 npm 10 在这几条路径上都会崩
-      # "Cannot read properties of null (reading 'edgesOut')"（实测三次，纯 npm install
-      # 两次都正常）。vitest 也必须落在仓库根——tests/vitest.config.js 那句
-      # `import { defineConfig } from "vitest/config"` 是按配置文件位置向上查找的。
-      # tests/package.json 原样保留，本地两条路都能用（本地 npm 11 无此问题）。
-      - name: Install dependencies (gateway + test runner)
+      # runner 自带的 npm 10.9 在本仓库的依赖树上会崩：
+      #   npm error Cannot read properties of null (reading 'edgesOut')
+      # 触发面比想象的宽——先后踩到三次（子目录装、--no-save 加装、甚至把 vitest
+      # 写进根 devDependencies 后**连纯 npm install 都崩**，三个平台一起红）。
+      # npm 11 没有这个 bug（本地 11.17 跑同样的树全绿），换工具链比绕路干净。
+      - name: Use npm 11 (runner-bundled npm 10 crashes on this dependency tree)
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install test dependencies
+        working-directory: tests
         run: npm install
 
       # 套件自带已知红（tests/__baseline__/known-fails.txt），退出码必然是 1。
@@ -42,7 +45,7 @@ jobs:
       - name: Run test suite
         working-directory: tests
         continue-on-error: true
-        run: npx --no-install vitest run --reporter=json --outputFile=../test-results.json
+        run: npx vitest run --reporter=json --outputFile=../test-results.json
 
       - name: Regression gate (no pass → fail outside known-fails)
         run: node tests/__baseline__/verify-no-regression.mjs test-results.json

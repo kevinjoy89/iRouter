@@ -47,7 +47,7 @@ npx vitest run unit/capabilities.test.js   # single file (path relative to tests
 > cd tests && npx vitest run --reporter=json --outputFile=../test-results.json
 > node tests/__baseline__/verify-no-regression.mjs test-results.json
 > ```
-> Note: `vitest` is also declared in the **root** `devDependencies`, so CI just runs a plain `npm install` (one command installs gateway deps + test runner). It cannot use `cd tests && npm install`, nor `npm install --no-save <pkg>`: on the GitHub runner (npm 10) those paths crash with `Cannot read properties of null (reading 'edgesOut')`, while a plain `npm install` works. Locally the documented two-step flow is fine (npm 11).
+> Note: CI installs `npm@11` before the usual two-step flow. The npm 10.x bundled with the runner's Node 22 crashes on this repo's dependency tree — `Cannot read properties of null (reading 'edgesOut')` — for `cd tests && npm install`, for `npm install --no-save <pkg>`, and (once vitest appears anywhere in the tree) even for a plain `npm install` on all three platforms. npm 11 has no such bug. Locally the documented two-step flow works as written.
 > `known-fails.txt` (105 entries) is a **superset**: entries whose tests now pass are harmless, but every currently-failing test must appear in it. Fixing a known-fail? Delete its line so the gate keeps guarding it. Expected red categories:
 > - translator/oauth/cursor fallbacks catalogued in `tests/__baseline__/known-fails.txt` (rtk, oauth-cursor-auto-import, translator-request-normalization, …).
 > - `unit/embeddings.cloud.test.js` imports `cloud/src/handlers/embeddings.js` — the `cloud/` worker dir is **not in this repo**, so it always fails here.
