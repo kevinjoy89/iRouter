@@ -64,15 +64,58 @@ describe("AUDIT-002: API key masking", () => {
     expect(livePath.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("byApiKey object keys should use masked key, not raw key", () => {
+  // 写路径用**完整** key 当桶名（上游行为：只用掩码会把同前缀的 key 并成一桶），
+  // 但 /api/usage/stats 把 stats 原样返回给前端——键里带明文就是把客户端的网关
+  // API key 发出去。所以断言落在**响应边界**：返回值必须重建过桶名。
+  it("byApiKey bucket names must not carry the raw key (redacted at the response boundary)", async () => {
+    const { redactApiKeyBuckets } = await import(
+      "../../src/lib/db/repos/usageRepo.js"
+    );
+    const raw = "sk-live-SUPERSECRET-a1b2c3d4";
+    const stats = {
+      [`${raw}|gpt-4o|OpenAI`]: {
+        requests: 3,
+        keyName: "editor",
+        apiKeyMasked: "sk-live-***c3d4",
+        rawModel: "gpt-4o",
+        provider: "OpenAI",
+      },
+    };
+
+    const out = redactApiKeyBuckets(stats);
+    const keys = Object.keys(out);
+    expect(keys).toHaveLength(1);
+    expect(keys[0], "桶名不得含完整 key").not.toContain(raw);
+    expect(keys[0]).not.toContain("SUPERSECRET");
+    expect(keys[0]).toContain("editor");
+    // 值原样保留（统计数字与展示字段不受影响）
+    expect(out[keys[0]].requests).toBe(3);
+    expect(out[keys[0]].rawModel).toBe("gpt-4o");
+
+    // 同一个 key 反复请求要派生出同一个桶名，否则前端跨轮询分组会被拆散
+    expect(Object.keys(redactApiKeyBuckets(stats))).toEqual(keys);
+    // 不同 key 不得并桶
+    const other = redactApiKeyBuckets({
+      [`sk-live-OTHERKEY-9z8y7x6w|gpt-4o|OpenAI`]: {
+        keyName: "ci",
+        apiKeyMasked: "sk-live-***7x6w",
+        rawModel: "gpt-4o",
+        provider: "OpenAI",
+      },
+    });
+    expect(Object.keys(other)[0]).not.toBe(keys[0]);
+
+    // 源码层面：响应边界必须调用重建，且重建表达式本身不引用密钥原文
     const source = fs.readFileSync(
       path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
       "utf-8",
     );
-    // The 24h path should use apiKeyMasked in the akKey template
-    expect(source).toContain("${apiKeyMasked}|${r.model}|${r.provider");
-    // Should NOT use raw r.apiKey in the key
-    expect(source).not.toContain("${r.apiKey}|${r.model}|${r.provider");
+    expect(source).toMatch(/stats\.byApiKey = redactApiKeyBuckets\(stats\.byApiKey\)/);
+    const rebuild = source.match(
+      /export function redactApiKeyBuckets[\s\S]*?\n\}/,
+    );
+    expect(rebuild).not.toBeNull();
+    expect(rebuild[0]).not.toMatch(/\.apiKey\b/);
   });
 });
 

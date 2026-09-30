@@ -344,6 +344,36 @@ function loadDaysInRange(adapter, maxDays) {
   return adapter.all(`SELECT dateKey, data FROM usageDaily WHERE dateKey >= ? ORDER BY dateKey ASC`, [cutoffKey]);
 }
 
+/**
+ * 把 byApiKey 的桶名从「明文 key|model|provider」重建为不含凭据的形状。
+ *
+ * 为什么需要：写路径用**完整** key 作桶名（上游行为——只用掩码时，同前缀的 key 会
+ * 被并成一桶），但 /api/usage/stats 把 stats 原样 JSON 化给前端，键里带明文就等于
+ * 把客户端的网关 API key 发出去（本仓安全守卫 AUDIT-002）。
+ *
+ * 重建键 = keyName + 掩码 + model + provider：
+ *   · 不含密钥（掩码只保留首 8 尾 4，且它本来就是对外字段）
+ *   · 比「只用掩码」更不易撞桶（多了 keyName 与 model/provider）
+ *   · 同一个 key 每次请求派生出同一个桶名，前端跨轮询的分组不会被拆散
+ * 键形状不是对外契约：唯一消费方 UsageStats.js 按条目里的 keyName 分组渲染。
+ *
+ * @param {object} byApiKey 以 `${完整 key}|model|provider` 为桶名的统计对象
+ * @return {object} 桶名已脱敏的等价对象
+ */
+export function redactApiKeyBuckets(byApiKey) {
+  return Object.fromEntries(
+    Object.entries(byApiKey || {}).map(([, v]) => [
+      [
+        v.keyName || "unknown",
+        v.apiKeyMasked || "no-key",
+        v.rawModel || "unknown",
+        v.provider || "unknown",
+      ].join("|"),
+      v,
+    ]),
+  );
+}
+
 export async function getUsageStats(period = "all") {
   const db = await getAdapter();
 
@@ -665,6 +695,9 @@ export async function getUsageStats(period = "all") {
   }
 
   stats.totalRequests = Object.values(stats.byProvider).reduce((sum, p) => sum + (p.requests || 0), 0);
+
+  stats.byApiKey = redactApiKeyBuckets(stats.byApiKey);
+
   return stats;
 }
 
