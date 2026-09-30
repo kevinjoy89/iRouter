@@ -39,10 +39,15 @@
   /* Borders */
   --color-border: #e5e7eb;
   --color-border-subtle: #f1f1f3;
+  /* 上游代码用的是 border-hover / text-primary 这两个名字（9Router 基线里有），
+     本 fork 的调色板此前没定义 → 那两个 class 生成不出规则、静默失效。
+     补齐别名比改上游文件更稳：下次同步基线不会再冲突一次。 */
+  --color-border-hover: #d1d5db;
 
   /* Text */
   --color-text: #0a0a0a;
   --color-text-main: #0a0a0a;
+  --color-text-primary: #0a0a0a;
   --color-text-muted: #6B7280;
   --color-text-subtle: #9CA3AF;
 
@@ -95,9 +100,11 @@
 
   --color-border: #333333;
   --color-border-subtle: #2a2a2a;
+  --color-border-hover: #4a4a4a;
 
   --color-text: #ededed;
   --color-text-main: #ededed;
+  --color-text-primary: #ededed;
   --color-text-muted: #9ca3af;
   --color-text-subtle: #6b7280;
 
@@ -159,9 +166,11 @@ select {
   --color-surface-3: var(--color-surface-3);
   --color-sidebar: var(--color-sidebar);
   --color-border: var(--color-border);
+  --color-border-hover: var(--color-border-hover);
   --color-border-subtle: var(--color-border-subtle);
   --color-text: var(--color-text);
   --color-text-main: var(--color-text-main);
+  --color-text-primary: var(--color-text-primary);
   --color-text-muted: var(--color-text-muted);
   --color-text-subtle: var(--color-text-subtle);
   --color-accent: var(--color-brand-500);
