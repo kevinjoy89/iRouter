@@ -182,4 +182,44 @@ for (const name of readdirSync(OUT)) {
   }
 }
 
+// 8. CSS 完整性守卫：设置面板用到的工具类必须真的在产物样式表里。
+//
+// 来由是**真实事故**：Next 的 webpack 文件缓存会让 Tailwind 复用上一次编译出的
+// CSS 模块——新加的 `divide-border-subtle` / `rounded-[12px]` / 左栏宽度等不生成，
+// 而 `divide-y` 这类旧类仍在。失败模式不是报错而是**界面半残**：分隔线没有颜色，
+// 回退到 currentColor（深色主题下就是一条条白线），卡片圆角与选中态底色一起丢失，
+// 打包全程零报错，装完才被发现。
+//
+// 清单里同时放语义类与任意值类：前者覆盖 token 颜色，后者覆盖 `[12px]` 这类
+// 只有在扫描到源码时才生成的任意值——两类在缓存复用时是一起丢的。
+// 改设置面板的容器类名时，这个清单要跟着改，否则守卫会误报。
+const CSS_MARKERS = [
+  "divide-border-subtle", // 行分隔线颜色（白线事故的直接症状）
+  "bg-bg-alt/60", // 左栏底色
+  "text-text-subtle", // 次级文字
+  "rounded-[12px]", // 任意值：卡片圆角
+  "min-h-[380px]", // 任意值：右栏高度下限
+];
+const cssDir = join(OUT, ".next", "static", "css");
+assertDir(cssDir, "产物 CSS 目录");
+let builtCss = "";
+for (const name of readdirSync(cssDir)) {
+  if (name.endsWith(".css")) {
+    builtCss += readFileSync(join(cssDir, name), "utf8");
+  }
+}
+// CSS 选择器把 `[` `/` 转义成 `\[` `\/`，去掉反斜杠后再比对类名
+const missingCss = CSS_MARKERS.filter(
+  (m) => !builtCss.replace(/\\/g, "").includes(m),
+);
+if (missingCss.length > 0) {
+  console.error(
+    `[build-server] 产物 CSS 缺少设置面板用到的类：${missingCss.join(", ")}\n` +
+      "  这几乎总是 Tailwind 复用了上一次编译的 CSS（Next webpack 文件缓存）：" +
+      "打包不报错，但界面会半残（分隔线回退成 currentColor = 深色下一条条白线）。\n" +
+      "  修复：rm -rf .next .next-cli-build，再重跑 npm run build-server",
+  );
+  process.exit(1);
+}
+
 log(`完成 → ${OUT}`);
