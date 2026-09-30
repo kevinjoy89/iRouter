@@ -36,12 +36,12 @@ The gateway core is based on upstream [decolua/9router](https://github.com/decol
 
 ### Option 1: Download Pre-built Installers (Recommended)
 Download the latest pre-compiled binary package from [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases):
-- **macOS (Apple Silicon)**: `iRouter-0.3.4-macos-arm64.dmg`
-- **macOS (Intel)**: `iRouter-0.3.4-macos-amd64.dmg`
-- **Windows (Installer)**: `iRouter-0.3.4-windows-amd64-installer.exe`
-- **Windows (Portable)**: `iRouter-0.3.4-windows-amd64-portable.zip`
-- **Linux (deb)**: `iRouter-0.3.4-linux-amd64.deb`
-- **Linux (tar.gz)**: `iRouter-0.3.4-linux-amd64.tar.gz`
+- **macOS (Apple Silicon)**: `iRouter-0.3.5-macos-arm64.dmg`
+- **macOS (Intel)**: `iRouter-0.3.5-macos-amd64.dmg`
+- **Windows (Installer)**: `iRouter-0.3.5-windows-amd64-installer.exe`
+- **Windows (Portable)**: `iRouter-0.3.5-windows-amd64-portable.zip`
+- **Linux (deb)**: `iRouter-0.3.5-linux-amd64.deb`
+- **Linux (tar.gz)**: `iRouter-0.3.5-linux-amd64.tar.gz`
 
 Drag **iRouter** into your `Applications` folder to start.
 

@@ -9,7 +9,8 @@ This directory archives detailed multi-language Release Notes for all official r
 
 | Version / 版本 | Release Date / 发布日期 | Gateway Baseline / 网关基线 | Release Notes / 发版说明 |
 | :--- | :---: | :---: | :--- |
-| **v0.3.4** *(Latest)* | 2026-09-30 | 9router `v0.5.91` | [English](v0.3.4.en.md) · [简体中文](v0.3.4.zh-CN.md) · [GitHub Release](https://github.com/kevinjoy89/iRouter/releases/tag/v0.3.4) |
+| **v0.3.5** *(Latest)* | 2026-10-01 | 9router `v0.5.91` | [English](v0.3.5.en.md) · [简体中文](v0.3.5.zh-CN.md) · [GitHub Release](https://github.com/kevinjoy89/iRouter/releases/tag/v0.3.5) |
+| **v0.3.4** | 2026-09-30 | 9router `v0.5.91` | [English](v0.3.4.en.md) · [简体中文](v0.3.4.zh-CN.md) · [GitHub Release](https://github.com/kevinjoy89/iRouter/releases/tag/v0.3.4) |
 | **v0.3.3** | 2026-09-29 | 9router `v0.5.91` | [English](v0.3.3.en.md) · [简体中文](v0.3.3.zh-CN.md) · [GitHub Release](https://github.com/kevinjoy89/iRouter/releases/tag/v0.3.3) |
 | **v0.3.2** | 2026-09-29 | 9router `v0.5.91` | [English](v0.3.2.en.md) · [简体中文](v0.3.2.zh-CN.md) · [GitHub Release](https://github.com/kevinjoy89/iRouter/releases/tag/v0.3.2) |
 | **v0.3.1** | 2026-09-24 | 9router `v0.5.86` | [English](v0.3.1.en.md) · [简体中文](v0.3.1.zh-CN.md) · [GitHub Release](https://github.com/kevinjoy89/iRouter/releases/tag/v0.3.1) |
