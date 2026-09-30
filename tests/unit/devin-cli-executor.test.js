@@ -398,8 +398,18 @@ describe("DevinCliExecutor ACP session/new", () => {
   });
 
   it("does not set XDG_CONFIG_HOME when DEVIN_MCP_SERVERS is absent", async () => {
-    const { child } = await runExecute();
-    expect(child.opts.env.XDG_CONFIG_HOME).toBeUndefined();
+    // 断言的是「代码不去设它」，但实现是 { ...process.env, ... }：环境里**本来就有**
+    // 的值会被原样带过去。CI 的 Linux runner 恰好设了 XDG_CONFIG_HOME（macOS 开发机
+    // 一般没有），于是本用例在 macOS 绿、Linux 红——测的是环境不是代码。
+    // 临时摘掉，测完还原。
+    const saved = process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_CONFIG_HOME;
+    try {
+      const { child } = await runExecute();
+      expect(child.opts.env.XDG_CONFIG_HOME).toBeUndefined();
+    } finally {
+      if (saved !== undefined) process.env.XDG_CONFIG_HOME = saved;
+    }
   });
 
   it("exposes body.tools as an MCP server (sets XDG_CONFIG_HOME + writes script)", async () => {

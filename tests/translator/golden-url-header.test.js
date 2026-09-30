@@ -31,6 +31,17 @@ const SPECIALIZED = new Set([
 // là giá trị hợp đồng API thật, phải được lock nguyên trạng.
 const APP_VERSION_HEADERS = new Set(["x-client-version", "x-core-version", "x-msh-version"]);
 
+// Header 的值来自**本机**（process.platform / process.version / os.hostname() /
+// os.arch()），换台机器或换个平台的 CI runner 就变。不占位的话：Linux runner 上
+// cline / clinepass / kimi 恒红（本地 macOS 却全绿），而且会把开发机的主机名写进
+// 快照提交进仓库。
+const MACHINE_HEADERS = new Map([
+  ["x-platform", "<OS>"],
+  ["x-platform-version", "<OSVER>"],
+  ["x-msh-device-name", "<HOST>"],
+  ["x-msh-device-model", "<DEVICE>"],
+]);
+
 function sanitize(headers) {
   const out = {};
   for (const [k, v] of Object.entries(headers)) {
@@ -44,6 +55,9 @@ function sanitize(headers) {
       .replace(/kimi-\d{10,}/g, "kimi-<TS>");
     // Chỉ 3 header mang phiên bản app (giá trị = package.json version) → <VER>
     if (APP_VERSION_HEADERS.has(k.toLowerCase())) s = "<VER>";
+    // Header mang thông tin máy → placeholder (xem MACHINE_HEADERS)
+    const machine = MACHINE_HEADERS.get(k.toLowerCase());
+    if (machine) s = machine;
     // User-Agent dạng "9Router/<ver>" — giữ tên app, khử phần version
     s = s.replace(/^(9Router)\/[\d.]+$/i, "$1/<VER>");
     out[k] = s;
