@@ -111,6 +111,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # 必须先 checkout：发版说明（body_path）与「说明是否存在」的检查都读仓库文件，
+      # 而这个作业此前只下载构建产物，工作区里没有仓库内容——第一次跑就因此失败
+      # （守卫按预期报了「缺少发版说明」，而不是发出一个空正文的 Release）。
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
