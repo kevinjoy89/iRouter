@@ -99,7 +99,7 @@ export default function ShellSettingsModal({ isOpen, onClose, initialSection }) 
   const items = SECTIONS.filter((s) => !s.shellOnly || shellReady);
 
   // 页脚左侧的一行状态：版本 + 更新结论。版本只在这里出现一次，
-  // 左栏不再重复（原先两处都印 v0.3.3）。
+  // 左栏不再重复（原先两处都印版本号）。
   const upToDate =
     update.state === "idle" && update.result && !update.result.updateAvailable;
   const footerStatus = update.updateAvailable
