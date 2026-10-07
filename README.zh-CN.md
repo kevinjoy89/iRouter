@@ -36,12 +36,12 @@
 
 ### 方式一：下载预编译安装包（推荐）
 前往 [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases) 下载对应平台的最新安装包：
-- **macOS (Apple Silicon)**: `iRouter-0.3.5-macos-arm64.dmg`
-- **macOS (Intel)**: `iRouter-0.3.5-macos-amd64.dmg`
-- **Windows (安装程序)**: `iRouter-0.3.5-windows-amd64-installer.exe`
-- **Windows (绿色便携版)**: `iRouter-0.3.5-windows-amd64-portable.zip`
-- **Linux (deb)**: `iRouter-0.3.5-linux-amd64.deb`
-- **Linux (tar.gz)**: `iRouter-0.3.5-linux-amd64.tar.gz`
+- **macOS (Apple Silicon)**: `iRouter-0.3.6-macos-arm64.dmg`
+- **macOS (Intel)**: `iRouter-0.3.6-macos-amd64.dmg`
+- **Windows (安装程序)**: `iRouter-0.3.6-windows-amd64-installer.exe`
+- **Windows (绿色便携版)**: `iRouter-0.3.6-windows-amd64-portable.zip`
+- **Linux (deb)**: `iRouter-0.3.6-linux-amd64.deb`
+- **Linux (tar.gz)**: `iRouter-0.3.6-linux-amd64.tar.gz`
 
 下载后将 **iRouter** 拖入「应用程序（Applications）」即可。
 
