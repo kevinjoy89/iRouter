@@ -399,6 +399,18 @@ console.log("[spike] 能力面断言：");
   if (warnLines.length) console.log(`      诊断行：\n        ${warnLines.slice(0, 6).join("\n        ")}`);
 }
 
+// A10 图片与面板静态资源（sharp 被 outputFileTracingExcludes 排除后的唯一真实风险）
+{
+  const svg = await req("/file.svg");
+  const png = await req("/providers/deepseek.png");
+  const pngCt = png.headers.get("content-type") || "";
+  // 带 unoptimized: true 时 /_next/image 不应被走到，但若被请求也绝不能因缺 sharp 而 5xx
+  const opt = await req("/_next/image?url=%2Fproviders%2Fdeepseek.png&w=64&q=75");
+  record("A10", "静态图片与 /_next/image 不因缺 sharp 而失败",
+    svg.status === 200 && png.status === 200 && pngCt.startsWith("image/") && opt.status < 500,
+    `svg=${svg.status} png=${png.status}(${pngCt}) _next/image=${opt.status}`);
+}
+
 // ---------------------------------------------------------------- 数据安全校验
 
 console.log("\n[spike] 真实数据未被触碰校验：");

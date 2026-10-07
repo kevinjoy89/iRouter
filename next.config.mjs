@@ -26,7 +26,17 @@ const nextConfig = {
   },
   outputFileTracingRoot: tracingRoot,
   outputFileTracingExcludes: {
-    "*": ["./gitbook/**/*"]
+    // sharp / libvips 是纯死重，约 18 MiB：nft 追踪会把 @img/sharp-* 整族（含
+    // libvips-cpp dylib）连同 sharp 的 JS 壳一起拷进 standalone，但——
+    //   1. 下方 images.unoptimized = true，Next 永远不会走 sharp 做图像优化；
+    //   2. 全仓 src/ 与 open-sse/ 对 sharp 零引用（它是 next/image 的可选依赖）。
+    // 反向约束：谁要打开 images.unoptimized，必须同时删掉这两条排除，否则生产环境的
+    // /_next/image 会在缺 sharp 时失败。改这里请连带改这条注释。
+    "*": [
+      "./gitbook/**/*",
+      "./node_modules/@img/**/*",
+      "./node_modules/sharp/**/*"
+    ]
   },
   images: {
     unoptimized: true
