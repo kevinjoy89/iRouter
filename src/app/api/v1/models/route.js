@@ -1,5 +1,6 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
 import {
+  ALIAS_TO_ID,
   AI_PROVIDERS,
   getProviderAlias,
   isAnthropicCompatibleProvider,
@@ -38,6 +39,22 @@ async function resolveQoderLiveModels(conn, provider) {
   const models = routableQoderModels(result);
   if (!models.length) return null;
   return { models: models.map((m) => ({ id: m.id, name: m.name })) };
+}
+
+// Combo seats use UI aliases; the model registry also has transport aliases.
+// Capability overrides and catalog limits are keyed by provider id.
+const ALIAS_TO_PROVIDER_ID = {
+  ...Object.fromEntries(
+    Object.entries(PROVIDER_ID_TO_ALIAS).map(([id, alias]) => [alias, id])
+  ),
+  ...ALIAS_TO_ID,
+};
+
+function comboSeatCapabilities(seat) {
+  const slash = seat.indexOf("/");
+  if (slash <= 0) return null;
+  const alias = seat.slice(0, slash);
+  return getCapabilitiesForModel(ALIAS_TO_PROVIDER_ID[alias] || alias, seat.slice(slash + 1));
 }
 
 // Per-provider live model resolvers. Each receives a connection record and
@@ -254,6 +271,47 @@ function comboMatchesKinds(combo, kindFilter) {
   return kindFilter.includes(kind);
 }
 
+// Nested combo names are valid seats — the model selector exposes them and
+// chat routing resolves them recursively — but a no-slash seat is otherwise
+// treated as a literal model and publishes the 200k floor. Expand nested
+// names (cycle-guarded) so the published window is the true min across the
+// whole chain.
+function comboSeatLimits(combo, combosByName, visiting = new Set()) {
+  const name = typeof combo?.name === "string" ? combo.name : null;
+  if (name) {
+    if (visiting.has(name)) return { contextWindow: undefined, maxOutput: undefined };
+    visiting.add(name);
+  }
+
+  let contextWindow = Infinity;
+  let maxOutput = Infinity;
+  try {
+    for (const seat of Array.isArray(combo?.models) ? combo.models : []) {
+      if (typeof seat !== "string") continue;
+      const slash = seat.indexOf("/");
+      if (slash <= 0) {
+        const nested = combosByName.get(seat);
+        if (nested) {
+          const nestedLimits = comboSeatLimits(nested, combosByName, visiting);
+          if (Number.isFinite(nestedLimits.contextWindow)) contextWindow = Math.min(contextWindow, nestedLimits.contextWindow);
+          if (Number.isFinite(nestedLimits.maxOutput)) maxOutput = Math.min(maxOutput, nestedLimits.maxOutput);
+          continue;
+        }
+      }
+      const caps = comboSeatCapabilities(seat) || getCapabilitiesForModel(null, seat);
+      if (Number.isFinite(caps?.contextWindow)) contextWindow = Math.min(contextWindow, caps.contextWindow);
+      if (Number.isFinite(caps?.maxOutput)) maxOutput = Math.min(maxOutput, caps.maxOutput);
+    }
+  } finally {
+    if (name) visiting.delete(name);
+  }
+
+  return {
+    contextWindow: Number.isFinite(contextWindow) ? contextWindow : undefined,
+    maxOutput: Number.isFinite(maxOutput) ? maxOutput : undefined,
+  };
+}
+
 /**
  * Build OpenAI-format models list filtered by service kinds.
  * @param {string[]} kindFilter - List of service kinds to include (e.g. ["llm"], ["webSearch","webFetch"]).
@@ -307,38 +365,10 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   }
 
-  /**
-   * 根据 Combo 成员列表解析该聚合池的有效 Token 上下文与输出限制（遵循木桶原则取成员最小值）
-   *
-   * @param {Array<string|Object>} memberIds Combo 中的成员标识列表
-   * @return {{ contextWindow: number|null, maxOutput: number|null }} 解析后的窗口上限与输出上限
-   */
-  function comboTokenLimits(memberIds) {
-    let contextWindow = null;
-    let maxOutput = null;
-    for (const raw of memberIds || []) {
-      const memberId = typeof raw === "string" ? raw.trim() : String(raw?.model || raw?.id || "").trim();
-      if (!memberId) continue;
-      const slash = memberId.indexOf("/");
-      // 无 Provider 前缀的标识无法从能力表中匹配解析
-      if (slash <= 0) continue;
-      const provider = memberId.slice(0, slash);
-      const model = memberId.slice(slash + 1);
-      if (!model) continue;
-      const caps = getCapabilitiesForModel(provider, model);
-      const ctx = caps?.contextWindow;
-      const out = caps?.maxOutput;
-      if (Number.isFinite(ctx) && ctx > 0) {
-        contextWindow = contextWindow === null ? ctx : Math.min(contextWindow, ctx);
-      }
-      if (Number.isFinite(out) && out > 0) {
-        maxOutput = maxOutput === null ? out : Math.min(maxOutput, out);
-      }
-    }
-    return { contextWindow, maxOutput };
-  }
-
   const models = [];
+  const combosByName = new Map(
+    combos.filter((c) => typeof c?.name === "string").map((c) => [c.name, c]),
+  );
 
   // Lookup map so aggregateComboCapabilities can recursively resolve nested combos
   const comboByName = Object.fromEntries(combos.map((c) => [c.name, c.models]));
@@ -354,24 +384,23 @@ export async function buildModelsList(kindFilter, options = {}) {
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
     } else {
-      // 聚合能力对象并注入 OpenAI/OpenRouter 标准字段，避免客户端盲猜窗口过早压缩上下文
-      const comboCaps = aggregateComboCapabilities(combo.models, comboByName);
-      if (comboCaps) {
-        entry.capabilities = comboCaps;
-        if (Number.isFinite(comboCaps.contextWindow)) entry.context_length = comboCaps.contextWindow;
-        if (Number.isFinite(comboCaps.maxOutput)) entry.max_completion_tokens = comboCaps.maxOutput;
-      }
+      const comboCaps = aggregateComboCapabilities(combo.models, comboByName, comboSeatCapabilities);
+      if (comboCaps) entry.capabilities = comboCaps;
+      // Any seat can serve the request, so the only window a combo can promise is
+      // its smallest. Combo entries were the only models on this endpoint that
+      // published no limits at all, which leaves a client to guess from the name —
+      // and it guesses high (see the snake_case note on the per-provider path).
+      const { contextWindow, maxOutput } = comboSeatLimits(combo, combosByName);
+      if (Number.isFinite(contextWindow)) entry.context_length = contextWindow;
+      if (Number.isFinite(maxOutput)) entry.max_completion_tokens = maxOutput;
     }
     models.push(entry);
   }
 
   if (connections.length === 0) {
     // DB unavailable -> return static models, filtered by per-model kind
-    const aliasToProviderId = Object.fromEntries(
-      Object.entries(PROVIDER_ID_TO_ALIAS).map(([id, alias]) => [alias, id])
-    );
     for (const [alias, providerModels] of Object.entries(PROVIDER_MODELS)) {
-      const providerId = aliasToProviderId[alias] || alias;
+      const providerId = ALIAS_TO_PROVIDER_ID[alias] || alias;
       if (!providerMatchesKinds(providerId, kindFilter)) continue;
       for (const model of providerModels) {
         if (!kindFilter.includes(modelKind(model))) continue;

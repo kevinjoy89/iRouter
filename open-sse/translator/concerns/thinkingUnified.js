@@ -276,7 +276,10 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, declared = null, dis
       if (canDisable) body.thinking = { type: "adaptive", ...(display ? { display } : {}) };
       else delete body.thinking;
       const level = toLevel(eff);
-      body.output_config = { effort: capped(level === "xhigh" || level === "auto" ? "high" : level) };
+      // xhigh is model-gated (Opus/Sonnet 4.6 reject it) — clamp when not advertised.
+      const rawEffort = level === "auto" ? "high"
+        : level === "xhigh" && !supportedLevels?.includes("xhigh") ? "high" : level;
+      body.output_config = { effort: capped(rawEffort) };
       break;
     }
     case "claude-budget": {

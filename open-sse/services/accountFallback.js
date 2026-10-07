@@ -37,12 +37,24 @@ export function getQuotaCooldown(backoffLevel = 0, customConfig = null) {
  * @author wei
  * @since 2026-09-18
  */
-export function checkFallbackError(status, errorText, backoffLevel = 0, retryCfg = null) {
+export function checkFallbackError(status, errorText, backoffLevel = 0, retryCfgOrProvider = null, maybeProvider = null) {
+  let retryCfg = null;
+  let provider = null;
+  if (typeof retryCfgOrProvider === "string") {
+    provider = retryCfgOrProvider;
+  } else if (retryCfgOrProvider && typeof retryCfgOrProvider === "object") {
+    retryCfg = retryCfgOrProvider;
+    provider = typeof maybeProvider === "string" ? maybeProvider : null;
+  } else if (typeof maybeProvider === "string") {
+    provider = maybeProvider;
+  }
+
   const lowerError = errorText
     ? (typeof errorText === "string" ? errorText : JSON.stringify(errorText)).toLowerCase()
     : "";
 
   for (const rule of ERROR_RULES) {
+    if (rule.provider && rule.provider !== provider) continue;
     // 文本匹配规则
     if (rule.text && lowerError && lowerError.includes(rule.text)) {
       if (rule.backoff) {
