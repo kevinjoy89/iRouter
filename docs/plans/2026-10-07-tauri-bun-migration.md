@@ -80,12 +80,14 @@
   执行结果：**15/15 通过，跑了两份产物**（`.next/standalone` 与 `desktop/build/gateway/server` 即随包分发的那份）。见下方「Phase 0 执行记录」。
   偏差说明：第 3 条原写「真实 chat 请求」，实做改成 SSE 端点分块验证（**不需要上游凭据**，且直接观测 `text/event-stream` 与首块内容）——真实 chat 需要用户凭据，不适合放进自动门禁，留到 Phase 6 端到端验收。
 
-- [~] **Step 3: 三平台复跑**
+- [x] **Step 3: 三平台复跑**
 
   macOS / Windows / Linux 各跑一遍 Step 2。Linux 用发行版包管理器装 Bun 或按其官方二进制分发。
 
-  macOS ✅ 已跑（两份产物各 15/15）。Windows / Linux **本机无法执行**，已接入 CI 三平台矩阵（`.github/workflows/ci.yml` 的 `build-smoke` job：`setup-bun` 锁 1.3.14 + 版本断言 + `bun-gateway-spike.mjs`）——该 job 的 `matrix.os` 已含三平台，且它本来就在跑 `npm run build-server`，位置天然合适。**这两个平台的门禁结论要等 CI 跑过一次才能勾选。**
+  **已达成（2026-10-07，CI run [37614286122](https://github.com/kevinjoy89/iRouter/actions/runs/37614286122)，PR #1）**：三平台 `Bun gateway gate — Phase 0` 全部通过 —— macos-latest 2m23s / ubuntu-latest 2m32s / windows-latest 3m42s；同一 run 的 `Regression Gate (ubuntu)` 亦 pass。
+  落地方式：`.github/workflows/ci.yml` 的 `build-smoke` job（`matrix.os` 本就含三平台，且已在跑 `npm run build-server`）追加三步——`setup-bun` 锁 1.3.14 → 断言版本与 pin 一致 → 跑门禁脚本。
   注意 `NODE_OPTIONS: --experimental-sqlite`：CI 用 Node 22，其 `node:sqlite` 需要该标志；Node 24+ 会忽略（本机 Node 26 已实测无害）。
+  踩坑记录：run 摘要里会出现 `X Process completed with exit code 1` 的**注解**，那属于 `Run test suite` 步骤——它带 `continue-on-error: true` 且因 `known-fails.txt` 基线必然退出 1。**注解不是失败**，判定要看 job 结论（`gh pr checks`）。
 
 - [x] **Step 4: 记录结论并锁版本**
 
@@ -94,7 +96,7 @@
   已完成：结论 PASS，产物为 `bun-pin.json` + `verify-bun-pin.mjs` + `spike:bun` / `verify:bun-pin` 两个 npm script。
   **一处必须诚实区分的偏差**：能力面验证跑在本机 Homebrew 的 bun 1.3.14（与锁定版本号一致，但**不是**已校验哈希的那份官方产物）。随包分发的 Bun 必须是 `bun-pin.json` 校验过的那份——这条在 Phase 5 打包时必须落实，届时把各平台 `verified` 回填为 `true`。
 
-**出口条件：** 三平台 Step 2 全绿，且 Bun 版本与 SHA-256 已记录。（macOS ✅；Windows/Linux 待 CI）
+**出口条件：** 三平台 Step 2 全绿，且 Bun 版本与 SHA-256 已记录。→ **已达成（2026-10-07）**
 
 #### Phase 0 执行记录（2026-10-07）
 
