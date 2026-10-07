@@ -6,7 +6,7 @@ import { CODEX_CONFIG, TRAE_CONFIG, WINDSURF_CONFIG, ZED_HOSTED_CONFIG } from ".
 // Legit OAuth redirects are top-level navigations (no `Origin` header); a cross-site
 // page issuing `fetch(..., {mode:"no-cors"})` to scan + hit 127.0.0.1 always sends
 // `Origin: https://attacker`. Reject any non-loopback Origin to block login-CSRF.
-function isLoopbackOrigin(origin) {
+export function isLoopbackOrigin(origin) {
   if (!origin) return true; // navigation redirect — allow
   return /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
 }
@@ -173,7 +173,7 @@ function escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
-function renderCodexResultPage(success, message) {
+export function renderCodexResultPage(success, message) {
   const color = success ? "#22c55e" : "#ef4444";
   const icon = success ? "&#10003;" : "&#10007;";
   const title = success ? "Authentication Successful" : "Authentication Failed";
@@ -184,6 +184,206 @@ function renderCodexResultPage(success, message) {
 </head><body><div class="c"><div class="i">${icon}</div><h1>${title}</h1><p>${safeMessage}</p><p>Closing in <span id="cd">3</span>s...</p>
 <script>let n=3;const c=document.getElementById("cd");const t=setInterval(()=>{n--;c.textContent=n;if(n<=0){clearInterval(t);window.close();}},1000);</script>
 </div></body></html>`;
+}
+
+/**
+ * 手粘兜底页——旧 `src/app/callback/page.js` 的「Copy This URL」状态的等价物。
+ *
+ * 什么时候会看到它：/callback 拿到了 code 但服务端没有对应会话（面板在别的机器上、
+ * 流程已超过 TTL、或用户是在服务端不可达的形态下打开的回调）。此时用户仍可复制地址栏
+ * URL 粘回面板的手动输入框。
+ *
+ * 安全性：**只在未消费的路径上回显 URL**。服务端一旦成功换取，就再也不会把 code 写进
+ * HTML——那是相对旧实现（无条件回显 code 供 relay）的改进。
+ */
+export function renderOAuthManualPage({ message, url }) {
+  const safeMessage = escapeHtml(message);
+  const safeUrl = escapeHtml(url);
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Authorization callback</title>
+<style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}.c{max-width:640px;padding:2rem;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.1)}h1{margin:0 0 1rem;font-size:1.25rem}p{color:#666;line-height:1.5}input{width:100%;box-sizing:border-box;padding:.6rem;font-family:ui-monospace,monospace;font-size:.8rem;border:1px solid #ddd;border-radius:6px;margin:.5rem 0}button{padding:.5rem 1rem;border:0;border-radius:6px;background:#111;color:#fff;cursor:pointer;font-size:.85rem}</style>
+</head><body><div class="c"><h1>Almost done</h1><p>${safeMessage}</p>
+<input id="u" readonly value="${safeUrl}">
+<button id="b">Copy this URL</button>
+<script>const i=document.getElementById("u");i.addEventListener("focus",()=>i.select());document.getElementById("b").addEventListener("click",async()=>{i.select();try{await navigator.clipboard.writeText(i.value);document.getElementById("b").textContent="Copied"}catch{document.execCommand("copy");document.getElementById("b").textContent="Copied"}});</script>
+</div></body></html>`;
+}
+
+// ---------------------------------------------------------------------------
+// 通用授权码回环收取（generic authorization-code loopback）//
+// 背景：通用供应商（claude / gemini-cli / antigravity / gitlab / cline …）的
+// redirect_uri 就是网关自己的 /callback。此前接收方是一个 React 页面，靠
+// window.opener.postMessage / BroadcastChannel / localStorage 三条通道把 code 交给
+// 面板——但那三条要求「同一个浏览器 + 同源 + 同存储分区」，而桌面壳把跨域授权页交给
+// 系统浏览器后，弹窗根本没被创建（desktop/main.js 的 setWindowOpenHandler），且面板在
+// 127.0.0.1 而 redirect 落在 localhost，三条全部命中不了。实际体验退化为「复制 URL 手粘」。
+//
+// 现在改为：/callback 由 route handler 直接收取 code，在服务端完成换取并落库，面板用既有
+// 的 poll 原语取结果。浏览器只负责被重定向一次，不再参与交付。这也顺带把 code 从浏览器
+// 里拿掉了（旧实现会把 code 回显进页面并提供「复制此 URL」）。
+//
+// 安全边界（与既有 codex/xai 服务端模式同构，但通用路径必须显式做）：
+//   1. 只有先经 /api/oauth/[provider]/register-session（受 dashboardGuard 保护）注册过
+//      state 的流程才可能被收取；/callback 本身**只读不建**会话。
+//   2. state 必须精确命中，且一次性消费（status 从 pending 原子转为 exchanging）。
+//   3. Origin 守卫复用 isLoopbackOrigin：合法重定向是顶层导航（无 Origin），跨站页面的
+//      fetch 一定带 Origin。
+//   4. codeVerifier / meta 永不进 poll 的返回体（比照 xiaomi 的私钥脱敏）。
+// ---------------------------------------------------------------------------
+
+const OAUTH_SESSION_TTL_MS = 300000; // 与 CODEX_PROXY_TIMEOUT_MS、面板轮询预算（约 5 分钟）对齐
+const OAUTH_SESSION_MAX = 50; // 硬上限，防止未消费的 state 无限堆积
+
+/** state -> { provider, state, codeVerifier, redirectUri, meta, systemId, status, error, connectionId, email, createdAt, expiresAt } */
+const oauthSessions = new Map();
+
+const OAUTH_SESSION_TERMINAL = new Set(["done", "error"]);
+
+/** 清掉过期会话；顺带在超过硬上限时淘汰最旧的。返回清理条数。 */
+export function sweepOAuthSessions(now = Date.now()) {
+  let purged = 0;
+  for (const [state, session] of oauthSessions) {
+    if (session.expiresAt <= now) {
+      oauthSessions.delete(state);
+      purged += 1;
+    }
+  }
+  if (oauthSessions.size > OAUTH_SESSION_MAX) {
+    const ordered = [...oauthSessions.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
+    for (const [state] of ordered.slice(0, oauthSessions.size - OAUTH_SESSION_MAX)) {
+      oauthSessions.delete(state);
+      purged += 1;
+    }
+  }
+  return purged;
+}
+
+/**
+ * 登记一次待收取的授权码流程。由受鉴权保护的 register-session 调用。
+ * @returns {boolean} 参数不全时返回 false（调用方据此回落手粘路径）
+ */
+export function registerOAuthSession({ provider, state, codeVerifier, redirectUri, meta, systemId }) {
+  if (!provider || !state || !codeVerifier || !redirectUri) return false;
+  const now = Date.now();
+  sweepOAuthSessions(now);
+  oauthSessions.set(state, {
+    provider,
+    state,
+    codeVerifier,
+    redirectUri,
+    meta: meta ?? null,
+    systemId: systemId ?? null,
+    status: "pending",
+    error: null,
+    connectionId: null,
+    email: null,
+    createdAt: now,
+    expiresAt: now + OAUTH_SESSION_TTL_MS,
+  });
+  return true;
+}
+
+/**
+ * 面板轮询用：只返回安全字段，绝不带 codeVerifier / meta。
+ * @returns {{provider:string,status:string,error:string|null,email:string|null,connectionId:string|null}|null}
+ */
+export function getOAuthSession(state) {
+  if (!state) return null;
+  sweepOAuthSessions();
+  const session = oauthSessions.get(state);
+  if (!session) return null;
+  return {
+    provider: session.provider,
+    status: session.status,
+    error: session.error,
+    email: session.email,
+    connectionId: session.connectionId,
+  };
+}
+
+/**
+ * /callback 专用：拿原始会话（含 codeVerifier / meta）。仅服务端调用，不得外泄。
+ */
+export function getOAuthSessionForCallback(state) {
+  if (!state) return null;
+  sweepOAuthSessions();
+  return oauthSessions.get(state) || null;
+}
+
+/** 消费掉一个会话（换取完成后调用）。 */
+export function clearOAuthSession(state) {
+  return oauthSessions.delete(state);
+}
+
+/** 错误信息脱敏：截断 + 抹掉可能的凭据回显。 */
+function sanitizeOAuthMessage(message) {
+  return String(message ?? "")
+    .replace(/(code|code_verifier)=[^\s&"']+/gi, "$1=[redacted]")
+    .slice(0, 300);
+}
+
+/**
+ * 在服务端完成一次通用回环回调：换取令牌并落库。
+ * 只应在 /callback route handler 里对**已命中的**会话调用。
+ * @returns {Promise<{ok:boolean, message:string}>}
+ */
+export async function completeLoopbackCallback({ session, code, error, errorDescription }) {
+  if (!session) return { ok: false, message: "No active login session." };
+
+  // 原子认领：Node 单线程，赋值与首个 await 之间不会被插入，故并发第二个 GET 只能看到
+  // 非 pending 状态。防的是同一 state 被并发/重放提交两次。
+  if (session.status !== "pending") {
+    return {
+      ok: false,
+      message: "This login attempt was already completed. Restart the login flow to try again.",
+    };
+  }
+  session.status = "exchanging";
+
+  const fail = (message) => {
+    session.status = "error";
+    session.error = sanitizeOAuthMessage(message);
+    return { ok: false, message: session.error };
+  };
+
+  try {
+    if (error) {
+      return fail(errorDescription || error);
+    }
+    if (!code) {
+      return fail("No authorization code received");
+    }
+
+    // 惰性 import：与 server.js 既有的 codex 代理同构，避免循环依赖
+    const { exchangeTokens } = await import("../providers.js");
+    const { createProviderConnection } = await import("@/models");
+
+    const tokenData = await exchangeTokens(
+      session.provider,
+      code,
+      session.redirectUri,
+      session.codeVerifier,
+      session.state,
+      session.meta ?? undefined
+    );
+    const connection = await createProviderConnection({
+      provider: session.provider,
+      authType: "oauth",
+      ...tokenData,
+      expiresAt: tokenData.expiresIn
+        ? new Date(Date.now() + tokenData.expiresIn * 1000).toISOString()
+        : null,
+      testStatus: "active",
+      ...(session.systemId ? { systemId: session.systemId } : {}),
+    });
+
+    session.status = "done";
+    session.connectionId = connection?.id ?? null;
+    session.email = connection?.email ?? null;
+    return { ok: true, message: "Authentication successful. You can close this window." };
+  } catch (err) {
+    return fail(err?.message || "Token exchange failed");
+  }
 }
 
 /**

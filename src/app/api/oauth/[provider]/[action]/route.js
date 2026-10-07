@@ -40,6 +40,10 @@ import {
   registerXiaomiMimoSession,
   getXiaomiMimoSessionStatus,
   clearXiaomiMimoSession,
+  // 通用授权码回环：会话由 /callback 的服务端换取消费，见 src/lib/oauth/utils/server.js
+  registerOAuthSession,
+  getOAuthSession,
+  clearOAuthSession,
 } from "@/lib/oauth/utils/server";
 import { detectIdeInstalled } from "@/lib/oauth/utils/ideDetect";
 import { ZED_HOSTED_CONFIG } from "@/lib/oauth/constants/oauth";
@@ -185,13 +189,19 @@ export async function GET(request, { params }) {
         return NextResponse.json({ error: "Missing state" }, { status: 400 });
       }
       let session;
+      // 通用回环路径：除下列专用代理外，一律走通用会话注册表（claude / gemini-cli /
+      // antigravity / gitlab / cline …）。它的换取发生在 /callback 的服务端，这里只读结果。
+      let genericLoopback = false;
       if (provider === "trae") session = getTraeSessionStatus(state);
       else if (provider === "windsurf") session = getWindsurfSessionStatus(state);
       else if (provider === "zed") session = getZedSessionStatus(state);
       else if (provider === "xai") session = getXaiSessionStatus(state);
       else if (provider === "codex") session = getCodexSessionStatus(state);
       else if (provider === "xiaomi-mimo") session = getXiaomiMimoSessionStatus(state);
-      else return NextResponse.json({ error: "Poll only supported for codex/xai/trae/windsurf/zed/xiaomi-mimo" }, { status: 400 });
+      else {
+        session = getOAuthSession(state);
+        genericLoopback = true;
+      }
       if (!session) return NextResponse.json({ status: "unknown" });
       if (session.status === "done" || session.status === "error") {
         const payload = { ...session };
@@ -203,6 +213,12 @@ export async function GET(request, { params }) {
             clearXiaomiMimoSession(state);
             stopXiaomiMimoProxy();
           }
+          return NextResponse.json(payload);
+        }
+        // 通用回环：换取与落库都已在服务端完成，面板读到终态即可清理
+        //（面板的轮询在 done/error 处 callbackProcessedRef 置位并停止，不会有第二次读）。
+        if (genericLoopback) {
+          clearOAuthSession(state);
           return NextResponse.json(payload);
         }
         if (provider === "trae") clearTraeSession(state);
@@ -313,7 +329,25 @@ export async function POST(request, { params }) {
       if (provider === "trae") ok = registerTraeSession({ state });
       else if (provider === "windsurf") ok = registerWindsurfSession({ state });
       else if (provider === "zed") ok = registerZedSession({ state, codeVerifier: body?.codeVerifier, systemId: body?.systemId });
-      else return NextResponse.json({ error: "register-session only supported for trae/windsurf/zed" }, { status: 400 });
+      else {
+        // 通用授权码回环：把 state / PKCE / redirectUri / meta 登记到服务端，随后
+        // /callback 收到 redirect 时就能换取。meta 必须一并存储并在换取时回放——
+        // GitLab 的 clientId/clientSecret 就在 meta 里。
+        ok = registerOAuthSession({
+          provider,
+          state,
+          codeVerifier: body?.codeVerifier,
+          redirectUri: body?.redirectUri,
+          meta: body?.meta ?? null,
+          systemId: body?.systemId ?? null,
+        });
+        if (!ok) {
+          return NextResponse.json(
+            { error: "Missing codeVerifier or redirectUri for loopback session" },
+            { status: 400 }
+          );
+        }
+      }
       return NextResponse.json({ success: ok });
     }
 
