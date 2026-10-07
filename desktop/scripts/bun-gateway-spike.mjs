@@ -248,10 +248,22 @@ console.log("[spike] 能力面断言：");
   record("A2", "根路径 / 可达", ok, `status=${r.status} location=${r.headers.get("location") || "-"}`);
 }
 
-// A3 /callback（既有 smoke 的断言：>0 即认为路由存在）
+// A3 /callback：桌面壳的就绪探针要求裸打它也返回 200（desktop/main.js 的 runSmoke）
+// 它是 route handler（不是页面）——通用 OAuth 的回调在这里由服务端完成换取，
+// 见 src/app/callback/route.js。
 {
   const r = await req("/callback");
-  record("A3", "/callback 路由存在", r.status > 0, `status=${r.status}`);
+  const ct = r.headers.get("content-type") || "";
+  record("A3", "/callback 返回 200 HTML（就绪探针契约）",
+    r.status === 200 && ct.includes("text/html"),
+    `status=${r.status} content-type=${ct} bytes=${r.text.length}`);
+
+  // 未知 state 必须走手粘兜底，且不得因为「没会话」而 5xx
+  const manual = await req("/callback?code=probe&state=never-registered");
+  const hasAffordance = manual.text.includes("Copy this URL") || manual.text.includes("Copy");
+  record("A3b", "/callback 未知 state → 200 手粘兜底页",
+    manual.status === 200 && hasAffordance,
+    `status=${manual.status} 兜底控件=${hasAffordance}`);
 }
 
 // A4 OpenAI 兼容端点
