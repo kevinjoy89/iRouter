@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld("irouterShell", {
    * 由渲染进程决定怎么呈现。
    */
   onOpenSettings: (callback) => {
-    const handler = () => callback();
+    const handler = (_event, payload) => callback(payload);
     ipcRenderer.on("shell:open-settings", handler);
     return () => ipcRenderer.removeListener("shell:open-settings", handler);
   },

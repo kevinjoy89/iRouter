@@ -651,19 +651,24 @@ function createWindow() {
 // 语言切换也只作用于它，而它不在主窗口 i18n 的 MutationObserver 观察范围内。
 // 模态框与面板同一个 document，两个问题一起消失。
 //
-// 主进程只负责「把面板调起来」：必要时先显示窗口，再发 IPC 让渲染进程开模态框。
-function openSettings() {
+/**
+ * 唤起主窗口并打开设置面板模态框
+ * @param {string|object} [section] 目标分段名称（如 updates、security 等），非字符串时保留默认分段
+ */
+function openSettings(section) {
   showDock();
+  const targetSection = typeof section === "string" ? section : null;
+  const payload = targetSection ? { section: targetSection } : {};
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow();
     // 窗口首次加载后渲染进程才注册监听，等 did-finish-load 再发
     mainWindow.webContents.once("did-finish-load", () => {
-      mainWindow?.webContents.send("shell:open-settings");
+      mainWindow?.webContents.send("shell:open-settings", payload);
     });
     return;
   }
   showWindow();
-  mainWindow.webContents.send("shell:open-settings");
+  mainWindow.webContents.send("shell:open-settings", payload);
 }
 
 /**
@@ -699,7 +704,7 @@ function registerSettingsIpc() {
 function registerUpdaterIpc() {
   // 检查版本更新
   ipcMain.handle("shell:check-update", async (_event, force = false) => {
-    return triggerUpdateCheck(force);
+    return triggerUpdateCheck(force, { source: "renderer" });
   });
 
   // 下载更新安装包
@@ -802,9 +807,11 @@ function registerUpdaterIpc() {
 /**
  * 触发一次版本更新检测
  * @param {boolean} [force=false] 是否强制检测（绕过 4h 缓存与忽略版本）
+ * @param {object} [options={}] 调用配置选项
+ * @param {string} [options.source="menu"] 触发来源（menu 为系统菜单栏或托盘菜单，renderer 为设置面板）
  * @return {Promise<object>} 更新检查结果
  */
-async function triggerUpdateCheck(force = false) {
+async function triggerUpdateCheck(force = false, { source = "menu" } = {}) {
   const dataDir = getGatewayDataDir();
   const settings = readShellSettings(dataDir);
   const result = await updater.checkForUpdates({
@@ -828,15 +835,43 @@ async function triggerUpdateCheck(force = false) {
     mainWindow.webContents.send("shell:update-available", result);
   }
 
-  // 若为菜单栏手动点击检查，且已是最新版本，弹出原生系统对话框友好提示
-  if (force && !result.error && !result.updateAvailable) {
+  // 若为菜单栏/托盘手动点击检查，根据检测结果弹出原生系统对话框友好提示
+  if (force && source === "menu") {
     const t = getMenuI18n(currentLocale);
-    dialog.showMessageBox(mainWindow, {
-      type: "info",
-      title: t.checkForUpdates.replace("…", ""),
-      message: t.upToDate,
-      detail: `${t.upToDateDetail} (v${app.getVersion()})`,
-    });
+    // 判断主窗口是否可见有效，不可见时作为独立弹窗弹出避免被隐藏父窗口遮蔽
+    const parentWin =
+      mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
+        ? mainWindow
+        : undefined;
+
+    if (result.error) {
+      dialog.showMessageBox(parentWin, {
+        type: "warning",
+        title: t.checkForUpdates.replace("…", ""),
+        message: t.updateCheckFailed,
+        detail: String(result.error),
+      });
+    } else if (result.updateAvailable) {
+      const choice = dialog.showMessageBoxSync(parentWin, {
+        type: "info",
+        title: t.checkForUpdates.replace("…", ""),
+        message: `${t.updateAvailable} (v${result.latest})`,
+        detail: `${t.updateAvailableDetail}\n\n${t.currentVersion}：v${app.getVersion()}\n${t.latestVersion}：v${result.latest}`,
+        buttons: [t.openUpdateSettings, t.later],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (choice === 0) {
+        openSettings("updates");
+      }
+    } else {
+      dialog.showMessageBox(parentWin, {
+        type: "info",
+        title: t.checkForUpdates.replace("…", ""),
+        message: t.upToDate,
+        detail: `${t.upToDateDetail} (v${app.getVersion()})`,
+      });
+    }
   }
 
   return result;
@@ -896,6 +931,13 @@ const MENU_TRANSLATIONS = {
     checkingForUpdates: "Checking for updates…",
     upToDate: "iRouter is up to date",
     upToDateDetail: "You are running the latest version.",
+    updateAvailable: "New Version Available",
+    updateAvailableDetail: "A new version of iRouter is available. Would you like to open Settings to download and install it?",
+    openUpdateSettings: "Open Settings",
+    later: "Later",
+    updateCheckFailed: "Update Check Failed",
+    currentVersion: "Current Version",
+    latestVersion: "Latest Version",
     copy: "Copy",
     paste: "Paste",
     cut: "Cut",
@@ -932,6 +974,13 @@ const MENU_TRANSLATIONS = {
     checkingForUpdates: "正在检查更新…",
     upToDate: "当前已是最新版本",
     upToDateDetail: "您正在使用最新版本的 iRouter。",
+    updateAvailable: "发现新版本",
+    updateAvailableDetail: "iRouter 已有新版本可用。是否立即打开设置面板进行更新？",
+    openUpdateSettings: "打开更新面板",
+    later: "稍后",
+    updateCheckFailed: "检查更新失败",
+    currentVersion: "当前版本",
+    latestVersion: "最新版本",
     copy: "复制",
     paste: "粘贴",
     cut: "剪切",
@@ -968,6 +1017,13 @@ const MENU_TRANSLATIONS = {
     checkingForUpdates: "正在檢查更新…",
     upToDate: "目前已是最新版本",
     upToDateDetail: "您正在使用最新版本的 iRouter。",
+    updateAvailable: "發現新版本",
+    updateAvailableDetail: "iRouter 已有新版本可用。是否立即開啟設定面板進行更新？",
+    openUpdateSettings: "開啟更新面板",
+    later: "稍後",
+    updateCheckFailed: "檢查更新失敗",
+    currentVersion: "目前版本",
+    latestVersion: "最新版本",
     copy: "複製",
     paste: "貼上",
     cut: "剪下",

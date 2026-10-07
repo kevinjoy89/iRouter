@@ -25,7 +25,8 @@ export default function ShellSettingsHost() {
 
   useEffect(() => {
     const onOpen = (event) => {
-      const section = event?.detail?.section;
+      // 兼容 CustomEvent 事件对象以及 IPC 载荷直接传入的目标分段
+      const section = event?.detail?.section ?? event?.section;
       if (typeof section === "string") {
         setRequested((prev) => ({ section, seq: prev.seq + 1 }));
       }
