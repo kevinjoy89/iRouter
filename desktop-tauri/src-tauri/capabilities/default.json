@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "iRouter 默认权限集。刻意最小化——Phase 3 只开窗口所需，其余按需逐条加，并由 README 的「IPC 面最小化」约束把关。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
