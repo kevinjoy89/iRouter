@@ -276,6 +276,25 @@ function comboMatchesKinds(combo, kindFilter) {
 // treated as a literal model and publishes the 200k floor. Expand nested
 // names (cycle-guarded) so the published window is the true min across the
 // whole chain.
+/**
+ * 规整 Combo 成员标识
+ *
+ * @param {string|object} seat 原始成员定义，支持字符串或对象形式
+ * @return {string|null} 规整后的模型名称或标识，无效时返回 null
+ */
+function normalizeComboSeat(seat) {
+  if (!seat) return null;
+  if (typeof seat === "string") {
+    const trimmed = seat.trim();
+    return trimmed || null;
+  }
+  if (typeof seat === "object") {
+    const raw = seat.model || seat.id || "";
+    return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+  }
+  return null;
+}
+
 function comboSeatLimits(combo, combosByName, visiting = new Set()) {
   const name = typeof combo?.name === "string" ? combo.name : null;
   if (name) {
@@ -286,8 +305,9 @@ function comboSeatLimits(combo, combosByName, visiting = new Set()) {
   let contextWindow = Infinity;
   let maxOutput = Infinity;
   try {
-    for (const seat of Array.isArray(combo?.models) ? combo.models : []) {
-      if (typeof seat !== "string") continue;
+    for (const rawSeat of Array.isArray(combo?.models) ? combo.models : []) {
+      const seat = normalizeComboSeat(rawSeat);
+      if (!seat) continue;
       const slash = seat.indexOf("/");
       if (slash <= 0) {
         const nested = combosByName.get(seat);

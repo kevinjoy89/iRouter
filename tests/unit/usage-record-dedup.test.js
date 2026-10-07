@@ -43,7 +43,7 @@ const entry = (over = {}) => ({
 describe("usage recording — dedup semantics", () => {
   it("字段完全相同、同一毫秒的并行写入，一条都不能少", async () => {
     const N = 50;
-    const ts = "2026-09-30T10:00:00.000Z";
+    const ts = new Date().toISOString();
     // 显式传同一个 timestamp：把「同一毫秒」变成确定性条件，而不是靠运气撞上
     await Promise.all(
       Array.from({ length: N }, () => db.saveRequestUsage(entry({ timestamp: ts }))),
@@ -58,7 +58,7 @@ describe("usage recording — dedup semantics", () => {
   });
 
   it("同一次请求先不带 endpoint、后带上 → 合并成一条并补全，不重复计数", async () => {
-    const ts = "2026-09-30T11:00:00.000Z";
+    const ts = new Date(Date.now() - 1000).toISOString();
     await db.saveRequestUsage(entry({ provider: "merge-me", timestamp: ts }));
     await db.saveRequestUsage(
       entry({ provider: "merge-me", timestamp: ts, endpoint: "/v1/chat/completions" }),
@@ -73,7 +73,7 @@ describe("usage recording — dedup semantics", () => {
   });
 
   it("已存记录已有 endpoint 时，后来者不再被吞（这是修复前的丢数据点）", async () => {
-    const ts = "2026-09-30T12:00:00.000Z";
+    const ts = new Date(Date.now() - 2000).toISOString();
     await db.saveRequestUsage(
       entry({ provider: "keep-both", timestamp: ts, endpoint: "/v1/chat/completions" }),
     );

@@ -11,7 +11,7 @@ const credentials = { connectionId: "fixture", accessToken: "fixture-token" };
 afterEach(() => vi.restoreAllMocks());
 
 describe("Codex GPT-6 Sol/Luna transport", () => {
-  it.each(["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])("lists %s with Codex capabilities", (model) => {
+  it.each(["gpt-6-sol", "gpt-6-luna"])("lists %s with Codex capabilities", (model) => {
     const entry = getModelsByProviderId("codex").find((item) => item.id === model);
     expect(entry?.responsesLite).toBe(true);
     expect(entry?.thinkingLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
@@ -21,6 +21,23 @@ describe("Codex GPT-6 Sol/Luna transport", () => {
       search: true,
       thinkingFormat: "openai",
       contextWindow: 272000,
+      maxOutput: 128000,
+    });
+    expect(getThinkingLevels("codex", model)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(getThinkingLevels("codex", `${model}(high)`)).toEqual(entry.thinkingLevels);
+  });
+
+  it("lists gpt-6.1-sol with Codex capabilities", () => {
+    const model = "gpt-6.1-sol";
+    const entry = getModelsByProviderId("codex").find((item) => item.id === model);
+    expect(entry?.responsesLite).toBe(true);
+    expect(entry?.thinkingLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(getCapabilitiesForModel("codex", model)).toMatchObject({
+      vision: true,
+      reasoning: true,
+      search: true,
+      thinkingFormat: "openai",
+      contextWindow: 1050000,
       maxOutput: 128000,
     });
     expect(getThinkingLevels("codex", model)).toEqual(["low", "medium", "high", "xhigh", "max"]);
