@@ -156,6 +156,8 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
   1. **单元测试**：15/15 通过（含 state 不匹配不换取、重放不二次换取、跨站 Origin 403、错误信息 HTML 转义 + `code=` 脱敏、TTL 过期、405、轮询体不含 codeVerifier/meta）。既有 OAuth 路径回归：`xiaomi-mimo-oauth-session.test.js` 6/6、`dashboard-guard.test.js` 24/24 通过。
   2. **全量回归**：`npx vitest run` + `verify-no-regression.mjs` → **`✅ No regression. (now fails=60, baseline known=60, all known)`**。
   3. **真实服务端冒烟**：重建后跑门禁脚本 **17/17**，其中 A3 升级为「`/callback` 返回 200 HTML」、新增 A3b「未知 state → 200 手粘兜底页」。
+  4. **真实 Electron 壳冒烟**：`env -u ELECTRON_RUN_AS_NODE npm run smoke` → **PASS**（`GET /login -> 200 | GET /v1/models -> 200 | GET /callback -> 200`，托盘/单实例/关窗隐藏/设置模态/暗色/多语言全过，退出后端口释放）。这条把「route handler 在真实桌面壳里可用」也钉住了——前三条验的都是 Bun 或单元层面。
+     ⚠️ 前置条件：从 **DSH harness 派生的 shell** 里跑 Electron 必须 `env -u ELECTRON_RUN_AS_NODE`（该 harness 会给子进程注入这个变量，Electron 会因此以纯 Node 模式启动，`require("electron")` 返回路径字符串、`app` 为 undefined，报 `main.js:37 app.commandLine` 崩溃）。这不是仓库缺陷，但会让任何在此环境下启动 Electron 的尝试失败。
   - lint：改动文件仅剩一条 `react-hooks/set-state-in-effect`（`OAuthModal.js:76`），**已用 `git show HEAD:… | npx eslint --stdin` 确认是既有问题**（HEAD 上同位置同报错），我改动的 460/889 行干净。
 
 **出口条件：** 桌面版上至少一个通用供应商（claude 或 gemini-cli）全程一键完成，无需手粘；回归与基线一致。→ **回归与冒烟已达成；「真机一键完成」尚待人工验收**（见下方遗留项）。
