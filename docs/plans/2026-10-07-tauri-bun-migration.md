@@ -20,7 +20,7 @@
 - **全功能点保留**：托盘、开机自启、单实例、应用菜单、右键菜单、Cmd/Ctrl 快捷键、窗口管理、网关子进程生命周期（含孤儿回收）、就绪探测、设置模态 IPC、**应用内更新**、配置导出/导入、单实例二次唤起。
 - **三平台同步开展**：macOS / Windows / Linux 同一套验收线，不做平台特例（Linux 的 webkit2gtk 依赖是唯一被批准的例外）。
 - **验收线**：dmg ≤ 70MB（60MB 为目标而非承诺）、安装后 ≤ 200MB、首次启动不需要额外下载任何运行时。
-- **Tauri 版本硬下限 ≥ 2.12.1**：sidecar 孤儿回收（`register_sidecar` / `cleanup_before_exit` / `kill_process_tree`）在 2026-09-18 的 PR #14443 才落地，更早的版本会漏杀进程树（NSIS 安装器用 `TerminateProcess`、更新器用 `std::process::exit`，两条路径都绕过 `Exit` 事件）。
+- **Tauri 版本基线 ≥ 2.12.1**，但**不要指望它自带孤儿回收**：经源码核实，`register_sidecar` / `kill_process_tree` 在 tauri 2.12.1 与 tauri-plugin-shell 2.4.0 里都不存在；`cleanup_before_exit` 插件钩子只进了 `3.0.0-alpha.x`（PR #14443 的 changeset 是 `minor:feat`，实现里没有 PID 注册表），且其文档写明「进程被杀或直接 `std::process::exit` 时不运行」。**回收方案 = PID 文件 + 退出钩子 + 启动时回收**，语义照抄 `desktop/main.js:197,226-285`。核查细节见 `docs/plans/2026-10-07-tauri-shell-api-notes.md` §6.3
 - **不采用 `tauri-plugin-updater`**：它要求签名密钥对且无法关闭，私钥丢失即已安装用户永久断更。
 
 ## 体积预算表

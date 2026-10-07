@@ -49,7 +49,7 @@ Considered Options:
 Consequences:
 
 - `desktop/` 的 3264 行壳层代码基本重写：`main.js` 2157 行（托盘 / 自启 / 单实例 / 应用菜单 / 右键菜单 / 快捷键 shim / 网关子进程生命周期含孤儿回收 / 就绪探测 / 设置 IPC / 更新集成）、`updater/` 774 行（其中 checker / checksum / version / asset 共 446 行是可复用的纯逻辑，download / installer 328 行依赖 Electron）、`preload.js` 62、`settings.js` 101、图标脚本 170。**全功能点保留**，包括应用内更新
-- 孤儿进程回收依赖 Tauri ≥ 2.12.1 的 sidecar 注册表 + `cleanup_before_exit`（该能力 2026-09-18 才修好）——必须锁版本，不能放宽
+- 孤儿进程回收必须**自研**，不能指望框架：经源码核实（2026-10-07），`register_sidecar` / `kill_process_tree` 在 `tauri 2.12.1`、`tauri-plugin-shell 2.4.0` 里**都不存在**；`cleanup_before_exit` 作为插件钩子也只进了 **`3.0.0-alpha.x`**（PR #14443 的 changeset 标的是 `minor:feat`，且其实现里没有 PID 注册表）。该 hook 自己的文档还写明：**进程被杀或直接调 `std::process::exit` 时不运行**。因此回收方案是「PID 文件 + 退出钩子 + 启动时回收」，语义照抄 `desktop/main.js:197,226-285`。详见 `docs/plans/2026-10-07-tauri-shell-api-notes.md` §6.3
 - **Linux 首次出现系统依赖**：deb / tar.gz 声明 `Depends: libwebkit2gtk-4.1-0`。这是「首次启动不需要额外下载任何运行时」这条硬线的**唯一显式例外**，理由是它与静默失败不同——缺依赖在安装期就可见、可自行解决。AppImage 仍依赖宿主 webkit，不自带
 - 网关负载仍需顺手裁剪，否则预算被吃掉：`@img/sharp-libvips-darwin-arm64` 18 MiB 是死重（`next.config.mjs:31` 设了 `images: { unoptimized: true }`，且 `src/` 与 `open-sse/` 中 sharp 零引用），排除后 76.6 → 59 MiB。它同时是个缺陷：负载只在本机（arm64）构建一次，`dist:mac` 却带 `--x64`，x64 包里装的是 arm64 的 libvips
 - 上游同步保持不变（网关源码一行未动），这是选 Bun sidecar 而非重写的主要理由
