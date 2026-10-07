@@ -19,6 +19,7 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "spike:bun": "node scripts/bun-gateway-spike.mjs",
+    "e2e:oauth": "node scripts/oauth-loopback-e2e.mjs",
     "verify:bun-pin": "node scripts/verify-bun-pin.mjs --list",
     "test:import": "node scripts/test-import.mjs",
     "test:instance": "node scripts/test-single-instance.mjs",

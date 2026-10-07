@@ -160,12 +160,31 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
      ⚠️ 前置条件：从 **DSH harness 派生的 shell** 里跑 Electron 必须 `env -u ELECTRON_RUN_AS_NODE`（该 harness 会给子进程注入这个变量，Electron 会因此以纯 Node 模式启动，`require("electron")` 返回路径字符串、`app` 为 undefined，报 `main.js:37 app.commandLine` 崩溃）。这不是仓库缺陷，但会让任何在此环境下启动 Electron 的尝试失败。
   - lint：改动文件仅剩一条 `react-hooks/set-state-in-effect`（`OAuthModal.js:76`），**已用 `git show HEAD:… | npx eslint --stdin` 确认是既有问题**（HEAD 上同位置同报错），我改动的 460/889 行干净。
 
-**出口条件：** 桌面版上至少一个通用供应商（claude 或 gemini-cli）全程一键完成，无需手粘；回归与基线一致。→ **回归与冒烟已达成；「真机一键完成」尚待人工验收**（见下方遗留项）。
+**出口条件：** 桌面版上至少一个通用供应商（claude 或 gemini-cli）全程一键完成，无需手粘；回归与基线一致。→ **回归、冒烟、端到端（本地桩）均已达成；「真实 provider 一键完成」仍未跑过**。
+
+**端到端验收（2026-10-07，`npm --prefix desktop run e2e:oauth`，14/14 通过）**
+新增 `desktop/scripts/oauth-loopback-e2e.mjs`：用**本地桩**顶替远端 provider，其余每一环都走真实 HTTP 与真实进程。可行性来自 GitLab 的 provider 实现允许用 `meta.baseUrl` 覆盖 token/userinfo 主机（`src/lib/oauth/providers/gitlab.js:23,34,42`），且 OAuth 换取路径上没有 SSRF 拦截。
+
+| 断言 | 结果 |
+| :--- | :--- |
+| 登录取会话 → `register-session` 登记 → 轮询 `pending` | ✓ |
+| `GET /callback?code=&state=` 在**服务端**完成换取并返回成功页 | ✓ |
+| 成功页**不回显授权码** | ✓ |
+| 桩收到真实 token 请求，且 **PKCE 校验码原样透传**、`redirect_uri` 一致 | ✓ |
+| 桩收到 userinfo 请求且带 `Bearer` 令牌 | ✓ |
+| 轮询翻到 `done` 并带回 `connectionId`；**轮询体不含 codeVerifier** | ✓ |
+| 连接**真的落库**（`provider=gitlab` / `authType=oauth` / 令牌已存） | ✓ |
+| **重放同一 state 不触发第二次换取** | ✓ |
+| 真实数据目录指纹未变、端口释放无残留 | ✓ |
+
+唯一被替换的环节是「远端 GitLab 返回令牌」。**这把风险从「整条链路未知」收敛到「远端 provider 的行为」**——而后者恰恰是不可离线验证的部分。
 
 **遗留项（未验证，不要当作已完成）：**
-- **没有对真实供应商跑过完整 OAuth**（claude / gemini-cli 需要凭据与真实浏览器）。单元测试与冒烟覆盖的是服务端契约与降级路径，**「一键完成」这一条必须由人工在打包版里点一次才算数**。
+- **仍未对任何真实 provider 跑过完整 OAuth。** 端到端脚本覆盖了链路，但没覆盖 provider 侧的怪癖：各家 `redirect_uri` 白名单、scope 差异、claude 的 `#` 后缀 state 处理、refresh 时机等。
+  最省事的真跑路径是 **GitLab**：它不需要 Claude/Gemini 账号，弹窗自带 Base URL / Client ID / Client Secret 三个输入框与 `/-/profile/applications` 链接（`GitLabAuthModal.js:138-146`），在 gitlab.com 建一个 OAuth 应用（redirect URI 填 `http://localhost:20128/callback`，PKCE 公开客户端 secret 可留空）即可。
 - 服务端会话是**内存 Map**：与 route handler 共享（这正是 codex/xai 服务端模式成立的前提），但**不跨进程**。多进程部署会失效——本应用是单进程（`custom-server.js`），可接受。
 - `src/app/callback/page.js` 的**上游同步**：上游若继续改这个文件，merge 时会以 modify/delete 冲突的形式出现，需手工裁决。
+- 观察到的既有小瑕疵（非本次引入）：GitLab 的 `mapTokens` 把 email 放进 `providerSpecificData`，连接表的顶层 `email` 列因此为 null（`gitlab.js:48-61`）。
 
 ---
 
