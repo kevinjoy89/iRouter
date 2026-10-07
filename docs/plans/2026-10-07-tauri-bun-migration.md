@@ -153,13 +153,41 @@ Bun 1.3.14 ｜ 启动 **1613–1648 ms** ｜ 隔离端口 31888 / 31889 ｜ 两�
 
 ### Phase 2：负载裁剪与 x64 缺陷修复（不依赖换壳，可并行）
 
-- [ ] **Step 1: 剔除 sharp 死重** —— `next.config.mjs:31` 设了 `images: { unoptimized: true }`，`src/` 与 `open-sse/` 对 sharp 零引用，但 nft 仍把 `@img/sharp-*`（17.3 MiB）拖进 `.next/standalone`。用 `outputFileTracingExcludes` 排除，**产物必须重建后确认 17.3 MiB 真的消失**（它当前被 trace 进 `.next/server/chunks/`，不能只靠推断）
-- [ ] **Step 2: 验证图片仍正常** —— `npm run smoke` + 面板图片路径逐一目视（`images.unoptimized: true` 下 `/_next/image` 不走 sharp，风险低但不能不验）
-- [ ] **Step 3: 修 x64 装错架构的缺陷** —— 负载只在本机（arm64）构建一次，`dist:mac` 却带 `--x64`。Phase 2 排除 sharp 后此缺陷自动消失；**若 Step 1 未能排除，则必须改为按目标架构分别构建负载**，否则 x64 dmg 是坏包
-- [ ] **Step 4: 纠正两处仓库内过时结论** —— ① `docs/packaged-runtime-footprint.zh-CN.md` 的「48.8MB 语言包可回收」已不成立（实测已安装的 `iRouter.app` 只有 14 个 `.lproj` / 4.7 MiB）；② `desktop/scripts/build-server.mjs:137` 声称去掉 `better-sqlite3` 省「~12MB」，实际负载侧只省 2.1 MiB（12 MiB 是根 `node_modules` 的数字，Next 追踪本就没拷）
-- [ ] **Step 5: 清理产物堆积** —— `desktop/build/` 现存 1.0 GiB，含 `dist-preview/` 这份同一个 v0.3.3 的重复拷贝，而 `package.json` 已是 0.3.7。给 `package.mjs` 加构建前清理
+- [x] **Step 1: 剔除 sharp 死重** —— `next.config.mjs:31` 设了 `images: { unoptimized: true }`，`src/` 与 `open-sse/` 对 sharp 零引用，但 nft 仍把 `@img/sharp-*`（17.3 MiB）拖进 `.next/standalone`。用 `outputFileTracingExcludes` 排除，**产物必须重建后确认 17.3 MiB 真的消失**（它当前被 trace 进 `.next/server/chunks/`，不能只靠推断）
 
-**出口条件：** 网关负载实测 ≤ 62 MiB 解压；x64 缺陷已消除或有按架构构建的证据。
+  已实测（重建后）：`@img` 与 `sharp` 两个目录在产物中**完全消失**，`next-server.js.nft.json` 里的 sharp 引用 **1 → 0**，产物内无任何 `.dylib` / `libvips` 残留。
+
+- [x] **Step 2: 验证图片仍正常** —— `npm run smoke` + 面板图片路径逐一目视（`images.unoptimized: true` 下 `/_next/image` 不走 sharp，风险低但不能不验）
+
+  做法比原计划更强：把「图片未被 sharp 移除波及」**加进了门禁脚本的 A10 断言**（`/file.svg`、`/providers/deepseek.png` 的 content-type、以及 `/_next/image` 不得 5xx），这样它是每次构建都会跑的回归保护，而不是一次性目视。重建后的两份产物各 **16/16** 通过。
+
+- [x] **Step 3: 修 x64 装错架构的缺陷** —— 负载只在本机（arm64）构建一次，`dist:mac` 却带 `--x64`。Phase 2 排除 sharp 后此缺陷自动消失；**若 Step 1 未能排除，则必须改为按目标架构分别构建负载**，否则 x64 dmg 是坏包
+
+  已实测：负载里**已无任何 `.node` / `.dylib` / `.so` / `.dll`**——`better-sqlite3` 早先已被剔除，sharp/libvips 是最后一个架构相关件。负载现在是纯 JS + 静态资源，与架构无关，x64 包不再装错二进制。
+
+- [x] **Step 4: 纠正两处仓库内过时结论** —— ① `docs/packaged-runtime-footprint.zh-CN.md` 的「48.8MB 语言包可回收」已不成立（实测已安装的 `iRouter.app` 只有 14 个 `.lproj` / 4.7 MiB）；② `desktop/scripts/build-server.mjs:137` 声称去掉 `better-sqlite3` 省「~12MB」，实际负载侧只省 2.1 MiB（12 MiB 是根 `node_modules` 的数字，Next 追踪本就没拷）
+
+  已改。**注意 ① 的更正只落在本地**：`docs/*` 被 `.gitignore:52` 忽略且该文件从未入库（`git check-ignore` 确认），所以它进不了提交。需要它随仓库走的话，得单独放行并首次入库。
+
+- [x] **Step 5: 清理产物堆积** —— `desktop/build/` 现存 1.0 GiB，含 `dist-preview/` 这份同一个 v0.3.3 的重复拷贝，而 `package.json` 已是 0.3.7。给 `package.mjs` 加构建前清理
+
+  已实现：`package.mjs` 在 spawn electron-builder 前清空 `directories.output`（`build/dist`），留 `IROUTER_KEEP_DIST=1` 逃生口。**代码路径已实跑验证**（用 `--help` 触发：先打印「已清空输出目录」再输出 electron-builder 帮助）。空间已实际回收：`desktop/build/` **1.0 GiB → 59 MiB**（同时删掉非标准的 `dist-preview/` 466 MiB）。
+
+**出口条件：** 网关负载实测 ≤ 62 MiB 解压；x64 缺陷已消除或有按架构构建的证据。→ **已达成（2026-10-07）**
+
+#### Phase 2 执行记录（2026-10-07）
+
+| 指标 | 改前 | 改后 | 变化 |
+| :--- | ---: | ---: | ---: |
+| 随包负载 `desktop/build/gateway/server` | 77 MiB | **59 MiB** | −18 MiB |
+| `desktop/build/gateway/server/node_modules` | 50 MiB | 32 MiB | −18 MiB |
+| `.next/standalone` | 81 MiB | **66 MiB** | −15 MiB |
+| `desktop/build/` 总量 | 1.0 GiB | **59 MiB** | −931 MiB |
+
+验证方式：`npm run build` 与 `npm run build-server` 各重建一次；两份产物各跑 16 项门禁断言全绿。
+**唯一改动文件**：`next.config.mjs`（新增两条 `outputFileTracingExcludes`），另加注释写明反向约束——谁要打开 `images.unoptimized` 就必须同时删掉这两条排除。
+
+对体积预算表的影响：网关负载压缩后约 20MB → 约 **13–14MB**，Tauri 方案总账从 ~54MB 降到 **~47MB**，60MB 目标从「几乎没有余量」变成「有余量」。
 
 ---
 
