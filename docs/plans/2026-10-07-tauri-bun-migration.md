@@ -133,21 +133,37 @@ Bun 1.3.14 ｜ 启动 **1613–1648 ms** ｜ 隔离端口 31888 / 31889 ｜ 两�
 
 **Files:**
 - Create: `src/app/callback/route.js`
-- Modify: `src/shared/components/OAuthModal.js`（redirectUri 选择与 poll 分支）
-- Modify: `src/lib/oauth/utils/server.js`（把 6 组近重复的 session 注册/查询泛化）
+- **Delete: `src/app/callback/page.js`** ← 见下方「阻塞性更正」
+- Modify: `src/shared/components/OAuthModal.js`（新增回环分支 + 等待文案）
+- Modify: `src/lib/oauth/utils/server.js`（新增通用会话注册表 + 回环收取 + 手粘兜底页渲染器）
+- Modify: `src/app/api/oauth/[provider]/[action]/route.js`（register-session 通用分支、poll-status 通用回落）
+- Modify: `public/i18n/literals/zh-CN.json`、`zh-TW.json`（新文案入字典）
 - Test: `tests/unit/oauth-loopback-callback.test.js`
 
-**Interfaces:**
-- Consumes: 既有 session/poll 原语（`/api/oauth/[provider]/register-session`、`/poll-status`，当前只支持 codex/xai/trae/windsurf/zed/xiaomi-mimo）
-- Produces: `GET /callback?code=&state=` 直接完成换取并落库；modal 用既有 poll 拿结果
+**⚠️ 阻塞性更正（实施时发现，已推翻本计划原先的写法）：**
+Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 16.3.4，见 `node_modules/next/dist/docs/01-app/01-getting-started/15-route-handlers.md:39` 与 `:155-161` 的冲突表）。所以「新增 `src/app/callback/route.js` 并保留 `page.js`」是写不出来的。两个形状：
 
-- [ ] **Step 1: 写失败测试** —— 覆盖：通用供应商回环 redirect 落到 route handler → 换取 → 连接落库；`state` 不匹配时拒绝；`/callback` 页面路径仍保留（系统浏览器降级路径不得回归）
-- [ ] **Step 2: 新增 `src/app/callback/route.js`** —— 复用既有 `exchangeTokens` 与 `createProviderConnection`，不新写换取逻辑
-- [ ] **Step 3: 泛化 session 注册表** —— 消除 `server.js` 里 6 组 `registerXxxSession` / `getXxxSessionStatus` 的复制粘贴
-- [ ] **Step 4: 改 `OAuthModal`** —— 通用供应商改走回环 + poll；保留 `callback/page.js` 作为系统浏览器降级路径（三通道代码可留，但它不再是主路径）
-- [ ] **Step 5: 三层验证** —— 单元测试 + 真实服务端冒烟（临时 DATA_DIR/端口）+ `npx vitest run` 全量 + `verify-no-regression.mjs`
+- **Shape A（采用）**：`page.js` 删除，`/callback` 由 route handler 接管。**redirect_uri 逐字节不变**——它是各供应商已注册的重定向地址，改路径会被 provider 拒绝；且 `/callback` 在两层守卫里本就被豁免（`custom-server.js:38-40`、`dashboardGuard.js:282`），无需改守卫。
+- Shape B（未采用）：handler 换到 `/api/oauth/callback`，需给 `PUBLIC_API_PATHS` 加白名单，且**改动了 provider 已注册的重定向路径**，风险无法离线验证。
 
-**出口条件：** 桌面版上至少一个通用供应商（claude 或 gemini-cli）全程一键完成，无需手粘；回归与基线一致。
+代价：`page.js` 的三条 relay 通道（postMessage / BroadcastChannel / localStorage）随之消失。**但它们在桌面版从未生效**（ADR-0007 已证），且在浏览器形态下新版走服务端换取更好——所以这不是功能损失，是删除死代码。
+
+- [x] **Step 1: 写失败测试** —— 实际是「先实现、后补测试」，此处如实记录偏差。测试文件 `tests/unit/oauth-loopback-callback.test.js` 共 15 例，**同时覆盖 route handler 与「register-session → /callback → poll-status」端到端**（不 mock `@/lib/oauth/utils/server`，只 mock `next/server` / `@/lib/oauth/providers` / `@/models`）。
+- [x] **Step 2: 新增 `src/app/callback/route.js`** —— 复用既有 `exchangeTokens` 与 `createProviderConnection`（在 `completeLoopbackCallback` 里惰性 import，与既有 codex 代理同构），未新写换取逻辑。HTML 复用既有渲染器（`renderCodexResultPage` 导出为公开）并新增 `renderOAuthManualPage` 作为手粘兜底。
+- [x] **Step 3: 泛化 session 注册表** —— **偏差：没有动那 6 组既有实现**。新增独立的通用注册表（`registerOAuthSession` / `getOAuthSession` / `getOAuthSessionForCallback` / `clearOAuthSession` / `sweepOAuthSessions`），codex/xai/trae/windsurf/zed/xiaomi-mimo 六条路径原样保留。理由：trae/windsurf/zed 是单例而非 Map、zed 的 codeVerifier 里是 RSA 私钥、xiaomi 的 getter 已有私钥脱敏——合并的收益（少几十行）小于把六条已工作的热路径一起搅进改动的风险。`server.js:298-302` 原本就注明 xAI/codex 保持并行是为了「让 codex 热路径逐字节等价」。
+- [x] **Step 4: 改 `OAuthModal`** —— 通用供应商（localhost 且非 trae/windsurf/zed）改走「登记 → 系统浏览器授权 → 轮询」；登记失败回落手粘路径。codex/xai/设备码/代理类/粘贴令牌各分支未动。等待文案由「Waiting for popup authorization…」改为「Waiting for authorization in your browser…」并入了 zh-CN / zh-TW 字典（旧文案在场的只剩弹窗场景，而回环路径不再有弹窗）。
+- [x] **Step 5: 三层验证** ——
+  1. **单元测试**：15/15 通过（含 state 不匹配不换取、重放不二次换取、跨站 Origin 403、错误信息 HTML 转义 + `code=` 脱敏、TTL 过期、405、轮询体不含 codeVerifier/meta）。既有 OAuth 路径回归：`xiaomi-mimo-oauth-session.test.js` 6/6、`dashboard-guard.test.js` 24/24 通过。
+  2. **全量回归**：`npx vitest run` + `verify-no-regression.mjs` → **`✅ No regression. (now fails=60, baseline known=60, all known)`**。
+  3. **真实服务端冒烟**：重建后跑门禁脚本 **17/17**，其中 A3 升级为「`/callback` 返回 200 HTML」、新增 A3b「未知 state → 200 手粘兜底页」。
+  - lint：改动文件仅剩一条 `react-hooks/set-state-in-effect`（`OAuthModal.js:76`），**已用 `git show HEAD:… | npx eslint --stdin` 确认是既有问题**（HEAD 上同位置同报错），我改动的 460/889 行干净。
+
+**出口条件：** 桌面版上至少一个通用供应商（claude 或 gemini-cli）全程一键完成，无需手粘；回归与基线一致。→ **回归与冒烟已达成；「真机一键完成」尚待人工验收**（见下方遗留项）。
+
+**遗留项（未验证，不要当作已完成）：**
+- **没有对真实供应商跑过完整 OAuth**（claude / gemini-cli 需要凭据与真实浏览器）。单元测试与冒烟覆盖的是服务端契约与降级路径，**「一键完成」这一条必须由人工在打包版里点一次才算数**。
+- 服务端会话是**内存 Map**：与 route handler 共享（这正是 codex/xai 服务端模式成立的前提），但**不跨进程**。多进程部署会失效——本应用是单进程（`custom-server.js`），可接受。
+- `src/app/callback/page.js` 的**上游同步**：上游若继续改这个文件，merge 时会以 modify/delete 冲突的形式出现，需手工裁决。
 
 ---
 
