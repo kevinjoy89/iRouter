@@ -180,8 +180,11 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 唯一被替换的环节是「远端 GitLab 返回令牌」。**这把风险从「整条链路未知」收敛到「远端 provider 的行为」**——而后者恰恰是不可离线验证的部分。
 
 **遗留项（未验证，不要当作已完成）：**
-- **仍未对任何真实 provider 跑过完整 OAuth。** 端到端脚本覆盖了链路，但没覆盖 provider 侧的怪癖：各家 `redirect_uri` 白名单、scope 差异、claude 的 `#` 后缀 state 处理、refresh 时机等。
-  最省事的真跑路径是 **GitLab**：它不需要 Claude/Gemini 账号，弹窗自带 Base URL / Client ID / Client Secret 三个输入框与 `/-/profile/applications` 链接（`GitLabAuthModal.js:138-146`），在 gitlab.com 建一个 OAuth 应用（redirect URI 填 `http://localhost:20128/callback`，PKCE 公开客户端 secret 可留空）即可。
+- **通用授权码回环路径仍未由真实 provider 完成一次全流程。** 已拿到的真机证据只有两条，都不覆盖「浏览器回调 → 换取」这一段：
+  1. **通用路径的登记环节**：人工在真机点击通用供应商后看到「等待浏览器中的授权…」——该文案只有通用回环分支会渲染（`OAuthModal.js:889`；device-code 分支用的是 `:998` 那句），失败会落到手粘步骤，故可确认 `register-session` 在真机上成功过。
+  2. **真实 provider 的 OAuth 全链路可用（但走的是 device-code 路径）**：人工用 **CodeBuddy CN** 完成认证，连接已落库（`providerConnections` 中 `codebuddy-cn` / `authType=oauth` / Account 1，2026-10-07T13:29:32Z，是该库有史以来第一条 oauth 连接）。但 `codebuddy-cn` 在弹窗的 `deviceCodeProviders` 名单内、provider 声明 `flowType: "device_code"`，走 `/device-code` + `poll`；`register-session` 全仓只有两个调用点（`:278` 代理流程，被 `PROXY_OAUTH_PROVIDERS` 守着；`:472` 新增回环分支）——**与 `/callback` 零交集**。
+  这两条把回环路径的故障面压缩到「浏览器回调那一段」，但没有覆盖 provider 侧怪癖（各家 `redirect_uri` 白名单、scope 差异、claude 的 `#` 后缀 state 处理、refresh 时机等）。
+  最省事的真跑路径仍是 **GitLab**：不需要 Claude/Gemini 账号，弹窗自带 Base URL / Client ID / Client Secret 输入与 `/-/profile/applications` 链接（`GitLabAuthModal.js:138-146`），在 gitlab.com 建一个 OAuth 应用（redirect URI 填 `http://localhost:20128/callback`，PKCE 公开客户端 secret 可留空）即可。
 - 服务端会话是**内存 Map**：与 route handler 共享（这正是 codex/xai 服务端模式成立的前提），但**不跨进程**。多进程部署会失效——本应用是单进程（`custom-server.js`），可接受。
 - `src/app/callback/page.js` 的**上游同步**：上游若继续改这个文件，merge 时会以 modify/delete 冲突的形式出现，需手工裁决。
 - 观察到的既有小瑕疵（非本次引入）：GitLab 的 `mapTokens` 把 email 放进 `providerSpecificData`，连接表的顶层 `email` 列因此为 null（`gitlab.js:48-61`）。
