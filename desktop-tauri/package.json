@@ -1,0 +1,14 @@
+{
+  "name": "irouter-tauri-shell",
+  "private": true,
+  "//": "产品版本号真源仍是 desktop/package.json（ADR-0004）；本包只是 Tauri CLI 的宿主，切换完成后才承接版本号。",
+  "description": "iRouter 桌面壳层（Tauri v2 + Bun sidecar），替代 desktop/ 的 Electron 实现",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1"
+  }
+}
