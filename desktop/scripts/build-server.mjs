@@ -134,7 +134,9 @@ log("已复制 dlp_rules.yaml（请求脱敏规则，运行时读取）");
 //    （实测 dev Node MODULE_VERSION 147，Electron 44 内嵌 Node 24.20 为 149，二者不兼容），
 //    且 electron-builder.yml 设置了 npmRebuild: false（打包不重编译），带上必是坏二进制。
 //    运行时走驱动链下一级 node:sqlite（Node ≥22.5 内置的真 SQLite，Electron 的 Node 24 自带），
-//    不是 sql.js WASM 降级；顺带省掉随包的 ~12MB。
+//    不是 sql.js WASM 降级。
+//    体积收益很小：负载侧实测只省 2.1 MiB——根 node_modules 里那个 12 MiB 是未被 Next
+//    追踪的部分，本来就不会进产物。剔除它的理由是不兼容，不是省体积。
 const nativeSqlite = join(OUT, "node_modules", "better-sqlite3");
 if (existsSync(nativeSqlite)) {
   rmSync(nativeSqlite, { recursive: true, force: true });
