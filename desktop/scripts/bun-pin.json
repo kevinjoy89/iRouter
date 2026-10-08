@@ -23,7 +23,8 @@
     "linux-x64": {
       "asset": "bun-linux-x64.zip",
       "sha256": "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f",
-      "verified": false
+      "bytes": 35969274,
+      "verified": true
     },
     "linux-arm64": {
       "asset": "bun-linux-aarch64.zip",

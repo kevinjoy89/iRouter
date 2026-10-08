@@ -19,6 +19,10 @@ log = "0.4"
 # 守卫令牌的熵源。刻意不引 rand —— getrandom 已是依赖树中的传递依赖，显式声明即可。
 getrandom = "0.3"
 
+# 进程树回收（SIGTERM/SIGKILL）。仅 Unix 需要：Windows 走 taskkill /T /F，见 gateway.rs。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # 磁盘约束：本机余量只有 ~15 GiB，而 Tauri 首次构建要编译近千个 crate。
 # 因此从一开始就关掉 debug 符号并 strip —— 这两项对 target/ 体积的影响最大。
 [profile.dev]
