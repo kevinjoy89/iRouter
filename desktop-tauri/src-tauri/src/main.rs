@@ -52,6 +52,11 @@ fn main() {
         ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        // ⚠️ 全应用**只能有一处** invoke_handler：tauri-2.12.1/src/app.rs:1727 是
+        // `self.invoke_handler = Box::new(..)`（覆盖式）。shell 与 updater 各调一次会静默丢掉
+        // 前一批命令。当前挂 shell 的（含设置读写与右键菜单）；updater 的 5 个命令落地后
+        // 改为单一 generate_handler! 合并（需要两边在模块根部 re-export 命令函数）。
+        .invoke_handler(shell::invoke_handler())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -65,6 +70,8 @@ fn main() {
                     .title("iRouter")
                     .inner_size(1360.0, 900.0)
                     .min_inner_size(900.0, 600.0)
+                    // 面板桥：window.irouterShell（shell 与 updater 各注入一份，靠 Object.assign 合并）
+                    .initialization_script(shell::shim_script())
                     .build()?;
                 return Ok(());
             }
@@ -89,6 +96,8 @@ fn main() {
                 .visible(false)
                 // 守卫令牌经 UA 覆盖该窗口的所有请求（导航、子资源、fetch）
                 .user_agent(&ua_for_window)
+                // 面板桥：与上面那条捷径**必须都挂**，漏一个「软件更新」整段就从 UI 消失
+                .initialization_script(shell::shim_script())
                 .build()?;
 
             // 等就绪 → 导航到面板 → 显示。放在后台线程，别卡事件循环。
@@ -101,7 +110,10 @@ fn main() {
                     if let Err(e) = window.navigate(panel) {
                         log::error!("导航到面板失败：{e}");
                     }
-                    if let Err(e) = window.show() {
+                    // 开机自启时只驻留托盘，不弹窗（对齐 Electron 的 openAsHidden 语义）
+                    if shell::opened_at_login() {
+                        log::info!("开机自启：窗口保持隐藏，驻留托盘");
+                    } else if let Err(e) = window.show() {
                         log::error!("显示窗口失败：{e}");
                     }
                 } else {
