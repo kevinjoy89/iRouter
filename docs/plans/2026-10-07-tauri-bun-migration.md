@@ -237,14 +237,17 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 - Create: `desktop-tauri/`（新壳层目录；`desktop/` 在 Phase 6 切换完成后移除）
 - Modify: `custom-server.js`（守卫随机 token）
 
-- [ ] **Step 1: 最小可运行壳** —— Tauri 窗口加载 `http://127.0.0.1:20128`；webview 侧配置 `remote` capability，URL 白名单只含该 origin
-- [ ] **Step 2: 网关子进程** —— Bun 作为 `externalBin` sidecar 拉起，参数与今天一致（`--port`、`DATA_DIR=~/.irouter`、`HOSTNAME=127.0.0.1`、`IR_PANEL_GUARD=1`）
-- [ ] **Step 3: 孤儿回收** —— 调 `register_sidecar` + `cleanup_before_exit`；**必须实测三条死亡路径**：正常退出、窗口关闭后托盘常驻、更新安装器强杀（`TerminateProcess` 那一类）
-- [ ] **Step 4: 守卫令牌化** —— 壳每次启动生成随机 token，经子进程环境变量与窗口 UA 注入；改 `custom-server.js:23-41`（应用处 `:161`）从固定值改为校验该 token。**这是安全边界**，不是便利设施：固定值写在开源仓库里，任何本地进程都能伪造
+- [x] **Step 1: 最小可运行壳** —— Tauri 窗口加载 `http://127.0.0.1:20128`；webview 侧配置 `remote` capability，URL 白名单只含该 origin
+      ⚠️ 实现时改为**按实际端口动态加 capability**：`pickPort` 扫完 50 个端口后会回落 OS 临时端口（`desktop/main.js:151-159`），写死 20128 = 更新通道与设置读写静默失效（ACL 拒绝且不报错到面板）。
+- [x] **Step 2: 网关子进程** —— Bun 作为 `externalBin` sidecar 拉起，参数与今天一致（`--port`、`DATA_DIR=~/.irouter`、`HOSTNAME=127.0.0.1`、`IR_PANEL_GUARD=1`）
+- [x] **Step 3: 孤儿回收** —— ~~调 `register_sidecar` + `cleanup_before_exit`~~ → **自研**：PID 文件 + 退出时按进程树杀 + 启动时回收（那两条 API 在 2.12.1 里不存在，见本文件顶部约束）。**必须实测三条死亡路径**：正常退出、窗口关闭后托盘常驻、更新安装器强杀（Windows 是 RestartManager `RmForceShutdown`，**绕过一切 Rust 退出钩子**）。现状：正常退出与「先枚举后代再杀」已有单测（7/7 含三层进程树实测）；**托盘常驻那条要等 Phase 4**，安装器强杀那条要等 Phase 5。
+- [x] **Step 4: 守卫令牌化** —— 壳每次启动生成随机 token，经子进程环境变量与窗口 UA 注入；改 `custom-server.js:23-41`（应用处 `:161`）从固定值改为校验该 token。**这是安全边界**，不是便利设施：固定值写在开源仓库里，任何本地进程都能伪造。✅ 端到端验证 9/9（`desktop-tauri/scripts/verify-guard-chain.mjs`）
 - [ ] **Step 5: IPC 面最小化** —— 只暴露：设置读写、更新三动作（检查/下载/安装）、打开设置模态。**逐条与 `desktop/preload.js:11-62` 的 12 个方法对照，写清每个方法保留或删除的理由**
-- [ ] **Step 6: 就绪探测** —— 复刻 `main.js:1602-1620` 的语义：先探测再显示窗口，避免白屏
+- [x] **Step 6: 就绪探测** —— 复刻 `main.js:1602-1620` 的语义：先探测再显示窗口，避免白屏（实测：兜底页 → 就绪 → navigate → show）
 
 **出口条件：** macOS 上双击可起，面板可用，`/v1` 可转发；杀进程不留孤儿。
+
+**Phase 3 现状（2026-10-08）**：除 Step 5 外全部落地并有证据（`cargo test` 7/7、守卫链路 9/9、staging 实跑哈希校验通过、`cargo check` 通过）。**唯一未做的是真正启动 GUI 窗口看一次**（`cd desktop-tauri && npm run dev`）。
 
 ---
 
@@ -266,7 +269,7 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 **更新通道（自研移植，不引入密钥义务）：**
 
 - [ ] 移植 `updater/checker.js`（GitHub Releases API）、`checksum.js`、`version.js`、`asset.js`（共 446 行纯逻辑）
-- [ ] 移植 `download.js` 与 `installer.js`（`open` / `cmd /c start` / `xdg-open` 三种调起）
+- [ ] 移植 `download.js` 与 `installer.js`。⚠️ **调起建议改用 `tauri-plugin-opener`**（Linux 上 `xdg-open → gio open → gnome-open → kde-open` 逐级回退、Windows 走 ShellExecute 避开 `cmd /c start` 引号坑、文件不存在返回 Err）：现状是 `spawn` 失败也 `resolve(true)`，**Linux 上没有 `xdg-open` 时应用会静默退出、什么都没发生**（updater 设计 §D-5）
 - [ ] **实测每平台的替换体验**：macOS 调起 dmg、Windows 调起 NSIS、Linux 调起 deb。若 macOS 上自研调起 dmg 的体验不可接受，**单独评估**是否改用 `tauri-plugin-updater`——届时必须一并接受签名密钥对义务
 - [ ] 保留 `ignoreVersion` 语义（`main.js:800`）
 
@@ -276,10 +279,10 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 
 ### Phase 5：三平台打包
 
-- [ ] macOS：dmg，per-arch（**不做 universal**——实测 universal 会让原身体积翻倍，VS Code 就是 303 MiB → 530 MiB 的例子）
+- [ ] macOS：dmg，per-arch（**不做 universal**——实测 universal 会让原身体积翻倍，VS Code 就是 303 MiB → 530 MiB 的例子）。⚠️ `hardenedRuntime` 默认 **true**，可能让 Bun/JSC 起不来 → 显式设 `false` + `signingIdentity: "-"`（与 Electron 版现状一致）；`minimumSystemVersion` 必须 **13.0**（实测随包 Bun 的 `minos`）
 - [ ] Windows：NSIS + zip；`webviewInstallMode` 用默认 `downloadBootstrapper`（**不塞 127MB 的离线包**）
-- [ ] Linux：deb + tar.gz，声明 `Depends: libwebkit2gtk-4.1-0`
-- [ ] 产物命名与 `updater/asset.js` 的匹配规则对齐（改名会让老版本的更新检查失效）
+- [ ] Linux：deb + tar.gz。**`Depends: libwebkit2gtk-4.1-0` 不要写进配置**——CLI 在 Linux 宿主上会自动注入，手写会重复且不去重
+- [ ] 产物命名与 `updater/asset.js` 的匹配规则**逐字**对齐。⚠️ 失效形态不是「更新提示消失」（版本号判定与产物匹配是解耦的，`checker.js:176` vs `:161-165`），而是**点下载才报 `No update asset available for download`**；且 x64 mac 必须叫 `-macos-amd64.dmg`（现靠 `release.yml:81-90` 重命名）。**先改名、再算 `checksums.txt`**
 - [ ] 三平台各自复核体积预算表，超线即回到 Phase 2/4 找原因
 
 **出口条件：** 三平台产物齐备，macOS dmg ≤ 70MB。
@@ -291,7 +294,8 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 - [ ] 端到端验收（三平台各一遍）：装 → 起 → 面板可用 → `/v1` 转发 → 托盘 → 自启 → 单实例 → 更新 → 配置导出/导入 → 杀进程无孤儿
 - [ ] **内存复核**：基线是 668 MB（5 进程，见 `docs/packaged-runtime-footprint.zh-CN.md`）。系统 webview 仍有开销，量级估算 200–300 MB，**实测后写回 ADR-0007**（那里现在标的是估算）
 - [ ] **回归**：`npx vitest run` + `node tests/__baseline__/verify-no-regression.mjs test-results.json`，与基线一致
-- [ ] 移除 `desktop/`（Electron 壳），或保留一个 tag 作为退路后移除
+- [ ] 🚧 **删 `desktop/` 之前必须先迁走 5 个被测文件**（否则门禁会真红，不是"已知失败"）：`tests/unit/updater-{version,checksum,checker,asset}.test.js` 与 `tests/unit/version-consistency.test.js` 测的是 `desktop/updater/*.js` 与 `desktop/package.json` 的版本一致性，而它们**不在 `tests/__baseline__/known-fails.txt` 里**（grep 零命中）——删掉被它们导入的文件会让 Regression Gate 判为「新失败」。处置见下方风险表 R1。
+- [ ] 移除 `desktop/`（Electron 壳），或保留一个 tag 作为退路后移除（**以上一条完成为前提**）
 - [ ] 更新 `CONTEXT.md`（若有新术语）与 `README` / `README.zh-CN` 的构建与产物章节
 - [ ] **在 ADR-0007 里把估算数字替换为实测**（体积、内存、dmg）
 
@@ -305,7 +309,9 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 | :--- | :--- | :--- |
 | **Bun 跑不通完整网关** | Phase 0 Step 2 任一红 | 停。ADR-0007 重开；备选 Node SEA（macOS 越线）或 Rust 重写（那时才值得算） |
 | **Three-platform 同步导致问题并发** | 任一平台卡住超一个相位 | 允许把该平台降级为「跟进」，但**不得降低验收线**——降级只影响交付顺序，不影响标准 |
-| **sidecar 漏杀孤儿** | Phase 3 Step 3 任一死亡路径失败 | 升级 Tauri 版本或自研 PID 文件 + 启动时回收（今天 `main.js:197,226-285` 已有等价实现可移植） |
+| **sidecar 漏杀孤儿** | Phase 3 Step 3 任一死亡路径失败 | ~~升级 Tauri 版本~~（**在 2.x 上无效**——回收 API 在 2.12.1 里不存在；`cleanup_before_exit` 钩子只进了 3.0.0-alpha.x，且进程被杀/`std::process::exit` 时都不跑）。**唯一解**是自研 PID 文件 + 启动时回收 + 按进程树杀（已实现，见 `desktop-tauri/src-tauri/src/gateway.rs`）。升级 Tauri 只在愿意上 3.0 预发布时才重新考虑 |
+| **R1：删 `desktop/` 打断 5 个 vitest 文件** | Phase 6 清理时 | 这 5 个文件（`updater-{version,checksum,checker,asset}` + `version-consistency`）**不在 `known-fails.txt`** 里，删掉被它们导入的 `desktop/updater/*.js` 与 `desktop/package.json` 会让门禁判「新失败」而红。**推荐**：迁到 `cargo test`（用例清单见 updater 设计 §12.3）+ CI 新增 Rust job；**在迁移完成前不要删这些文件**，也不要先把它们塞进 `known-fails.txt`（那等于用豁免掩盖真回归） |
+| **更新器事件契约走形** | Phase 4 移植 | 硬约束不是事件名，而是 ① `window.irouterShell` 的**存在性**（为假则「软件更新」整段消失，`ShellSettingsModal.js:66-70`）② payload 字段形状 ③ `shell:update-error` 的 payload 是**裸字符串**（发对象面板显示 `[object Object]`）④ **检查失败不发 `update-error`**，错误装进 `shell:update-available` 的 `error` 字段（双发会造成面板状态竞态）⑤ shim 的 `unlisten` 必须**同步**返回（Tauri `listen()` 是 async，面板写的是 `unsubX?.()`，返回 Promise 会静默不执行、监听器泄漏）。详见 updater 设计 §7 |
 | **自研更新体验不可接受** | Phase 4 实测 | 单独评估 `tauri-plugin-updater`，接受密钥义务后再定 |
 | **体积超线** | Phase 5 | 回到 Phase 2 查负载；**不做**有损替换 |
 | **迁移中途放弃** | — | 成本最高。Phase 0–2 都是**独立净收益**（Bun 验证、OAuth 一键化、负载裁剪、缺陷修复），即使停在 Phase 2 也不白做；Phase 3 之后放弃才会两头空 |
