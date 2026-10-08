@@ -138,7 +138,10 @@ pub async fn trigger_update_check(app: &AppHandle, force: bool, source: CheckSou
     events::emit_available(app, &result);
 
     if force && source == CheckSource::Menu {
-        log::warn!("菜单触发的更新检查对话框未实现（需 tauri-plugin-dialog + shell i18n），仅记录结果");
+        // 对话框由 shell 实现（`shell/dialogs.rs`，经 `shell:update-available` 事件触发），
+        // updater 保持无 UI。原先这里写的是「对话框未实现」——那句话已经过时且会误导排障，
+        // 于 2026-10-08 由 shell-impl 指出（他们实现了对话框）。
+        log::info!("菜单触发的检查完成，结果已发 shell:update-available，由 shell 弹结果对话框");
     }
 
     result

@@ -41,8 +41,13 @@
 //! 一个"能触发动作"的环境变量若进了 release，就是**本地任意进程可用的后门**
 //! （设置 `IROUTER_SHELL_SELFTEST=quit` 就能让应用退出）。因此整个模块被
 //! `#[cfg(debug_assertions)]` 门控：release 下**连字符串字面量都不参与编译**
-//! （可用 `strings <二进制> | grep IROUTER_SHELL_SELFTEST` 直接验证：debug 有、release 为 0；
-//! `verify-shell.mjs` 会在 debug 侧断言这一点，release 侧由 CI 对产物做同一断言）。
+//! （验证方式与**实测结果**，2026-10-08）：
+//!   - 正常 debug 构建：`strings target/debug/irouter | grep -c IROUTER_SHELL_SELFTEST` → **1**；
+//!   - `cargo rustc --bin irouter -- -C debug-assertions=off`（等价 release 的 cfg，只重编本 crate，
+//!     无需 release 全量构建）：同一条命令 → **0**。
+//! 即"环境变量字面量随模块一起从产物里消失"是**实测**的，不是推断。
+//! `verify-shell.mjs` 的 R1 在 debug 侧断言这一点；**真正的 release 产物建议由 CI 加同一行断言**
+//! （三平台产物都已现成，见 `.github/workflows/desktop-tauri.yml`）。
 
 use tauri::AppHandle;
 
