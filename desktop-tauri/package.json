@@ -5,8 +5,10 @@
   "description": "iRouter 桌面壳层（Tauri v2 + Bun sidecar），替代 desktop/ 的 Electron 实现",
   "scripts": {
     "tauri": "tauri",
-    "dev": "tauri dev",
-    "build": "tauri build"
+    "dev": "node scripts/dev.mjs",
+    "build": "tauri build",
+    "stage": "node scripts/stage-sidecar.mjs",
+    "verify:guard": "node scripts/verify-guard-chain.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1"
