@@ -169,7 +169,8 @@ jobs:
           test -f "$APP/Contents/MacOS/irouter-bun" || { echo "::error::sidecar 不在 .app 里"; exit 1; }
           test -f "$APP/Contents/Resources/gateway/custom-server.js" || { echo "::error::网关负载不在 Resources/gateway 里"; exit 1; }
           echo "sidecar 架构：$(lipo -archs "$APP/Contents/MacOS/irouter-bun")"
-          codesign -dv "$APP" 2>&1 | head -3
+          # 同类隐患：`codesign -dv | head -3` 也会因 head 提前退出触发 SIGPIPE + pipefail。
+          CS_OUT=$(codesign -dv "$APP" 2>&1 || true); printf '%s\n' "$CS_OUT" | head -3
           codesign --verify --deep --strict "$APP" && echo "codesign --verify 通过"
           MIN=$(defaults read "$APP/Contents/Info.plist" LSMinimumSystemVersion)
           [ "$MIN" = "13.0" ] || { echo "::error::LSMinimumSystemVersion=$MIN，期望 13.0（Bun 要求 macOS 13+）"; exit 1; }
@@ -182,17 +183,29 @@ jobs:
         run: |
           set -euo pipefail
           DEB=$(ls artifacts/*.deb | head -1)
-          dpkg -c "$DEB" | grep -q '/usr/bin/irouter-bun$' || { echo "::error::deb 里没有 /usr/bin/irouter-bun"; exit 1; }
-          dpkg -c "$DEB" | grep -q '/usr/lib/iRouter/gateway/custom-server.js$' || { echo "::error::deb 里没有 /usr/lib/iRouter/gateway/custom-server.js"; exit 1; }
+          TGZ=$(ls artifacts/*.tar.gz | head -1)
+
+          # ⚠️ **不要写成 `dpkg -c "$DEB" | grep -q ...`**。
+          # `grep -q` 一命中就退出并关闭管道，还在写出的 `dpkg` 会收到 SIGPIPE（退出码 141），
+          # 而 `set -o pipefail` 会让整条管道判为失败 → **假红**。
+          # 首次三平台 CI 就是这么挂的：deb 构建成功、staging 证据也在，却被断言判成
+          # 「deb 里没有 /usr/bin/irouter-bun」。
+          # 修法：先把清单落到变量（生产者跑完，没有管道可断），再对变量 grep。
+          DEB_LIST=$(dpkg -c "$DEB")
+          TGZ_LIST=$(tar -tzf "$TGZ")
+
+          fail() { echo "::error::$1"; echo "--- 实际内容（前 40 行）---"; printf '%s\n' "$2" | head -40; exit 1; }
+
+          grep -q '/usr/bin/irouter-bun$' <<<"$DEB_LIST" || fail "deb 里没有 /usr/bin/irouter-bun" "$DEB_LIST"
+          grep -q '/usr/lib/iRouter/gateway/custom-server.js$' <<<"$DEB_LIST" || fail "deb 里没有 /usr/lib/iRouter/gateway/custom-server.js" "$DEB_LIST"
           echo "== dpkg -I =="; dpkg -I "$DEB" | sed -n '/Depends/p'
           DEPENDS=$(dpkg -I "$DEB" | sed -n 's/^ *Depends: //p')
-          echo "$DEPENDS" | grep -q 'libwebkit2gtk-4.1-0' || { echo "::error::Depends 缺 libwebkit2gtk-4.1-0（CLI 自动注入失败？）"; exit 1; }
-          DUP=$(echo "$DEPENDS" | tr ',' '\n' | sed 's/^ *//;s/ *(.*//' | sort | uniq -d)
+          grep -q 'libwebkit2gtk-4.1-0' <<<"$DEPENDS" || fail "Depends 缺 libwebkit2gtk-4.1-0（CLI 自动注入失败？）" "$DEPENDS"
+          DUP=$(printf '%s\n' "$DEPENDS" | tr ',' '\n' | sed 's/^ *//;s/ *(.*//' | sort | uniq -d)
           [ -z "$DUP" ] || { echo "::error::Depends 有重复项：$DUP —— 不要把 webkit/gtk 手写进 bundle.linux.deb.depends"; exit 1; }
-          TGZ=$(ls artifacts/*.tar.gz | head -1)
-          tar -tzf "$TGZ" | grep -qx 'usr/bin/iRouter' || { echo "::error::tar.gz 里没有 usr/bin/iRouter"; exit 1; }
-          tar -tzf "$TGZ" | grep -qx 'usr/bin/irouter-bun' || { echo "::error::tar.gz 里没有 usr/bin/irouter-bun"; exit 1; }
-          tar -tzf "$TGZ" | grep -qx 'usr/lib/iRouter/gateway/custom-server.js' || { echo "::error::tar.gz 里没有网关负载"; exit 1; }
+          grep -qx 'usr/bin/iRouter' <<<"$TGZ_LIST" || fail "tar.gz 里没有 usr/bin/iRouter" "$TGZ_LIST"
+          grep -qx 'usr/bin/irouter-bun' <<<"$TGZ_LIST" || fail "tar.gz 里没有 usr/bin/irouter-bun" "$TGZ_LIST"
+          grep -qx 'usr/lib/iRouter/gateway/custom-server.js' <<<"$TGZ_LIST" || fail "tar.gz 里没有网关负载" "$TGZ_LIST"
 
       - name: Package smoke — Windows (portable zip)
         if: matrix.os == 'windows-latest'
