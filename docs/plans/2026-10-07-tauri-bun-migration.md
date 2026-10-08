@@ -425,6 +425,40 @@ CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构
 
 ---
 
+## 门禁的已知盲区与干扰项（2026-10-08 实测，Step 4 归因前必读）
+
+**① 盲区：收集期失败的文件，门禁看不见。**
+
+`tests/__baseline__/verify-no-regression.mjs:41` 只遍历 `assertionResults`。若某个测试文件在
+**收集期**就失败（import 断链、模块缺失），vitest JSON 里**没有 `assertionResults` 条目**，
+于是它既不算 pass 也不算 fail —— **门禁全绿，而它是红的**。
+
+实测踩到：Phase 6 Step 1 把 `desktop/updater/asset.js` 搬到 `tools/` 时，漏了该目录内部两条
+`require("./asset")`，JS 参照实现在收集期即炸，**CI 全绿**。已修（`checker.js` / `index.js`）。
+
+量化影响面：364 个测试文件里 **8 个**处于该状态 —— 7 个上游既有（`No test suite found` /
+缺 `cloud/` 目录），1 个是本条（已修）。**把收集期失败纳入门禁是正确方向**，但会立刻暴露那 7 个
+既有项，需与 baseline 机制一起设计，故单列一步。
+
+**② 干扰项：一条 flaky 测试。**
+
+`tests/unit/request-details-retention.test.js :: requestDetails 保留策略与上限钳制 后台维护输出完整的开始/完成日志`
+**单独连跑 3 次全绿（11/11）**，但在全量运行中偶发失败（那一轮总失败 61 = 基线 60 + 这 1 条）。
+**Step 4 的归因必须把它排除在外**：看到失败数从 60 变 61 时，先单独复跑该文件再下结论。
+
+**③ 一条"取决于仓库有没有构建过"的测试**（已修）。
+
+`tests/unit/custom-server-page-post.test.js`：`isStrayActionPost` 的第二参数默认读
+`.next/app-path-routes-manifest.json`，于是同一条断言在两种仓库状态下给出**相反**结果 ——
+未构建 → 按前缀判 stray；已构建 → `src/app/callback/route.js` 导出了 POST，是真端点，不判 stray。
+Step 1 里跑了一次 `next build` 后它由绿变红 —— **实现对、测试错**。已改为显式传参、两种语义分别钉死，
+并验证**已构建 10/10 / 未构建（git worktree，无 `.next/`）9 passed + 1 skipped** 两环境均绿。
+
+**④ 一条可能误导归因的历史证据**：`shell-impl` 曾报告 ③ 是"pre-existing regression"。
+我在 Phase 6 之前的提交 `c2310736` 上用 git worktree 复跑过 —— **当时全绿**。
+它的观察（与本卡改动无关）对，**归因（预先存在）不对**。
+"预先存在"是个很容易被误用且几乎不会被核实的说法，**必须实测**。
+
 ## 风险与回退
 
 | 风险 | 触发条件 | 回退动作 |
