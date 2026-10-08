@@ -10,7 +10,9 @@ rust-version = "1.90"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# image-png：`Image::from_bytes` 被 `#[cfg(any(feature = "image-ico", feature = "image-png"))]`
+# 门控（tauri-2.12.1/src/image/mod.rs:215）。托盘模板图要靠它从 include_bytes! 解码。
 tauri-plugin-shell = "2"
 # wave 2：shell owner 用（single-instance 必须最先注册，见 main.rs）
 tauri-plugin-single-instance = "2"

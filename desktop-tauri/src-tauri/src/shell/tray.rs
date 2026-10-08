@@ -11,6 +11,10 @@
 
 use std::time::{Duration, Instant};
 
+/// 托盘模板图（黑 + alpha，44px @144dpi = 22pt @2x）。
+/// 见下方 `create_tray` 里关于「为什么不能用应用图标」的说明。
+const TRAY_TEMPLATE_PNG: &[u8] = include_bytes!("../../assets/tray-template.png");
+
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
@@ -44,17 +48,29 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| on_tray_icon_event(tray.app_handle(), event));
 
-    // 图标：用配置里 bundle.icon 嵌进来的默认窗口图标（`AppHandle::default_window_icon`，
-    // `tauri-2.12.1/src/app.rs:966`）。取不到就建一个无图标的托盘（Electron 版
-    // 图标缺失时也是 `nativeImage.createEmpty()`，`main.js:1461`）。
-    if let Some(icon) = app.default_window_icon().cloned() {
+    // 图标：用**专门做的模板图**，不是应用图标。
+    //
+    // ⚠️ **不要再回落到 `app.default_window_icon()`**——那正是实机验收发现的白板 bug：
+    // 它是 `bundle.icon` 里的第一个 png（`icons/32x32.png`），也就是应用图标，
+    // 而那个图 **95.6% 不透明**（只有四角透明）。配 `icon_as_template(true)` 后 macOS
+    // **只用 alpha 通道当遮罩**，于是遮罩几乎是个实心方块 → 菜单栏里渲染成一整块空白。
+    //
+    // 模板图要求：RGB 必须纯黑，形状**全部由 alpha 表达**。本图从 `desktop/resources/icon.png`
+    // 的橙色路由符号提取（橙色像素 R-B 远大于灰黑背景，用行/列像素剖面的断崖自适应定界，
+    // 避开右下角那团橙色辉光），44px @144dpi 让 NSImage 解释为 22pt @2x。
+    let icon = match tauri::image::Image::from_bytes(TRAY_TEMPLATE_PNG) {
+        Ok(img) => Some(img),
+        Err(e) => {
+            // 解码失败就建无图标托盘，而不是退回应用图标（那会重现白板）
+            log::error!("托盘模板图解码失败，托盘将无图标：{e}");
+            None
+        }
+    };
+    if let Some(icon) = icon {
         builder = builder.icon(icon);
-        // 模板图：macOS 只用 alpha 通道着色，自动适配深浅色菜单栏。
         // 文档原文 "Use the icon as a template. **macOS only**"（`tray/mod.rs:295`），
-        // 其它平台是空操作，所以无条件调用不用 cfg。
+        // 其它平台是空操作，所以无条件调用不用 cfg。模板图在 macOS 上会自动适配深浅色菜单栏。
         builder = builder.icon_as_template(true);
-    } else {
-        log::warn!("拿不到默认窗口图标，托盘将无图标");
     }
 
     builder.build(app)?;
@@ -168,5 +184,49 @@ fn note_left_click_for_double_detect(app: &AppHandle) {
     };
     if is_double {
         log::info!("托盘双击（两次 Click 判时差 <{}ms）", DOUBLE_CLICK_WINDOW.as_millis());
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **模板图必须是「形状由 alpha 表达」的图，不能是实心块。**
+    ///
+    /// 这条断言直接编码了实机验收发现的那个 bug：原来用应用图标（95.6% 不透明，
+    /// 只有四角透明）配 `icon_as_template(true)`，而 macOS **只用 alpha 当遮罩** →
+    /// 菜单栏里渲染成一整块空白。当时 CI、单测、编译全绿，只有真人看菜单栏才发现。
+    ///
+    /// 阈值取 60%：真正的符号图远低于它（当前 21%），实心方块接近 100%。
+    #[test]
+    fn tray_template_is_a_glyph_not_a_solid_block() {
+        let img = tauri::image::Image::from_bytes(TRAY_TEMPLATE_PNG)
+            .expect("托盘模板图应能解码（image-png 已启用）");
+        assert_eq!((img.width(), img.height()), (44, 44), "应为 22pt @2x");
+
+        let rgba = img.rgba();
+        let total = (img.width() * img.height()) as f64;
+        let opaque = rgba.chunks(4).filter(|p| p[3] > 128).count() as f64;
+        let ratio = opaque / total;
+
+        assert!(
+            ratio > 0.02,
+            "不透明占比 {:.1}%（{} 个像素）太低——形状可能丢了（全透明图在菜单栏里同样不可见）",
+            ratio * 100.0,
+            opaque as u64
+        );
+        assert!(
+            ratio < 0.60,
+            "不透明占比 {:.1}%（{} 个像素）过高——作为模板图它会被渲染成实心方块（就是那个白板 bug）",
+            ratio * 100.0,
+            opaque as u64
+        );
+
+        // 模板图不应有背景：四角必须完全透明
+        let alpha_at = |x: u32, y: u32| rgba[((y * img.width() + x) * 4 + 3) as usize];
+        for (x, y) in [(0u32, 0u32), (43, 0), (0, 43), (43, 43)] {
+            assert_eq!(alpha_at(x, y), 0, "角 ({x},{y}) 应完全透明（模板图不该带背景）");
+        }
     }
 }
