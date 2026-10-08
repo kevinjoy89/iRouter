@@ -39,6 +39,16 @@ pub fn normalize(raw: &str) -> Locale {
 /// 进程启动时的语言。没有跨平台的"系统 UI 语言"标准库 API，
 /// 用惯例的 POSIX locale 环境变量（macOS/Linux 有效；Windows 上回落英文）。
 pub fn system_locale() -> Locale {
+    // **不能只读环境变量**：macOS 的 GUI 进程没有 LANG/LC_ALL（Finder 启动与 tauri dev 都没有），
+    // 系统语言存在 NSLocale 里。实测本机 AppleLocale=zh_CN 而 LANG=C.UTF-8 —— 只读环境变量会得到
+    // 英文，而 Electron 版用的是 app.getLocale()（main.js:2081），在 macOS 上返回**系统语言**，
+    // 于是同一台机器上 Electron 显示「复制」、Tauri 显示 Copy。这是实测发现的一致性回归。
+    if let Some(raw) = sys_locale::get_locale() {
+        if !raw.trim().is_empty() {
+            return normalize(&raw);
+        }
+    }
+    // 兜底：环境变量（sys-locale 在 Linux 本就读这些；这里防它返回 None）
     for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
         if let Ok(v) = std::env::var(key) {
             if !v.trim().is_empty() {

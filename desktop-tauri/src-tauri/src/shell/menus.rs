@@ -242,8 +242,15 @@ pub fn popup_context_menu(
     let t = i18n::of(super::locale(app));
     let is_log_page = page_url.contains("/dashboard/console-log");
 
+    // 可观测性：这条链路以前是黑盒——出问题时无法区分「面板没上报」与「Rust 侧抑制了」。
+    // 每个分支都留痕，右键不弹时看日志就能定位是哪一侧、哪条规则。
+    log::info!(
+        "右键菜单请求：x={x:.0} y={y:.0} editable={editable} selection={has_selection} logPage={is_log_page} url={page_url}"
+    );
+
     if !is_log_page && !editable {
         // 其余页面禁止任何右键菜单（文字选择在 globals.css 里已默认禁用）
+        log::info!("右键菜单：非日志页且不可编辑 → 按规则不弹（与 main.js:521-545 一致）");
         return Ok(());
     }
 
@@ -251,10 +258,12 @@ pub fn popup_context_menu(
         if has_selection {
             let copy = PredefinedMenuItem::copy(app, Some(t.copy))?;
             let menu = Menu::with_items(app, &[&copy])?;
+            log::info!("右键菜单：日志页 + 有选区 → 仅「复制」");
             return popup(window, &menu, x, y);
         }
         let copy = MenuItem::with_id(app, "ctx:copy-disabled", t.copy, false, None::<&str>)?;
         let menu = Menu::with_items(app, &[&copy])?;
+        log::info!("右键菜单：日志页 + 无选区 → 仅禁用的「复制」");
         return popup(window, &menu, x, y);
     }
 
@@ -264,6 +273,7 @@ pub fn popup_context_menu(
     let sep = PredefinedMenuItem::separator(app)?;
     let select_all = PredefinedMenuItem::select_all(app, Some(t.select_all))?;
     let menu = Menu::with_items(app, &[&copy, &cut, &paste, &sep, &select_all])?;
+    log::info!("右键菜单：可编辑区域 → 复制/剪切/粘贴/全选");
     popup(window, &menu, x, y)
 }
 

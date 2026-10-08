@@ -117,6 +117,10 @@ impl CloseAction {
 /// 由 `main.rs` 在 setup 阶段调用。**不得阻塞启动**：这里只建托盘/菜单（内存操作，
 /// 主线程内联执行，不走 `run_on_main_thread` 的异步往返）与注册事件钩子，没有任何网络/文件 I/O。
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
+    // 把检测到的语言打出来：菜单文案只在启动时定一次，出问题时这行是唯一线索。
+    // （曾实测：只读 LANG 环境变量会在 macOS 上把 zh_CN 误判成英文，见 i18n.rs::system_locale）
+    let detected = locale(app);
+    log::info!("菜单语言检测：{:?}（系统 locale）", detected);
     app.manage(ShellState::new());
 
     // 1) 先注册插件：它承载 RunEvent（关窗拦截）与 page load（补发打开设置）钩子，

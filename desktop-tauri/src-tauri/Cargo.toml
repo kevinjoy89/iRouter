@@ -37,6 +37,8 @@ thiserror = "2"
 log = "0.4"
 # 守卫令牌的熵源。刻意不引 rand —— getrandom 已是依赖树中的传递依赖，显式声明即可。
 getrandom = "0.3"
+# 系统语言检测：macOS 走 NSLocale（GUI 进程没有 LANG，只读环境变量会误判成英文）
+sys-locale = "0.3"
 
 # 进程树回收（SIGTERM/SIGKILL）。仅 Unix 需要：Windows 走 taskkill /T /F，见 gateway.rs。
 [target.'cfg(unix)'.dependencies]
