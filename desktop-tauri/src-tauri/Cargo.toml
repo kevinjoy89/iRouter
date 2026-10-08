@@ -18,6 +18,8 @@ tauri-plugin-autostart = "2"
 # wave 2：updater owner 用（调起安装器；Linux 上逐级回退 xdg-open→gio→gnome-open→kde-open，
 # Windows 走 ShellExecute 避开 cmd /c start 的引号坑，文件不存在返回 Err）
 tauri-plugin-opener = "2"
+# 托盘/菜单「检查更新…」的原生结果对话框（shell 模块用；Rust 侧调用不需要 capability）
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 更新器：GitHub Releases 检查 + 产物下载。
