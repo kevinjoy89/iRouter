@@ -176,8 +176,11 @@ jobs:
 
       # 网关负载（≈50 MiB 文件字节）是 bundle.resources 的来源；缺了 Tauri 会在
       # ResourcePathNotFound 上硬失败，这里先构建，失败信息更直白。
+      # 走 desktop-tauri 的 `gateway:build`（= `node ../tools/build-server.mjs`）而不是
+      # `npm --prefix desktop run build-server`：后者只是同一支脚本的 delegate，
+      # 而 Phase 6 Step 4 会删掉 desktop/——继续用它等于给自己埋一根定时断线。
       - name: Build gateway payload
-        run: npm --prefix desktop run build-server
+        run: npm --prefix desktop-tauri run gateway:build
 
       # ⚠️ 即便 beforeBundleCommand 挂在 tauri.conf.json 上，也要**显式跑一次**：
       # `--no-bundle` 时 bundle 阶段整个被跳过、hook 不执行（打包方案 §3.2）。
@@ -321,11 +324,14 @@ jobs:
 
       # 证据：stage-sidecar.mjs 落盘时写的 sha256 凭据（与 artifacts 分开上传，
       # 免得被发版 glob 当成发布物收走）。
+      # ⚠️ 名字刻意**不以 `desktop-tauri-` 开头**：release.yml 用
+      # `download-artifact(pattern: desktop-tauri-*)` 只捞发布产物，前缀相同会把
+      # 这些 .sha256 证据一起拖进发布目录。
       - name: Upload staging evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-tauri-staging-${{ matrix.slug }}
+          name: staging-evidence-${{ matrix.slug }}
           path: desktop-tauri/src-tauri/binaries/*.sha256
           if-no-files-found: ignore
 
