@@ -454,7 +454,7 @@ tag 下 `contents: write`、tag checkout 与注入版本的一致性、老客户
 
 ## 门禁的已知盲区与干扰项（2026-10-08 实测，Step 4 归因前必读）
 
-**① 盲区：收集期失败的文件，门禁看不见。**
+**① 盲区（已堵，2026-10-08）：收集期失败的文件，门禁看不见。**
 
 `tests/__baseline__/verify-no-regression.mjs:41` 只遍历 `assertionResults`。若某个测试文件在
 **收集期**就失败（import 断链、模块缺失），vitest JSON 里**没有 `assertionResults` 条目**，
@@ -463,9 +463,20 @@ tag 下 `contents: write`、tag checkout 与注入版本的一致性、老客户
 实测踩到：Phase 6 Step 1 把 `desktop/updater/asset.js` 搬到 `tools/` 时，漏了该目录内部两条
 `require("./asset")`，JS 参照实现在收集期即炸，**CI 全绿**。已修（`checker.js` / `index.js`）。
 
-量化影响面：364 个测试文件里 **8 个**处于该状态 —— 7 个上游既有（`No test suite found` /
-缺 `cloud/` 目录），1 个是本条（已修）。**把收集期失败纳入门禁是正确方向**，但会立刻暴露那 7 个
-既有项，需与 baseline 机制一起设计，故单列一步。
+量化影响面：364 个测试文件里 **8 个**处于该状态 —— 7 个上游既有，1 个是本条（已修）。
+
+**已在 Step 4 之前堵上**（`verify-no-regression.mjs`）：空 `assertionResults` 不再自动消失，
+而是按 vitest 的**具体信息**分流 ——
+
+| vitest 信息 | 处理 | 依据 |
+| :--- | :--- | :--- |
+| `No test suite found in file …` | **不计入** | 本仓库有 **6 个用 `node:test` 写的文件**（`import { describe, it } from "node:test"`），vitest 本来就收集不到它们 —— 不是"坏了"，是"不是给 vitest 跑的" |
+| 其它任何信息（如 `Cannot find module …`） | **按文件级失败计入**，key = `<relpath> :: (file-level: 加载/收集期失败)` | 真·加载失败 |
+
+基线补 1 条：`tests/unit/embeddings.cloud.test.js`（`cloud/` 目录不在本仓库，CLAUDE.md 已记载）。
+**负向验证**：把 Step 1 那条 `require` 重新改回断链 → 门禁从"绿"变为
+`❌ REGRESSION: … :: (file-level: 加载/收集期失败)`，**真实退出码 1**；正常结果退出码 0。
+即：**Step 1 那次事故，今天会红。**
 
 **② 干扰项：一条 flaky 测试。**
 
