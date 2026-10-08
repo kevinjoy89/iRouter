@@ -135,10 +135,48 @@ mod tests {
     }
 
     #[test]
-    fn saturates_huge_components_instead_of_returning_none() {
-        // JS parseInt 走 f64 永不失败 → 必须也判为"可解析"
-        let v = parse_version(Some("999999999999999999999999.0.0")).unwrap();
-        assert_eq!(v.major, u64::MAX);
+    fn huge_components_saturate_and_the_divergence_boundary_is_2_pow_53() {
+        // JS parseInt 走 f64：≥2^53 丢精度但**永不失败** → 必须也判为"可解析"（饱和，不回 None）。
+        // 若这里改成 `None`，`compareVersions` 会返回 0，把"远端版本更高"误判成"相等"。
+        assert_eq!(
+            parse_version(Some("999999999999999999999999.0.0"))
+                .unwrap()
+                .major,
+            u64::MAX
+        );
+        assert_eq!(
+            parse_version(Some("18446744073709551616.0.0"))
+                .unwrap()
+                .major,
+            u64::MAX
+        );
+
+        // ⚠️ **已登记偏差**（设计 §2.1；差分测试 5325 条断言里仅有的 9 条不一致全部在这一族）：
+        //   JS  : parseVersion("18446744073709551615.0.0").major === 18446744073709552000（f64 近似）
+        //   JS  : compareVersions("18446744073709551616.0.0", "999999999999999999999999.0.0") === 1
+        //   Rust: 两个分量都饱和到 u64::MAX → parse 出来的数值不同、compare 判**相等**
+        // 影响面：只有"两个分量都 ≥20 位"的巨大版本号之间的相对大小。GitHub tag（`v0.3.7`）
+        // 不可达；设计明确接受这条偏差（并明令不要为此引入 f64 语义）。
+        assert_eq!(
+            compare_versions(
+                Some("18446744073709551616.0.0"),
+                Some("999999999999999999999999.0.0")
+            ),
+            0
+        );
+
+        // 边界另一侧（< 2^53）：与 JS 逐位一致，f64 也不丢精度
+        assert_eq!(
+            parse_version(Some("9007199254740991.0.0")).unwrap().major,
+            9_007_199_254_740_991
+        );
+        assert_eq!(
+            compare_versions(
+                Some("9007199254740991.0.0"),
+                Some("9007199254740990.0.0")
+            ),
+            1
+        );
     }
 
     #[test]

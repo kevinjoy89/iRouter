@@ -393,7 +393,22 @@ CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构
 - [ ] **内存复核**：基线是 668 MB（5 进程，见 `docs/packaged-runtime-footprint.zh-CN.md`）。系统 webview 仍有开销，量级估算 200–300 MB，**实测后写回 ADR-0007**（那里现在标的是估算）
 - [ ] **回归**：`npx vitest run` + `node tests/__baseline__/verify-no-regression.mjs test-results.json`，与基线一致
 - [ ] 🚧 **删 `desktop/` 之前必须先迁走 5 个被测文件**（否则门禁会真红，不是"已知失败"）：`tests/unit/updater-{version,checksum,checker,asset}.test.js` 与 `tests/unit/version-consistency.test.js` 测的是 `desktop/updater/*.js` 与 `desktop/package.json` 的版本一致性，而它们**不在 `tests/__baseline__/known-fails.txt` 里**（grep 零命中）——删掉被它们导入的文件会让 Regression Gate 判为「新失败」。处置见下方风险表 R1。
-- [ ] 移除 `desktop/`（Electron 壳），或保留一个 tag 作为退路后移除（**以上一条完成为前提**）
+- [ ] 🚧 **重排后的 Phase 6 清理顺序**（原计划只写了"移除 `desktop/`"，被 task-10 证明前提不成立）：
+      1. **先拆承重件**（R1b）——把仍被构建链依赖的东西移出 `desktop/`，每移一件就把引用方一起改：
+         网关负载的产出脚本（`scripts/build-server.mjs`）、Bun pin 与校验器（`scripts/bun-pin.json`、
+         `verify-bun-pin.mjs`）、产物命名规则（`updater/asset.js`）、产品版本真源（`package.json`，ADR-0004）。
+         目标布局与引用方（`tauri.conf.json` / `stage-sidecar.mjs` / `pack-artifacts.mjs` / `dev.mjs` /
+         CI）必须在同一步里一起改到位，**否则打包会断**。
+      2. **逐文件处置那 9 个受门禁看守的测试**（R1）——4 个 updater 文件可随壳一起删（覆盖率已核实）；
+         其余 5 个（`version-consistency`、`desktop-shell-{i18n,settings}`、`dlp-{artifact-shipping,i18n-coverage}`）
+         **每个都要单独给出"迁去哪 / 为何消失"的依据**。`version-consistency` 的结论已定：
+         VC2（npm lock 自洽）随壳消失；VC1（`config.js` 回退值 == 产品号）+ VC3（产品号 ≠ 上游基线号）
+         迁到**发布流水线断言**——真源在 Phase 5 变成 `tauri.conf.json`，这是发版不变量，不是更新器行为。
+      3. **更新 workflows 里的 `desktop/` 引用**（`ci.yml`、`release.yml`、`desktop-tauri.yml`）。
+      4. 最后才移除 `desktop/`（或保留一个 tag 作为退路）。
+      5. 跑一次完整门禁 + 四平台 CI，确认没有"新失败"。
+- [ ] ⚠️ **`desktop-shell-settings` 15 个 case vs Rust `settings.rs` 8 个单测**——数量差要逐条对账，
+      确认那些 case 要么已被 Rust 覆盖、要么其主体随壳消失（task-10 列为未完成项之一）
 - [ ] 更新 `CONTEXT.md`（若有新术语）与 `README` / `README.zh-CN` 的构建与产物章节
 - [ ] **在 ADR-0007 里把估算数字替换为实测**（体积、内存、dmg）
 
@@ -408,7 +423,8 @@ CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构
 | **Bun 跑不通完整网关** | Phase 0 Step 2 任一红 | 停。ADR-0007 重开；备选 Node SEA（macOS 越线）或 Rust 重写（那时才值得算） |
 | **Three-platform 同步导致问题并发** | 任一平台卡住超一个相位 | 允许把该平台降级为「跟进」，但**不得降低验收线**——降级只影响交付顺序，不影响标准 |
 | **sidecar 漏杀孤儿** | Phase 3 Step 3 任一死亡路径失败 | ~~升级 Tauri 版本~~（**在 2.x 上无效**——回收 API 在 2.12.1 里不存在；`cleanup_before_exit` 钩子只进了 3.0.0-alpha.x，且进程被杀/`std::process::exit` 时都不跑）。**唯一解**是自研 PID 文件 + 启动时回收 + 按进程树杀（已实现，见 `desktop-tauri/src-tauri/src/gateway.rs`）。升级 Tauri 只在愿意上 3.0 预发布时才重新考虑 |
-| **R1：删 `desktop/` 打断 5 个 vitest 文件** | Phase 6 清理时 | 这 5 个文件（`updater-{version,checksum,checker,asset}` + `version-consistency`）**不在 `known-fails.txt`** 里，删掉被它们导入的 `desktop/updater/*.js` 与 `desktop/package.json` 会让门禁判「新失败」而红。**推荐**：迁到 `cargo test`（用例清单见 updater 设计 §12.3）+ CI 新增 Rust job；**在迁移完成前不要删这些文件**，也不要先把它们塞进 `known-fails.txt`（那等于用豁免掩盖真回归） |
+| **R1：删 `desktop/` 会打断 9 个受门禁看守的 vitest 文件**（原记录只列了 5 个，漏了近一半） | Phase 6 清理时 | 全部不在 `known-fails.txt` 里：`updater-{version,checksum,checker,asset}`、`version-consistency`，**加上最初漏记的** `desktop-shell-i18n`、`desktop-shell-settings`、`dlp-artifact-shipping`、`dlp-i18n-coverage`。处置**按文件分别决定**，不要一刀切。**且不许把它们塞进 `known-fails.txt`**——那等于用豁免掩盖真回归。**其中 4 个 updater 文件的覆盖率已核实**（task-10：26/26 case 已覆盖、0 缺失，另有 5325 条断言的差分交叉验证把两族偏差钉住），可**与 `desktop/` 同一次改动一起删** |
+| **R1b：`desktop/` 是承重的构建输入目录，不只是旧壳**（task-10 发现，Lead 已核实） | Phase 6 清理时 | 删它**会同时打断四个环节**：① `tauri.conf.json` 的 `bundle.resources` 指向 `desktop/build/gateway/server/`（**打包的网关负载**）② `stage-sidecar.mjs` 读 `desktop/scripts/{bun-pin.json,verify-bun-pin.mjs}`（**sidecar 哈希锁定**）③ `pack-artifacts.mjs` 读 `desktop/updater/asset.js`（**产物命名规则**）与 `desktop/package.json`（**产品版本真源**，ADR-0004）④ `dev.mjs` 依赖 `desktop/build/gateway/server` 与 `npm --prefix desktop run build-server`。**所以 Phase 6 不是「删掉旧壳」，而是「先把仍承重的构建输入拆出去、再删剩下的壳」** |
 | **安装器调起失败 = 本次会话面板不可用** | Phase 5/6 实测 | 低频路径，**已装应用不受影响**（旧版本仍在原地），仅本次会话面板连不上网关（sidecar 已回收且本模块无法重启它——`gateway::spawn` 需要 `PanelGuard`，而窗口 UA 与端口已固定）。已决定**不做** `gateway::restart()`（要复用同端口与同令牌才成立，复杂度不值当），作为**已知限制**记在代码注释里；**用户重开应用即恢复** |
 | **setup 失败时无任何用户可见提示** | Phase 6 前 | shell 实测发现：setup 里 panic 发生在 tao 的 `did_finish_launching` 内 → **non-unwinding panic，进程直接 abort**，用户什么都看不到；而 Electron 是 `dialog.showErrorBox` + exit(1)（`main.js:2106-2113`）。**Phase 6 必须统一处理**（例如把可预期的失败提前到 setup 之外，或在 abort 前落一条日志/原生提示） |
 | **更新器事件契约走形** | Phase 4 移植 | 硬约束不是事件名，而是 ① `window.irouterShell` 的**存在性**（为假则「软件更新」整段消失，`ShellSettingsModal.js:66-70`）② payload 字段形状 ③ `shell:update-error` 的 payload 是**裸字符串**（发对象面板显示 `[object Object]`）④ **检查失败不发 `update-error`**，错误装进 `shell:update-available` 的 `error` 字段（双发会造成面板状态竞态）⑤ shim 的 `unlisten` 必须**同步**返回（Tauri `listen()` 是 async，面板写的是 `unsubX?.()`，返回 Promise 会静默不执行、监听器泄漏）。详见 updater 设计 §7 |

@@ -483,6 +483,51 @@ mod tests {
     }
 
     #[test]
+    fn cached_partial_result_still_carries_all_twelve_keys() {
+        // 差分测试发现的第 2 处偏差族（7 个字段），**是有意为之**：
+        //   JS  `{...lastCheckResult, cached:true}` 对残缺对象会**丢掉**缺失键（值 undefined）；
+        //   Rust 用 `#[serde(default)]` 补默认值 → 12 个键永远齐全（设计 §7.2 的硬要求：
+        //   面板是独立构建，"少发一个字段 = 给未来埋一个静默失败"）。
+        // 面板真正读的字段里只有 2 个落在差异面上，且行为等价：
+        //   assetSize  : JS undefined → `Number.isFinite(undefined)` 假 → 不显示大小；
+        //                Rust 0 → `0 > 0` 假 → 同样不显示（`UpdateSettings.js:249-253`）
+        //   releaseURL : JS undefined → `result?.releaseURL || DEFAULT_RELEASE_PAGE` 回落到默认页；
+        //                Rust 直接就是同一个默认页（`UpdateSettings.js:136-140`）
+        // 触发条件：`lastCheckResult` 是手改/残缺对象。我们自己写盘的永远是全量 12 字段，
+        // 所以这条差异在正常工作流里不可达。
+        let stored = serde_json::json!({"current": "0.3.1", "latest": "0.3.2", "updateAvailable": true});
+        let at = clock::iso8601_from_unix_ms(NOW - 60 * 1000);
+        let f = MockFetcher::ok(mock_releases());
+        let mut o = opts("0.3.1", false);
+        o.last_check_at = Some(&at);
+        o.last_check_result = Some(&stored);
+        let r = block_on(check_for_updates(&*f, &o, NOW));
+
+        let v = serde_json::to_value(&r).unwrap();
+        let obj = v.as_object().unwrap();
+        assert_eq!(obj.len(), 12, "残缺的缓存对象也必须补全 12 个键");
+        for key in [
+            "current",
+            "latest",
+            "updateAvailable",
+            "releaseName",
+            "releaseNotes",
+            "releaseURL",
+            "assetName",
+            "downloadURL",
+            "assetSize",
+            "checksumsURL",
+            "cached",
+            "error",
+        ] {
+            assert!(obj.contains_key(key), "缺字段 {key}");
+        }
+        assert_eq!(obj["assetSize"], serde_json::json!(0));
+        assert_eq!(obj["releaseURL"], serde_json::json!(DEFAULT_RELEASE_PAGE));
+        assert_eq!(obj["cached"], serde_json::json!(true));
+    }
+
+    #[test]
     fn expired_or_invalid_cache_goes_to_the_network() {
         let stored = serde_json::json!({"latest": "0.3.2", "updateAvailable": true});
         let f = MockFetcher::ok(mock_releases());
