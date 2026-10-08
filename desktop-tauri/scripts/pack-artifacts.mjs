@@ -292,12 +292,14 @@ function stagedSidecar() {
   return path;
 }
 
-const GATEWAY_DIR = join(REPO_ROOT, "desktop", "build", "gateway", "server");
+// 负载位置随 Phase 6 Step 1 从 desktop/build/ 搬到仓库根 build/（macOS dmg 自带负载不走这里，
+// 但 Linux tar.gz 与 Windows 便携版要重新打包负载——所以只有那两条 job 会暴露路径错误）。
+const GATEWAY_DIR = join(REPO_ROOT, "build", "gateway", "server");
 
 function assertGateway() {
   const entry = join(GATEWAY_DIR, "custom-server.js");
   if (!existsSync(entry)) {
-    fail(`网关负载缺失：${entry}（先跑 npm --prefix desktop run build-server）`);
+    fail(`网关负载缺失：${entry}（先跑 npm --prefix desktop-tauri run gateway:build）`);
   }
   const files = walkFiles(GATEWAY_DIR);
   const bytes = files.reduce((n, f) => n + statSync(f.abs).size, 0);
@@ -633,7 +635,7 @@ function verifyManifest(plan) {
 }
 
 function main() {
-  log(`版本 ${V}（desktop/package.json ↔ tauri.conf.json 一致）`);
+  log(`版本 ${V}（desktop-tauri/package.json ↔ tauri.conf.json 一致）`);
   log(`目标三元组 ${targetTriple()}｜宿主 ${process.platform}/${process.arch}`);
   assertRuleTable();
 

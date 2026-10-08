@@ -124,10 +124,14 @@ fn resolve_gateway_dir(app: &AppHandle) -> Result<PathBuf, String> {
             return Ok(p);
         }
     }
+    // 仓库回退：Phase 6 Step 1 把负载产出从 `desktop/build/` 搬到了仓库根 `build/`
+    // （`tauri.conf.json` 的 resources 与 dev.mjs / 各 verify 脚本同步改过）。
+    // ⚠️ 这条回退**只在没有 IROUTER_GATEWAY_DIR 时生效**（dev.mjs 会显式设它），
+    // 所以路径写错不会立刻暴露——而旧位置若还残留着一份陈旧负载，就会**静默加载旧代码**。
+    // 搬迁时旧目录已删除，避免这种"能用但用的是旧东西"的假绿。
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-        .join("desktop")
         .join("build")
         .join("gateway")
         .join("server");
@@ -136,7 +140,7 @@ fn resolve_gateway_dir(app: &AppHandle) -> Result<PathBuf, String> {
     }
     Err(format!(
         "找不到网关负载。已尝试：{GATEWAY_DIR_ENV} 环境变量、<resource_dir>/{GATEWAY_DIR_IN_RESOURCES}、\
-         仓库 desktop/build/gateway/server。先跑 `npm --prefix desktop run build-server`。"
+         仓库 build/gateway/server。先跑 `npm --prefix desktop-tauri run gateway:build`。"
     ))
 }
 
