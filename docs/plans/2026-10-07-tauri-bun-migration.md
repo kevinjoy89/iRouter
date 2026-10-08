@@ -425,6 +425,33 @@ CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构
 
 ---
 
+### Phase 6 Step 3 的 dry-run 实测结果（2026-10-08，run 37806253961，`version=0.3.8`）
+
+`release.yml` 改成"复用 `desktop-tauri.yml` 四平台矩阵 → 合并 checksums → 门禁①② → 发布"后，
+用 `workflow_dispatch` 干跑了一次。**为什么用 `0.3.8` 而不是现值 `0.3.7`：同版本注入是空操作，
+那样"版本注入路径"等于没测**——而它恰是这次最容易错的一环（网关负载要烘焙 `NEXT_PUBLIC_APP_VERSION`，
+`tauri.conf.json` 的 version 会进 Info.plist / NSIS / deb，注入必须排在网关构建之前）。
+
+| 步骤 | 结果 |
+| :--- | :--- |
+| `Resolve version`（解析 + semver + 版本线守卫） | ✅ |
+| `Tauri bundles` 四平台（**经 `uses:` 复用，矩阵只有一份**） | ✅ macos-arm64 / macos-amd64 / windows-amd64 / linux-amd64 |
+| **`download-artifact`（跨 reusable 边界）** | ✅ **此前只有"文档说可以"，本次变成实测** |
+| `Generate consolidated checksums.txt` | ✅ |
+| **门禁①** `Assert every release asset is covered` | ✅ |
+| **门禁②** `Verify release notes exist` | ❌ **设计如此**（仓库里没有 `v0.3.8` 的发版说明）——**这条红就是"门禁②真的在工作"的证据** |
+| `Create GitHub Release` | skipped ✅（dry-run 不发布） |
+
+**版本注入被证实贯穿到产物名**：`[pack] 版本 0.3.8（desktop-tauri/package.json ↔ tauri.conf.json 一致）`，
+六类资产名逐字为 `iRouter-0.3.8-{macos-arm64.dmg, macos-amd64.dmg, windows-amd64-installer.exe,
+windows-amd64-portable.zip, linux-amd64.deb, linux-amd64.tar.gz}`，全部进入合并后的 `checksums.txt`。
+
+**仍未验证、且只能等真实 tag**（不冒充已验证）：
+`action-gh-release` 本身与 GitHub 侧最终落盘的资产名（那才是老客户端字符串全等命中的终点）、
+tag 下 `contents: write`、tag checkout 与注入版本的一致性、老客户端自更新的真实验收、
+**仓库侧 required status checks**（job 名从 `Build (macos)` 变成 `version`/`tauri`/`release`，
+若按旧名配了必需检查会卡住合并——GitHub settings 读不到，需人工核对）、预发布 tag 的版本字段行为。
+
 ## 门禁的已知盲区与干扰项（2026-10-08 实测，Step 4 归因前必读）
 
 **① 盲区：收集期失败的文件，门禁看不见。**
