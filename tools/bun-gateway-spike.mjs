@@ -29,7 +29,8 @@ function argOf(name, fallback) {
   const i = argv.indexOf(name);
   return i !== -1 && argv[i + 1] ? argv[i + 1] : fallback;
 }
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+// 已从 desktop/scripts/ 搬到 tools/：仓库根 = 本文件的上一级（原来是上两级）。
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const STANDALONE = resolve(argOf("--standalone", join(REPO_ROOT, ".next", "standalone")));
 const BUN = argOf("--bun", "bun");
 const PORT = Number(argOf("--port", "31888"));

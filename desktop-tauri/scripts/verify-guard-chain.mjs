@@ -28,7 +28,7 @@ const argOf = (n, d) => { const i = argv.indexOf(n); return i !== -1 && argv[i +
 const SHELL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = resolve(SHELL_ROOT, "..");
 const BUN = argOf("--bun", join(SHELL_ROOT, "src-tauri", "target", "debug", "irouter-bun"));
-const GATEWAY_DIR = argOf("--gateway-dir", join(REPO, "desktop", "build", "gateway", "server"));
+const GATEWAY_DIR = argOf("--gateway-dir", join(REPO, "build", "gateway", "server"));
 const PORT = Number(argOf("--port", "31911"));
 const KEEP = argv.includes("--keep");
 const TOKEN = randomBytes(32).toString("hex");

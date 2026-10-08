@@ -97,7 +97,7 @@ jobs:
       - name: Assert Bun version matches pin
         shell: bash
         run: |
-          PIN=$(node -p "require('./desktop/scripts/bun-pin.json').version")
+          PIN=$(node -p "require('./tools/bun-pin.json').version")
           GOT=$(bun --version)
           echo "pin=$PIN got=$GOT"
           [ "$PIN" = "$GOT" ] || { echo "::error::Bun 版本与 pin 不符"; exit 1; }
@@ -106,4 +106,4 @@ jobs:
         shell: bash
         env:
           NODE_OPTIONS: --experimental-sqlite
-        run: node desktop/scripts/bun-gateway-spike.mjs --port 31888
+        run: node tools/bun-gateway-spike.mjs --port 31888

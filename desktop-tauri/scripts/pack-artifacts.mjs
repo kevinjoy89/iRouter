@@ -73,9 +73,10 @@ const log = (msg) => console.log(`[pack] ${msg}`);
 
 // ---------------------------------------------------------------- 版本与命名真源
 
-/** 产品版本真源 = desktop/package.json（ADR-0004）；`tauri.conf.json > version` 必须与它一致。 */
+/** 产品版本真源 = desktop-tauri/package.json（ADR-0004 修订版：Phase 6 把真源从旧壳目录搬到产物包）；
+ *  `tauri.conf.json > version` 必须与它一致。 */
 const productVersion = JSON.parse(
-  readFileSync(join(REPO_ROOT, "desktop", "package.json"), "utf8"),
+  readFileSync(join(REPO_ROOT, "desktop-tauri", "package.json"), "utf8"),
 ).version;
 
 const tauriConf = JSON.parse(readFileSync(join(SRC_TAURI, "tauri.conf.json"), "utf8"));
@@ -84,14 +85,14 @@ const tauriConf = JSON.parse(readFileSync(join(SRC_TAURI, "tauri.conf.json"), "u
 const V = String(productVersion).replace(/^v/i, "");
 if (!V || V !== String(tauriConf.version).replace(/^v/i, "")) {
   fail(
-    `版本漂移：desktop/package.json=${productVersion}，tauri.conf.json=${tauriConf.version} —— 发版前必须同步（ADR-0004）`,
+    `版本漂移：desktop-tauri/package.json=${productVersion}，tauri.conf.json=${tauriConf.version} —— 发版前必须同步（ADR-0004）`,
   );
 }
 
 const PRODUCT_NAME = tauriConf.productName;
 if (PRODUCT_NAME !== "iRouter") {
   fail(
-    `productName=${PRODUCT_NAME}，但 desktop/updater/asset.js 的规则硬编码 "iRouter-…#" 前缀；改名会切断老版本更新，拒绝继续`,
+    `productName=${PRODUCT_NAME}，但 tools/asset.js 的规则硬编码 "iRouter-…#" 前缀；改名会切断老版本更新，拒绝继续`,
   );
 }
 // zip / tar.gz 的目录树（§5.5）按 mainBinaryName 命名，deb / NSIS 同源，所以必须是 iRouter。
@@ -192,7 +193,7 @@ function targetTriple() {
 // --------------------------------------------- §5.6 复用 asset.js，不重写命名规则
 
 const require = createRequire(import.meta.url);
-const assetRulesPath = join(REPO_ROOT, "desktop", "updater", "asset.js");
+const assetRulesPath = join(REPO_ROOT, "tools", "asset.js");
 const { getExpectedAssetName, selectAsset } = require(assetRulesPath);
 
 /** 全等断言：规则表本身、以及「老版本 selectAsset 能不能精确命中这个名字」。 */

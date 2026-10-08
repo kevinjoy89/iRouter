@@ -13,12 +13,15 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DESKTOP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const REPO_ROOT = resolve(DESKTOP_ROOT, "..");
+// 本脚本已从 `desktop/scripts/` 搬到仓库根的 `tools/`（Phase 6 Step 1：把承重件从旧壳目录拆出来）。
+// 因此仓库根 = 本文件的上一级，而"壳包"变成了 desktop-tauri（版本真源在那里，见 ADR-0004 修订）。
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const SHELL_ROOT = join(REPO_ROOT, "desktop-tauri");
 // 网关源码 = 仓库根目录（根 package.json 的 build/postbuild 即 9router 构建脚本）
 const UPSTREAM = REPO_ROOT;
 const STANDALONE = join(UPSTREAM, ".next", "standalone");
-const OUT = join(DESKTOP_ROOT, "build", "gateway", "server");
+// 负载产出改到仓库根的 build/（根 .gitignore:23 已忽略 /build），不再放在旧壳目录里。
+const OUT = join(REPO_ROOT, "build", "gateway", "server");
 
 // 产品版本号真源 = desktop/package.json（见 docs/adr/0004）。
 // 面板可见版本号由此注入：config.js 被客户端组件导入，运行时读文件不可用，
@@ -27,11 +30,11 @@ const OUT = join(DESKTOP_ROOT, "build", "gateway", "server");
 let APP_VERSION;
 try {
   APP_VERSION = JSON.parse(
-    readFileSync(join(DESKTOP_ROOT, "package.json"), "utf8"),
+    readFileSync(join(SHELL_ROOT, "package.json"), "utf8"),
   ).version;
 } catch (err) {
   console.error(
-    `[build-server] 读不到 desktop/package.json 的版本号：${err.message}`,
+    `[build-server] 读不到 desktop-tauri/package.json 的版本号：${err.message}`,
   );
   process.exit(1);
 }
@@ -97,7 +100,7 @@ run("npm", ["install", "--include=dev", "--no-audit", "--no-fund"], {
 //    把 static/ public/ custom-server.js 并入 .next/standalone)
 //    注入构建期临时的 JWT_SECRET 与 DATA_DIR，避免收集路由信息时触碰主目录 ~/.9router
 //    NEXT_PUBLIC_APP_VERSION：面板可见版本号（来源 desktop/package.json，见 ADR 0004）
-const buildDataDir = join(DESKTOP_ROOT, "build", ".build-data");
+const buildDataDir = join(REPO_ROOT, "build", ".build-data");
 mkdirSync(buildDataDir, { recursive: true });
 log(`注入 NEXT_PUBLIC_APP_VERSION=${APP_VERSION}`);
 run("npm", ["run", "build"], {

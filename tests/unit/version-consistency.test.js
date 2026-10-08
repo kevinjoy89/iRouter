@@ -36,9 +36,9 @@ function readConfigFallbackVersion() {
 }
 
 describe("版本号一致性（ADR 0004）", () => {
-  const productVersion = readJson("desktop/package.json").version;
+  const productVersion = readJson("desktop-tauri/package.json").version;
 
-  it("config.js 的回退值等于 desktop/package.json 的产品号", () => {
+  it("config.js 的回退值等于 desktop-tauri/package.json 的产品号", () => {
     // 漏改这里 = 裸构建/CLI 形态面板显示旧版本，且没有任何现有检查会失败
     expect(readConfigFallbackVersion()).toBe(productVersion);
   });

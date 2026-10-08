@@ -11,9 +11,8 @@ on:
   pull_request:
     paths: &paths
       - "desktop-tauri/**"
-      - "desktop/updater/**" # 产物命名规则真源 asset.js
-      - "desktop/scripts/**" # bun-pin.json / verify-bun-pin.mjs（sidecar 的哈希锁定）
-      - "desktop/package.json" # 产品版本真源（ADR-0004）
+      - "tools/**" # 承重构建输入：网关负载构建、Bun pin/校验/spike、产物命名真源（Phase 6 Step 1 从 desktop/ 搬出）
+      - "desktop-tauri/package.json" # 产品版本真源（ADR-0004 修订版）
       - "src/**"
       - "open-sse/**"
       - "public/**"

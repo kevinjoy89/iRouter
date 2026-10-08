@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHELL_ROOT = resolve(HERE, "..");
 const REPO = resolve(SHELL_ROOT, "..");
-const GATEWAY_DIR = join(REPO, "desktop", "build", "gateway", "server");
+const GATEWAY_DIR = join(REPO, "build", "gateway", "server");
 
 // 1. stage sidecar（幂等：已就位则跳过下载）
 const stage = spawnSync("node", [join(HERE, "stage-sidecar.mjs")], { stdio: "inherit" });
@@ -23,7 +23,7 @@ if (stage.status !== 0) process.exit(stage.status ?? 1);
 // 2. 负载必须在位
 if (!existsSync(join(GATEWAY_DIR, "custom-server.js"))) {
   console.error(`[dev] 找不到网关负载 ${GATEWAY_DIR}`);
-  console.error(`[dev] 先跑：npm --prefix desktop run build-server`);
+  console.error(`[dev] 先跑：npm --prefix desktop-tauri run gateway:build`);
   process.exit(1);
 }
 

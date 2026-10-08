@@ -31,7 +31,7 @@ describe("DLP: 规则文件随产物分发", () => {
 
   it("desktop build-server 复制并以自检守卫规则文件", () => {
     const src = readFileSync(
-      join(REPO, "desktop", "scripts", "build-server.mjs"),
+      join(REPO, "tools", "build-server.mjs"),
       "utf8",
     );
     // 常量声明 + 复制，二者缺一产物就会静默失效。

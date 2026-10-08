@@ -31,8 +31,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SHELL_ROOT = resolve(HERE, "..");
 const SRC_TAURI = join(SHELL_ROOT, "src-tauri");
 const REPO_ROOT = resolve(SHELL_ROOT, "..");
-const PIN_JSON = join(REPO_ROOT, "desktop", "scripts", "bun-pin.json");
-const VERIFY = join(REPO_ROOT, "desktop", "scripts", "verify-bun-pin.mjs");
+const PIN_JSON = join(REPO_ROOT, "tools", "bun-pin.json");
+const VERIFY = join(REPO_ROOT, "tools", "verify-bun-pin.mjs");
 
 const argv = process.argv.slice(2);
 const argOf = (name, fallback) => {
