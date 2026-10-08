@@ -156,7 +156,7 @@ let dest = path.join(src.file_name()...replace(&format!("-{}", self.target), "")
 
 1. **禁止**任何形式的回退：不查 `PATH`、不用 `latest`、不降级到系统 `bun`、不 `|| true`、不把哈希校验降级成 warning。
 2. **禁止**在 `bun-pin.json` 里没有登记的平台/三元组上「就近猜一个」—— 映射表未命中即 exit 1。
-3. `bun-pin.json` 里 `"verified": false` 的平台（darwin-x64 / win32-x64 / linux-x64 / linux-arm64）：**Phase 5 首次在该平台构建时必须实际校验并回填 `verified: true`**（pin 文件 `notes` 已约定）。本方案落地时已顺手补验一条，见 §3.5。
+3. `bun-pin.json` 里 `"verified": false` 的平台：darwin-x64 / win32-x64 / linux-arm64 **尚未实测**；linux-x64 已在本次补验通过（§3.5），但 **pin 文件仍写着 `false`** —— 本方案只读仓库、未改该文件，请维护者把 `linux-x64.verified` 回填为 `true`（其余三平台按 pin 文件 `notes` 的约定，在 Phase 5 首次于该平台构建时实测回填）。
 4. 系统 `bun`（例如本机 Homebrew 那份）**只允许开发期手动 spike 用**，绝不进产物；`bun-pin.json` 的 `notes` 已写明。
 5. staging 脚本必须打印：pin 版本、期望 SHA-256、实测 SHA-256、stage 目标路径 —— 让 CI 日志本身成为证据。
 
@@ -246,7 +246,7 @@ let entry = gateway_dir(app).join("custom-server.js");
 
 配套的 dev 脚本（`desktop-tauri/scripts/dev.mjs`）做三件事，全部幂等：
 
-1. 跑一次 §3.1 的 stage（把 `irouter-bun` 同时复制到 `src-tauri/target/debug/irouter-bun[.exe]` 供 `sidecar()` 解析，以及 `src-tauri/binaries/…-<triple>[.exe]` 供打包）；
+1. 跑一次 §3.1 的 stage（把 `irouter-bun` 同时复制到 `src-tauri/target/debug/irouter-bun[.exe]` 供 `sidecar()` 解析 —— 用 `tauri dev --target <triple>` 时路径是 `target/<triple>/debug/`，脚本按实际 target 目录取 —— 以及 `src-tauri/binaries/…-<triple>[.exe]` 供打包）；
 2. 设 `IROUTER_GATEWAY_DIR=<repo>/desktop/build/gateway/server`（不存在就先 `npm --prefix desktop run build-server`）；
 3. 再 `tauri dev`。
 
