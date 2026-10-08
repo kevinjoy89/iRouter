@@ -11,6 +11,7 @@
 
 mod gateway;
 mod guard;
+mod settings;
 mod shell;
 mod updater;
 

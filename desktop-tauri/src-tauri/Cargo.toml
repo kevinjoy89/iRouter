@@ -20,6 +20,17 @@ tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# 更新器：GitHub Releases 检查 + 产物下载。
+# 选 0.12 而不是 lock 里已有的 0.13.5：0.13 的 rustls 路径要 aws-lc-rs（本机 registry 无、
+# 需 cmake 且构建很重）或 rustls-platform-verifier + 运行时装 provider；0.12 的 rustls-tls
+# = rustls-tls-webpki-roots + ring，而 ring/rustls/webpki-roots/hyper-rustls/tokio-rustls
+# 全部已在本机缓存。代价是树里会有两个 reqwest 版本（0.13 那份只在移动 target 参与构建）。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2", "system-proxy"] }
+tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "macros", "rt"] }
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "2"
+
 # 日志门面（后端是 main.rs 里的极简实现，不引 env_logger）
 log = "0.4"
 # 守卫令牌的熵源。刻意不引 rand —— getrandom 已是依赖树中的传递依赖，显式声明即可。
