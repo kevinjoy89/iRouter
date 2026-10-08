@@ -30,7 +30,11 @@
 //!   - `taskkill /F` / 任务管理器「结束任务」：强杀，**任何钩子都跑不到**（Electron 同样跑不到），
 //!     只能靠下次启动的 `gateway::reap_stale_gateway()` 回收；
 //!   - 控制台 Ctrl+C：需要 `SetConsoleCtrlHandler`，那要引入 `windows-sys`（新 crate）。
-//!     当前不做——GUI 进程通常没有控制台，收益极低；若将来要做，先由 Lead 批准依赖。
+//!     **当前不做，而且这不是妥协：Electron 在同一场景下同样收不到。** Node 的 `SIGINT`
+//!     在 Windows 上要靠控制台 Ctrl 事件模拟，而**打包后的 GUI 应用从资源管理器双击启动时
+//!     根本没有控制台**——也就是说 `main.js:2156-2157` 那个处理器在 Windows 上的实际效果
+//!     与本模块的空实现**等价**。引入 `windows-sys` 反而会是"超出 Electron 基线的行为"。
+//!     将来若有人问"Windows 上 Ctrl+C 为什么不管用"，答案就在这里。
 
 #[cfg(unix)]
 pub fn install(app: &tauri::AppHandle) {

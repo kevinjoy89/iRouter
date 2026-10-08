@@ -76,6 +76,14 @@ pub fn hide_dock(_app: &AppHandle) {}
 /// **必须用 `AppHandle::exit` 而不是 `std::process::exit`**：后者不跑任何钩子
 /// （`single_instance::destroy` 与 main.rs 的 `RunEvent::Exit` 回收都会被跳过，
 /// 见 `docs/plans/2026-10-07-tauri-shell-api-notes.md` §6.3 路径 3）。
+///
+/// ⚠️ **本函数必须保持幂等**——有两个调用方，且它们可能相继到达：
+///   1. 托盘「退出」/ 应用菜单「退出 iRouter」/ `closeAction=quit`（`mod.rs::on_close_requested`）；
+///   2. 信号监视线程（`signals.rs`，收到 SIGINT/SIGTERM 后）。
+/// 用户先点「退出」、随即又 `kill -TERM` 就会同时命中两处。当前的三步都是幂等的
+/// （`set_quitting` 重复置真、`Gateway::kill` 已 `take` 走 child → 第二次空操作、
+/// `exit(0)` 重复投递无害）——**重构时不要破坏这一点**：任何"只应执行一次"的副作用
+/// （写文件、删文件、发送消息）放进来之前都要先想清楚上面这条竞态。
 pub fn quit(app: &AppHandle) {
     if let Some(state) = app.try_state::<ShellState>() {
         state.set_quitting();
@@ -83,7 +91,7 @@ pub fn quit(app: &AppHandle) {
     if let Some(gw) = app.try_state::<crate::gateway::Gateway>() {
         gw.kill();
     }
-    log::info!("退出应用（closeAction=quit 或菜单/托盘「退出」）");
+    log::info!("退出应用（closeAction=quit 或菜单/托盘「退出」，或收到 SIGINT/SIGTERM）");
     app.exit(0);
 }
 
