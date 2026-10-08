@@ -3,6 +3,7 @@
   "productName": "iRouter",
   "version": "0.3.7",
   "identifier": "com.irouter.desktop",
+  "mainBinaryName": "iRouter",
   "build": {
     "frontendDist": "../dist",
     "beforeBundleCommand": "node scripts/stage-sidecar.mjs"
@@ -14,7 +15,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg"],
+    "targets": ["dmg", "nsis", "deb"],
     "externalBin": ["binaries/irouter-bun"],
     "resources": { "../../desktop/build/gateway/server/": "gateway/" },
     "icon": [
@@ -24,6 +25,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "macOS": { "minimumSystemVersion": "13.0", "signingIdentity": "-", "hardenedRuntime": false }
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": { "installMode": "currentUser" }
+    },
+    "linux": { "deb": { "depends": [] } }
   }
 }

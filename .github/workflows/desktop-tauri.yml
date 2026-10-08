@@ -1,0 +1,225 @@
+name: Desktop (Tauri v2 + Bun sidecar)
+
+# Phase 5：三平台打包矩阵。真正的 `tauri build` 只在这里跑——
+# 本机（macOS arm64，磁盘余量小）跑不动近千 crate 的编译 + bundling。
+#
+# 与既有 `.github/workflows/ci.yml` **完全独立**（那个 job 是回归门禁，动它会牵连基线）；
+# 与 `.github/workflows/release.yml` 的分工：这个 workflow 只产出并上传可发布产物，
+# 发版仍由 release.yml 的既有流程负责（tag `v*`）。
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: &paths
+      - "desktop-tauri/**"
+      - "desktop/updater/**" # 产物命名规则真源 asset.js
+      - "desktop/scripts/**" # bun-pin.json / verify-bun-pin.mjs（sidecar 的哈希锁定）
+      - "desktop/package.json" # 产品版本真源（ADR-0004）
+      - "src/**"
+      - "open-sse/**"
+      - "public/**"
+      - "next.config.mjs"
+      - "custom-server.js"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-tauri.yml"
+  push:
+    branches: [main]
+    paths: *paths
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  package:
+    name: package (${{ matrix.slug }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      # 一个平台红不代表另外两个不可信——三个都跑完，一次拿到全部证据
+      fail-fast: false
+      matrix:
+        include:
+          # macOS 分两次构建（per-arch，不用 universal：体积翻倍，ADR 已否）。
+          # 跨架构出 dmg 依赖 rustup 的 x86_64-apple-darwin target；
+          # macos-latest 现在是 arm64，两个 job 都在同一类 runner 上跑，行为可复现。
+          - slug: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+            expect: "iRouter-*-macos-arm64.dmg"
+          - slug: macos-amd64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: dmg
+            expect: "iRouter-*-macos-amd64.dmg"
+          - slug: windows-amd64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            expect: "iRouter-*-windows-amd64-*"
+          # ubuntu-22.04：Tauri 官方建议「用你打算支持的最老基系统构建」以压低 glibc 基线，
+          # 且该版本提供 webkit2gtk-4.1（deb 的 Depends 由 CLI 在 Linux 宿主上自动注入）。
+          - slug: linux-amd64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb
+            expect: "iRouter-*-linux-amd64.*"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # 与 ci.yml 同因：runner 自带的 npm 10 在本仓库依赖树上会崩
+      # （Cannot read properties of null (reading 'edgesOut')），而 build-server.mjs
+      # 内部会 fork `npm install`，所以必须在 PATH 上换掉它。
+      - name: Use npm 11 (runner-bundled npm 10 crashes on this dependency tree)
+        run: npm install -g npm@11
+
+      - name: Install Rust toolchain (${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri -> target
+
+      # Tauri v2 在 Ubuntu 上的系统依赖（官方 prerequisites）。
+      # 含 libayatana-appindicator3-dev：壳开了 tray-icon feature，构建期需要它的头文件。
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev build-essential curl wget file libssl-dev libxdo-dev
+
+      - name: Install Tauri CLI (locked to 2.12.1)
+        working-directory: desktop-tauri
+        run: npm ci
+
+      # 网关负载（≈50 MiB 文件字节）是 bundle.resources 的来源；缺了 Tauri 会在
+      # ResourcePathNotFound 上硬失败，这里先构建，失败信息更直白。
+      - name: Build gateway payload
+        run: npm --prefix desktop run build-server
+
+      # ⚠️ 即便 beforeBundleCommand 挂在 tauri.conf.json 上，也要**显式跑一次**：
+      # `--no-bundle` 时 bundle 阶段整个被跳过、hook 不执行（打包方案 §3.2）。
+      # 脚本幂等：已 stage 且哈希/版本一致就直接返回 0。
+      - name: Stage Bun sidecar (hash-locked, idempotent)
+        working-directory: desktop-tauri
+        run: node scripts/stage-sidecar.mjs --target ${{ matrix.target }} --scope bin
+
+      - name: Build bundles (${{ matrix.bundles }})
+        working-directory: desktop-tauri
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --ci
+
+      # 打包后收尾：改成 asset.js 期望的名字 → 自研 zip/tar.gz → **改名之后**才算 checksums.txt，
+      # 并用 asset.js 的 getExpectedAssetName 对新名字做全等断言（§5.6 的防复发门禁）。
+      - name: Rename artifacts + build portable archives + checksums
+        working-directory: desktop-tauri
+        run: node scripts/pack-artifacts.mjs --target ${{ matrix.target }} --out artifacts
+
+      # 发布侧 fail-closed 门禁（Lead 的 D-4 处置）：更新器在**拿不到 checksums.txt 时
+      # 会跳过哈希校验**（与 Electron 版行为对齐）。那个洞不能留在用户机器上，
+      # 只能在发布侧堵死——清单缺失/不全/哈希不符，这里直接红。
+      - name: Verify checksums.txt covers every artifact (fail-closed)
+        working-directory: desktop-tauri
+        run: node scripts/pack-artifacts.mjs --verify --target ${{ matrix.target }} --out artifacts
+
+      - name: Assert expected artifact names exist
+        shell: bash
+        working-directory: desktop-tauri
+        run: |
+          set -euo pipefail
+          echo "== artifacts =="; ls -l artifacts
+          shopt -s nullglob
+          hits=(artifacts/${{ matrix.expect }})
+          if [ ${#hits[@]} -eq 0 ]; then
+            echo "::error::没有匹配 ${{ matrix.expect }} 的产物"
+            exit 1
+          fi
+          echo "命名断言通过：${hits[*]}"
+
+      # ---------------------------------------------------------------- 包内冒烟
+      # 验收清单 §10 的 3/4：sidecar 与网关负载必须真在包里，且最低系统版本是 13.0。
+      # 这三段是「产物名对不对」之外唯一能在 CI 里验证包体内容的地方。
+      - name: Package smoke — macOS (mount dmg)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        working-directory: desktop-tauri
+        run: |
+          set -euo pipefail
+          DMG=$(ls artifacts/*.dmg | head -1)
+          echo "mount $DMG"
+          MOUNT=$(hdiutil attach -nobrowse -readonly "$DMG" | tail -1 | awk '{for (i=3;i<=NF;i++) printf "%s%s", $i, (i<NF?" ":"")}')
+          echo "mounted at: $MOUNT"
+          APP=$(ls -d "$MOUNT"/*.app | head -1)
+          test -f "$APP/Contents/MacOS/irouter-bun" || { echo "::error::sidecar 不在 .app 里"; exit 1; }
+          test -f "$APP/Contents/Resources/gateway/custom-server.js" || { echo "::error::网关负载不在 Resources/gateway 里"; exit 1; }
+          echo "sidecar 架构：$(lipo -archs "$APP/Contents/MacOS/irouter-bun")"
+          codesign -dv "$APP" 2>&1 | head -3
+          codesign --verify --deep --strict "$APP" && echo "codesign --verify 通过"
+          MIN=$(defaults read "$APP/Contents/Info.plist" LSMinimumSystemVersion)
+          [ "$MIN" = "13.0" ] || { echo "::error::LSMinimumSystemVersion=$MIN，期望 13.0（Bun 要求 macOS 13+）"; exit 1; }
+          hdiutil detach "$MOUNT"
+
+      - name: Package smoke — Linux (deb + tar.gz)
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        working-directory: desktop-tauri
+        run: |
+          set -euo pipefail
+          DEB=$(ls artifacts/*.deb | head -1)
+          dpkg -c "$DEB" | grep -q '/usr/bin/irouter-bun$' || { echo "::error::deb 里没有 /usr/bin/irouter-bun"; exit 1; }
+          dpkg -c "$DEB" | grep -q '/usr/lib/iRouter/gateway/custom-server.js$' || { echo "::error::deb 里没有 /usr/lib/iRouter/gateway/custom-server.js"; exit 1; }
+          echo "== dpkg -I =="; dpkg -I "$DEB" | sed -n '/Depends/p'
+          DEPENDS=$(dpkg -I "$DEB" | sed -n 's/^ *Depends: //p')
+          echo "$DEPENDS" | grep -q 'libwebkit2gtk-4.1-0' || { echo "::error::Depends 缺 libwebkit2gtk-4.1-0（CLI 自动注入失败？）"; exit 1; }
+          DUP=$(echo "$DEPENDS" | tr ',' '\n' | sed 's/^ *//;s/ *(.*//' | sort | uniq -d)
+          [ -z "$DUP" ] || { echo "::error::Depends 有重复项：$DUP —— 不要把 webkit/gtk 手写进 bundle.linux.deb.depends"; exit 1; }
+          TGZ=$(ls artifacts/*.tar.gz | head -1)
+          tar -tzf "$TGZ" | grep -qx 'usr/bin/iRouter' || { echo "::error::tar.gz 里没有 usr/bin/iRouter"; exit 1; }
+          tar -tzf "$TGZ" | grep -qx 'usr/bin/irouter-bun' || { echo "::error::tar.gz 里没有 usr/bin/irouter-bun"; exit 1; }
+          tar -tzf "$TGZ" | grep -qx 'usr/lib/iRouter/gateway/custom-server.js' || { echo "::error::tar.gz 里没有网关负载"; exit 1; }
+
+      - name: Package smoke — Windows (portable zip)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        working-directory: desktop-tauri
+        run: |
+          $zip = (Get-ChildItem artifacts/*portable.zip | Select-Object -First 1).FullName
+          $entries = tar -tf $zip
+          foreach ($want in @('iRouter.exe', 'irouter-bun.exe', 'gateway/custom-server.js')) {
+            if ($entries -notcontains $want) { Write-Error "zip 里没有 $want"; exit 1 }
+          }
+          Write-Host "portable zip 内容断言通过"
+
+      # 证据：stage-sidecar.mjs 落盘时写的 sha256 凭据（与 artifacts 分开上传，
+      # 免得被发版 glob 当成发布物收走）。
+      - name: Upload staging evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-tauri-staging-${{ matrix.slug }}
+          path: desktop-tauri/src-tauri/binaries/*.sha256
+          if-no-files-found: ignore
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-tauri-${{ matrix.slug }}
+          path: desktop-tauri/artifacts/*
+          # 没有产物 = 这一步之前就该红；不允许「悄悄上传空目录」
+          if-no-files-found: error
