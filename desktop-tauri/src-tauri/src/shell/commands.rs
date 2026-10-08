@@ -132,6 +132,9 @@ pub fn open_settings(app: &AppHandle, section: Option<&str>) {
         None => json!({}),
     };
     if panel_ready(app) {
+        // 这条日志是**可观测性 + 自动化断言**共用的：verify-shell.mjs 的场景
+        // `open-settings:updates` 就断言它（否则这条链路在日志里完全不可见）。
+        log::info!("打开设置面板：section={section:?}（面板已就绪，直接投递）");
         emit_open_settings(app, &payload);
     } else {
         // 窗口还停在兜底页（网关未就绪）或面板尚未加载完：此时发了也无人监听。
@@ -171,7 +174,7 @@ fn emit_open_settings(app: &AppHandle, payload: &Value) {
 
 /// 面板是否已经加载完成：用 URL 的 host 判定（兜底页走 `tauri://localhost` /
 /// `http://tauri.localhost`，只有面板才是 `127.0.0.1`）。
-fn panel_ready(app: &AppHandle) -> bool {
+pub(super) fn panel_ready(app: &AppHandle) -> bool {
     window::main_window(app)
         .and_then(|w| w.url().ok())
         .and_then(|url| url.host_str().map(|h| h == "127.0.0.1" || h == "localhost"))

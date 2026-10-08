@@ -174,6 +174,13 @@ jobs:
           codesign --verify --deep --strict "$APP" && echo "codesign --verify 通过"
           MIN=$(defaults read "$APP/Contents/Info.plist" LSMinimumSystemVersion)
           [ "$MIN" = "13.0" ] || { echo "::error::LSMinimumSystemVersion=$MIN，期望 13.0（Bun 要求 macOS 13+）"; exit 1; }
+          # 安全边界：自测接缝是 `#[cfg(debug_assertions)]` 门控的，**release 产物里必须一个字节都没有**。
+          # 一个"能触发动作"的环境变量若漏进 release，就是本地任意进程可用的后门
+          # （`IROUTER_SHELL_SELFTEST=quit` 就能让应用退出）。debug 侧的断言在 verify-shell.mjs，
+          # release 侧就在这里——两处合起来才闭环。
+          SETFOUND=$(grep -a -c 'IROUTER_SHELL_SELFTEST' "$APP/Contents/MacOS/iRouter" || true)
+          [ "${SETFOUND:-0}" -eq 0 ] || { echo "::error::release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1; }
+          echo "自测接缝 release 断言通过：0 命中"
           hdiutil detach "$MOUNT"
 
       - name: Package smoke — Linux (deb + tar.gz)
@@ -211,6 +218,14 @@ jobs:
           grep -qx 'usr/bin/irouter-bun' <<<"$TGZ_LIST" || fail "tar.gz 里没有 usr/bin/irouter-bun" "$TGZ_LIST"
           grep -qx 'usr/lib/iRouter/gateway/custom-server.js' <<<"$TGZ_LIST" || fail "tar.gz 里没有网关负载" "$TGZ_LIST"
 
+          # 安全边界：release 产物里不得出现自测接缝（见 macOS 段的说明）
+          SBTMP=$(mktemp -d)
+          tar -xzf "$TGZ" -C "$SBTMP" usr/bin/iRouter
+          SETFOUND=$(grep -a -c 'IROUTER_SHELL_SELFTEST' "$SBTMP/usr/bin/iRouter" || true)
+          rm -rf "$SBTMP"
+          [ "${SETFOUND:-0}" -eq 0 ] || { echo "::error::release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1; }
+          echo "自测接缝 release 断言通过：0 命中"
+
       - name: Package smoke — Windows (portable zip)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -222,6 +237,16 @@ jobs:
             if ($entries -notcontains $want) { Write-Error "zip 里没有 $want"; exit 1 }
           }
           Write-Host "portable zip 内容断言通过"
+
+          # 安全边界：release 产物里不得出现自测接缝（见 macOS 段的说明）
+          $tmp = Join-Path $env:RUNNER_TEMP "sbtest"
+          Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+          Expand-Archive -Path $zip -DestinationPath $tmp
+          $exe = (Get-ChildItem -Recurse -Filter iRouter.exe $tmp | Select-Object -First 1).FullName
+          & findstr.exe /C:"IROUTER_SHELL_SELFTEST" "$exe" | Out-Null
+          if ($LASTEXITCODE -eq 0) { Write-Error "release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1 }
+          Remove-Item -Recurse -Force $tmp
+          Write-Host "自测接缝 release 断言通过：0 命中"
 
       # 证据：stage-sidecar.mjs 落盘时写的 sha256 凭据（与 artifacts 分开上传，
       # 免得被发版 glob 当成发布物收走）。

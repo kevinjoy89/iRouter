@@ -40,6 +40,7 @@ pub mod commands;
 mod dialogs;
 mod i18n;
 mod menus;
+mod selftest;
 mod signals;
 mod tray;
 mod window;
@@ -193,6 +194,9 @@ fn shell_plugin() -> TauriPlugin<Wry> {
         .on_page_load(|webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
                 commands::flush_pending_open_settings(webview.app_handle(), webview.label());
+                // 自动化自检接缝：网关就绪（面板页加载完成）后触发场景。
+                // release 构建下这是空函数（模块整体被 `#[cfg(debug_assertions)]` 门控）。
+                selftest::on_panel_ready(webview.app_handle(), webview.label());
             }
         })
         .build()
