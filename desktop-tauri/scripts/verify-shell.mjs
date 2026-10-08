@@ -48,6 +48,10 @@ const ONLY = argOf("--scenario", null);
 const TIMEOUT_MS = Number(argOf("--timeout", "90")) * 1000;
 
 const results = [];
+/** 本脚本亲自起的进程（壳 + 网关）。Z1 只断言**这些**都已退出：
+ *  机器上可能合法地跑着另一个 iRouter（例如 /Applications 里的安装版），
+ *  用 `pgrep -f irouter-bun` 全局扫会把它误判成"残留"（2026-10-08 实测踩到）。 */
+const ours = [];
 const record = (id, title, ok, ev = "") => {
   results.push({ id, title, ok, ev });
   console.log(`  ${ok ? "✓" : "✗"} ${id} ${title}${ev ? `\n      ${ev}` : ""}`);
@@ -77,13 +81,6 @@ function portListening(port) {
   });
 }
 
-function pgrep(pattern) {
-  try {
-    return execFileSync("pgrep", ["-fl", pattern], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
-  } catch {
-    return [];
-  }
-}
 
 async function waitFor(fn, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs;
@@ -97,6 +94,40 @@ async function waitFor(fn, timeoutMs, label) {
 }
 
 // ---------------------------------------------------------------- 前置
+// 单实例锁：先确认**没有别的 iRouter 实例在跑**。
+// 为什么必须查：`tauri-plugin-single-instance` 在 macOS 上用 `/tmp/<identifier>_si.sock`
+// （`tauri-plugin-single-instance-2.5.2/src/platform_impl/macos.rs:66-72`，标识符里的 `.`/`-` 换成 `_`）；
+// 若那个 socket 有人监听，被测进程会**静默 `exit(0)`**——四个场景全部零输出、超时，
+// 看起来像"网关起不来"，实则是单实例把测试挡在门外（2026-10-08 实测踩到：/Applications 里装着一份在跑）。
+// 直接连一下那个 socket 就能得到与插件一致的判断。
+const SINGLETON_SOCKET = (() => {
+  try {
+    const conf = JSON.parse(readFileSync(join(SHELL_ROOT, "src-tauri", "tauri.conf.json"), "utf8"));
+    return `/tmp/${String(conf.identifier).replace(/[.-]/g, "_")}_si.sock`;
+  } catch {
+    return null;
+  }
+})();
+
+function otherInstanceRunning() {
+  if (!SINGLETON_SOCKET) return Promise.resolve(false);
+  return new Promise((res) => {
+    const s = net.connect(SINGLETON_SOCKET);
+    const done = (v) => { s.destroy(); res(v); };
+    s.setTimeout(500, () => done(false));
+    s.on("error", () => done(false)); // NotFound / ConnectionRefused 都表示没有实例
+    s.on("connect", () => done(true));
+  });
+}
+
+if (SINGLETON_SOCKET && (await otherInstanceRunning())) {
+  console.error(
+    `[shell] 检测到另一个 iRouter 实例正在运行（单实例 socket 有人监听：${SINGLETON_SOCKET}）。\n` +
+    `[shell] 被测进程会静默 exit(0)，本脚本无法运行。请先退出那个实例（例如 /Applications/iRouter.app）再跑。`
+  );
+  process.exit(2);
+}
+
 if (!statSync(BIN, { throwIfNoEntry: false })) {
   console.log(`[shell] 二进制不存在，先构建：${BIN}`);
   const extra = (process.env.IROUTER_CARGO_ARGS || "").split(" ").filter(Boolean);
@@ -178,17 +209,21 @@ async function runScenario(sc) {
   let exited = null;
   child.on("exit", (c) => { exited = c; });
   const shellPid = child.pid;
+  ours.push(shellPid);
   const text = () => logs.join("");
 
   const dumpTail = (n = 15) => text().split("\n").filter(Boolean).slice(-n).map((l) => `      ${l}`).join("\n");
 
   // 前置：网关被拉起（日志里有 pid/port）
   const started = await waitFor(() => text().match(/网关已拉起：pid=(\d+) port=(\d+)/), TIMEOUT_MS, `${sc.id} 网关拉起`);
-  if (!started) {
-    record(`${sc.id}.0`, "网关已拉起", false, `日志尾：\n${dumpTail()}`);
-  } else {
+  try {
+    if (!started) {
+      record(`${sc.id}.0`, "网关已拉起", false, `日志尾：\n${dumpTail()}`);
+      return;
+    }
     const gwPid = Number(started[1]);
     const port = Number(started[2]);
+    ours.push(gwPid);
     record(`${sc.id}.0`, `网关已拉起（pid=${gwPid} port=${port}）`, true);
 
     // 场景断言：等每条期望日志出现
@@ -199,10 +234,14 @@ async function runScenario(sc) {
     }
 
     // 收尾：要么自己退出（quit 场景），要么我们发 SIGTERM
-    if (sc.sigterm) {
+    if (sc.sigterm && processAlive(shellPid)) {
       child.kill("SIGTERM");
       const acked = await waitFor(() => text().includes("收到 SIGTERM"), 5000, `${sc.id} SIGTERM 被处理`);
       record(`${sc.id}.t0`, "SIGTERM 被信号钩子接住（日志可见）", Boolean(acked), acked ? "" : `日志尾：\n${dumpTail()}`);
+    } else if (sc.sigterm) {
+      // 壳在收尾前就自己退出了：只可能是外部原因（跑测试时有人从 Dock / Cmd+Q 退出了它——
+      // 那次退出本身也走回收路径）。**不判红，但必须留痕**，否则会被误读成"信号路径已验证"。
+      console.log(`  ! ${sc.id}.t0 壳已自行退出，未发送 SIGTERM（外部交互？下面的回收断言仍然有效）`);
     }
 
     const shellGone = await waitFor(() => !processAlive(shellPid), 20000, `${sc.id} 壳退出`);
@@ -217,8 +256,14 @@ async function runScenario(sc) {
     const pidFile = join(dataDir, ".gateway.pid");
     const pidGone = !existsSync(pidFile);
     record(`${sc.id}.t4`, ".gateway.pid 已清", pidGone, pidGone ? "" : `${pidFile} 仍在：${readFileSync(pidFile, "utf8").trim()}`);
-
-    if (exited === null && processAlive(shellPid)) child.kill("SIGKILL");
+  } finally {
+    // **无论断言成败都要收干净**：早退（例如网关没起来）时若直接 return，被测进程会被留下，
+    // 而它的单实例锁会让后续场景全部静默失败（2026-10-08 实测踩过这个连环坑）。
+    if (processAlive(shellPid)) {
+      child.kill("SIGTERM");
+      await waitFor(() => !processAlive(shellPid), 5000, `${sc.id} 兜底 SIGTERM`);
+    }
+    if (processAlive(shellPid)) child.kill("SIGKILL");
   }
 
   if (!KEEP) rmSync(root, { recursive: true, force: true });
@@ -236,8 +281,9 @@ for (const sc of selected) await runScenario(sc);
 console.log("\n[shell] 全局断言：");
 for (const d of realDirs) record(`F:${d.path}`, "真实数据指纹未变", d.before === fp(d.file), `${d.before} → ${fp(d.file)}`);
 
-const leftovers = [...pgrep(BIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), ...pgrep("irouter-bun")];
-record("Z1", "无残留壳/网关进程", leftovers.length === 0, leftovers.join(" | "));
+const leftovers = ours.filter((pid) => processAlive(pid));
+record("Z1", "本脚本起的壳/网关进程均已退出（不误判机器上其他 iRouter 实例）",
+  leftovers.length === 0, leftovers.length ? `仍在：${leftovers.join(", ")}` : `跟踪 ${ours.length} 个 pid`);
 
 // ---------------------------------------------------------------- 汇总
 const failed = results.filter((r) => !r.ok);
