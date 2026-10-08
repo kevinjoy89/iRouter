@@ -37,8 +37,10 @@
 // 而命令必须按**真实模块路径**引用——`#[tauri::command]` 的伴生宏 `__cmd__<name>!` 是
 // `#[macro_export]`，`pub use` 转出后按路径找不到（实测：`cannot determine resolution for the import`）。
 pub mod commands;
+mod dialogs;
 mod i18n;
 mod menus;
+mod signals;
 mod tray;
 mod window;
 
@@ -74,6 +76,11 @@ pub struct ShellState {
     /// 菜单语言。启动时按系统 locale 判定，之后不再变（没有调用者给它改——面板侧
     /// 根本没有发射 `__IROUTER_LOCALE__` 的代码，见 `i18n` 模块头）。
     locale: Mutex<i18n::Locale>,
+    /// 最近一次「菜单触发检查更新」的时刻。`Some` = 有一次结果在等 → 收到
+    /// `shell:update-available` 时弹结果对话框（见 `dialogs` 模块头）。
+    pub menu_check_at: Mutex<Option<Instant>>,
+    /// `shell:update-available` 的 Rust 侧监听是否已注册（懒注册 + 幂等，见 `dialogs`）。
+    pub result_listener_registered: AtomicBool,
 }
 
 impl ShellState {
@@ -84,6 +91,8 @@ impl ShellState {
             zoom: Mutex::new(1.0),
             pending_open: Mutex::new(None),
             locale: Mutex::new(i18n::system_locale()),
+            menu_check_at: Mutex::new(None),
+            result_listener_registered: AtomicBool::new(false),
         }
     }
 
@@ -130,6 +139,10 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     // 2) 全局菜单事件（应用菜单 + 托盘菜单都进这里）与托盘图标事件。
     app.on_menu_event(menus::on_menu_event);
     app.on_tray_icon_event(tray::on_tray_icon_event);
+
+    // 2.5) 信号钩子：越早装越好——否则"启动到装钩子之间被 kill"仍会留孤儿。
+    //      （对齐 `desktop/main.js:2156-2157` 的 `process.on("SIGINT"/"SIGTERM", quit)`）
+    signals::install(app);
 
     // 3) 托盘与应用菜单。
     tray::create(app)?;

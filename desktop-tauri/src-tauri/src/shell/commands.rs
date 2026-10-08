@@ -178,17 +178,21 @@ fn panel_ready(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// 菜单/托盘的「检查更新…」（对齐 `main.js:1491, 1333, 1405` → `triggerUpdateCheck(true)`）。
+/// 菜单/托盘的「检查更新…」（对齐 `main.js:1491, 1333, 1405` → `triggerUpdateCheck(true)`，
+/// 其 `source` 默认值就是 `"menu"`，见 `main.js:814`）。
 ///
-/// 更新器（`src/updater/**`）由另一位 owner 实现，当前**没有**公开的 Rust 入口可调，
-/// 所以这里做两件事，都不越界：
-///   1. 打开设置的「更新」分段（`main.js:865` 同款：`openSettings("updates")`）——
-///      面板里就有"检查更新"按钮，用户立刻能完成这件事；
-///   2. 以**应用内部事件**（`EventTarget::app()`，只发给 Rust 侧 listener，不广播到 webview）
-///      发 `shell:check-update-requested`，载荷 `{"force": true}`。
-///      updater 落地后 `app.listen("shell:check-update-requested", …)` 即可接上，无需改本文件。
+/// 三步，顺序不能反：
+///   1. `dialogs::ensure_result_listener` —— 懒注册结果监听（`init` 时窗口还不存在，见 `dialogs` 头注）；
+///   2. `dialogs::mark_menu_check_pending` —— 打上"这次的结果要弹窗"的标记；
+///   3. 发 `shell:check-update-requested`（**应用内部事件**，`EventTarget::app()`，
+///      只发给 Rust 侧 listener）→ updater 的 `listen_for_check_requests` 接住并跑检查。
+///
+/// **刻意不在这里 `open_settings("updates")`**：Electron 只在用户点了对话框里的
+/// 「去设置」时才打开（`main.js:864-866`）。原先没有对话框时这里临时开了面板，
+/// 现在改由 `dialogs::show` 的按钮回调负责。
 pub fn request_update_check(app: &AppHandle) {
-    open_settings(app, Some("updates"));
+    super::dialogs::ensure_result_listener(app);
+    super::dialogs::mark_menu_check_pending(app);
     if let Err(e) = app.emit_to(
         tauri::EventTarget::app(),
         "shell:check-update-requested",
