@@ -11,6 +11,8 @@
 
 mod gateway;
 mod guard;
+mod shell;
+mod updater;
 
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
@@ -37,7 +39,18 @@ fn main() {
     log::set_max_level(log::LevelFilter::Info);
 
     tauri::Builder::default()
+        // single-instance 必须最先注册（Tauri 文档要求），回调里聚焦已有窗口
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            shell::on_second_instance(app, argv, cwd)
+        }))
+        // 开机自启：macOS 走 LaunchAgent；--from-autostart 用于复刻 Electron 的 openAsHidden
+        // 语义（插件本身没有「隐藏启动」开关，只能自己解析 argv）
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--from-autostart"]),
+        ))
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -54,6 +67,10 @@ fn main() {
                     .build()?;
                 return Ok(());
             }
+
+            // wave 2 的模块入口：都不得阻塞启动
+            shell::init(&handle)?;
+            updater::init(&handle)?;
 
             let panel_guard = PanelGuard::generate();
             let gw = gateway::spawn(&handle, &panel_guard)?;
