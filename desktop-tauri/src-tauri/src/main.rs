@@ -92,9 +92,12 @@ fn main() {
         // `self.invoke_handler = Box::new(..)`（**覆盖式**）——shell 与 updater 各调一次，
         // 后一个会把前一批命令整批静默丢掉（面板只看到 Command not found）。因此在这里合并。
         .invoke_handler(tauri::generate_handler![
-            // ⚠️ 必须写**命令定义所在的模块**路径（updater::commands::x），不能写 re-export 路径
-            // （updater::x）。依据：tauri-macros-2.7.1/src/command/handler.rs:163-171 会把路径
-            // 最后一段换成 __cmd__<name>，而伴生宏定义在命令所在模块里。
+            // ⚠️ 必须写**命令定义所在的模块**路径（x::commands::y），不能写 re-export 路径（x::y）。
+            // 依据：tauri-macros-2.7.1/src/command/handler.rs:163-171 会把路径最后一段换成
+            // __cmd__<name>，而伴生宏定义在命令所在模块里。实测：定义处路径通过，re-export 报 E0433。
+            shell::commands::shell_get_settings,
+            shell::commands::shell_set_settings,
+            shell::commands::shell_context_menu,
             updater::commands::shell_check_update,
             updater::commands::shell_download_update,
             updater::commands::shell_cancel_download,
