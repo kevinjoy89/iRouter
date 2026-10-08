@@ -243,8 +243,14 @@ jobs:
           Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
           Expand-Archive -Path $zip -DestinationPath $tmp
           $exe = (Get-ChildItem -Recurse -Filter iRouter.exe $tmp | Select-Object -First 1).FullName
-          & findstr.exe /C:"IROUTER_SHELL_SELFTEST" "$exe" | Out-Null
-          if ($LASTEXITCODE -eq 0) { Write-Error "release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1 }
+          # ⚠️ `findstr` 未找到时返回 **1**，而 PowerShell 会把**最后一条原生命令的退出码**
+          # 当作整个进程的退出码 —— 即使我们用 `if` 处理了它，那个 1 仍会泄漏出去让 step 判红
+          # （首次就是这样：断言打印了「0 命中」，step 却 `exit code 1`）。
+          # 所以必须显式把 `$LASTEXITCODE` 归零。同类教训：**断言过了 ≠ 步骤会过**。
+          & findstr.exe /C:"IROUTER_SHELL_SELFTEST" "$exe" > $null 2>&1
+          $found = ($LASTEXITCODE -eq 0)
+          $LASTEXITCODE = 0
+          if ($found) { Write-Error "release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1 }
           Remove-Item -Recurse -Force $tmp
           Write-Host "自测接缝 release 断言通过：0 命中"
 
