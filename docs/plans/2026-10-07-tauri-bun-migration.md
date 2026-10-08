@@ -299,6 +299,23 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 
 **出口条件：** 与 Electron 版逐项对照，无功能缺失；`IROUTER_IMPORT_DECISION` 等自动化接缝可用。
 
+**Phase 5 现状（2026-10-08，CI 首跑）**：
+
+三平台打包矩阵第一次真跑，**macOS arm64 / macOS amd64 / Windows 三个 job 全部成功并产出可上传的产物**
+（48.5 / 51.8 / 113 MB）——这是本项目第一次真的跑通 `tauri build`（本机磁盘与时间约束跑不动，
+CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构建问题**（见下）。
+
+首跑抓出三个「本地永远发现不了」的问题，它们的共同特征是：**单测、编译、配置校验全部射程之外**。
+
+| # | 问题 | 只有谁能发现 | 教训 |
+| :-- | :--- | :--- | :--- |
+| 1 | `desktop-tauri/package-lock.json` 被根 `.gitignore` 的裸 `package-lock.json` 全局忽略 → `npm ci` 三平台全挂 | **真跑 CI** | 「lock 里锁死 2.12.1」的核对是对的，但核对的是**本地那份**，而 CI 上根本没有 |
+| 2 | Linux 冒烟的断言模式写错：`dpkg -c` 打印 `usr/bin/irouter-bun`（无前导斜杠），断言写 `/usr/bin/irouter-bun$` → 永远匹配不上 | **真跑 CI + 失败时打印现场** | 我先把根因判成「`pipefail` + `grep -q` 的 SIGPIPE」——听起来很经典，**但不对**。真正解决它的是「失败时打印实际内容」这个改动 |
+| 3 | 右键菜单语言：Electron 用 `app.getLocale()`（macOS 返回系统语言），Tauri 读 `LANG` 环境变量（GUI 进程没有）→ 中文系统上显示英文 | **真人在中文系统上点一次右键** | 用户报「菜单是 Copy」时，我第一反应是"与 Electron 一致"；查证后发现**恰恰相反**，是回归 |
+
+另记一条方法论：**「测试失败」与「被测对象有问题」看起来一模一样**。第 2 条如果只改断言不打印现场，
+下一轮还会红，而我会继续找错方向。现在断言不过时会打印实际内容前 40 行。
+
 **Phase 4 现状（2026-10-08）**：shell（1491 行）与 updater（4413 行）已落地，测试 114/114、shim 断言 18/18、守卫链路 9/9。
 真机实测：托盘创建、macOS 应用菜单（含 Edit）、updater 启动 3 秒后的静默检查**调通真实 GitHub Releases API 并写回**
 （`current=latest=0.3.7`、`error=null`、`assetName=iRouter-0.3.7-macos-arm64.dmg`——产物名匹配规则对真实 release 成立）。
