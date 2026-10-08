@@ -249,6 +249,20 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 
 **Phase 3 现状（2026-10-08）**：除 Step 5 外全部落地并有证据（`cargo test` 7/7、守卫链路 9/9、staging 实跑哈希校验通过、`cargo check` 通过）。**真实 GUI 启动已实测**：`target/debug/irouter` + `irouter-bun .../custom-server.js --port 20128` 双进程起来、20128 监听、PID 文件写入、630 ms 就绪、面板可用；对**运行中的实例**探测守卫：令牌 UA → `200 OK`，错误令牌与浏览器 UA → 连接被切断（令牌为随机 64 位十六进制，确实每次启动重新生成）。
 
+**人工门禁实测结果（2026-10-08，真机点击）**：
+
+| 项 | 结果 | 证据 |
+| :--- | :--- | :--- |
+| **IPC 往返（读+写）** | ✅ **由副作用证明** | 切换「开机自启」后 `~/Library/LaunchAgents/iRouter.plist` 被创建，且 `ProgramArguments` 含 **`--from-autostart`**（正是 openAsHidden 的等价机制）。这条链要求「面板 → shim → IPC → `shell_set_settings` → autostart 插件 → 落 plist」每一环都通——**capability 若写错，plist 根本不会出现**。同时 `shell-settings.json` mtime 更新，写路径确认。 |
+| **托盘双击（macOS 判时差）** | ✅ | 日志 4× `托盘双击（两次 Click 判时差 <500ms）`——recon 说 `DoubleClick` 是 Windows only，这套自研判定确实работа |
+| **Dock 图标唤回** | ✅ | 日志 6× `macOS Reopen → 唤出窗口` |
+| **关窗行为（dock 档）** | ✅ | `closeAction=dock：隐藏到托盘（保留 Dock 图块）`——不退出 |
+| **正常退出 + 孤儿回收** | ✅ | `closeAction=quit` → `已向 1 个进程发送 SIGTERM/SIGKILL（根 pid=90631）` → `已终止网关进程树` → `退出应用`；事后壳 0 个、网关 0 个、PID 文件已清、20128 已释放 |
+| **ACL 拒绝 / Command not found** | ✅ 零命中 | 日志干净 |
+| **右键菜单** | ⏳ **未证** | `shell_context_menu` 的 Rust 侧**没有任何日志**，所以「日志里没有」既可能是没点、也可能是没生效。**这是个可观测性缺口，应补一行日志后再验** |
+
+**至此三条死亡路径全部有实测**：正常退出（本轮）、强杀 + 启动回收（上一轮）、窗口关闭后托盘常驻（本轮 dock 档）。
+
 **死亡路径实测结果（2026-10-08）**：
 
 | 路径 | 结果 |
