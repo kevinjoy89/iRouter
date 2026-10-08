@@ -285,6 +285,14 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 
 **出口条件：** 与 Electron 版逐项对照，无功能缺失；`IROUTER_IMPORT_DECISION` 等自动化接缝可用。
 
+**Phase 4 现状（2026-10-08）**：shell（1491 行）与 updater（4413 行）已落地，测试 114/114、shim 断言 18/18、守卫链路 9/9。
+真机实测：托盘创建、macOS 应用菜单（含 Edit）、updater 启动 3 秒后的静默检查**调通真实 GitHub Releases API 并写回**
+（`current=latest=0.3.7`、`error=null`、`assetName=iRouter-0.3.7-macos-arm64.dmg`——产物名匹配规则对真实 release 成立）。
+
+仍未完成的两项：
+- **托盘「检查更新…」的原生结果对话框**（`main.js:839-875`）→ 已开 task-7 给 shell（归它是因为文案走其 i18n、「去设置」要用其 `openSettings`；updater 保持无 UI 更干净）。**在那之前用户点托盘检查更新、若已是最新会看不到任何反馈**。
+- **运行期人工门禁**：托盘点按/双击、右键菜单落点、关窗三档、面板 IPC 往返、`--from-autostart` 隐藏启动——都需要真网关 + 窗口，留待 Phase 6。
+
 ---
 
 ### Phase 5：三平台打包
@@ -321,6 +329,8 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 | **Three-platform 同步导致问题并发** | 任一平台卡住超一个相位 | 允许把该平台降级为「跟进」，但**不得降低验收线**——降级只影响交付顺序，不影响标准 |
 | **sidecar 漏杀孤儿** | Phase 3 Step 3 任一死亡路径失败 | ~~升级 Tauri 版本~~（**在 2.x 上无效**——回收 API 在 2.12.1 里不存在；`cleanup_before_exit` 钩子只进了 3.0.0-alpha.x，且进程被杀/`std::process::exit` 时都不跑）。**唯一解**是自研 PID 文件 + 启动时回收 + 按进程树杀（已实现，见 `desktop-tauri/src-tauri/src/gateway.rs`）。升级 Tauri 只在愿意上 3.0 预发布时才重新考虑 |
 | **R1：删 `desktop/` 打断 5 个 vitest 文件** | Phase 6 清理时 | 这 5 个文件（`updater-{version,checksum,checker,asset}` + `version-consistency`）**不在 `known-fails.txt`** 里，删掉被它们导入的 `desktop/updater/*.js` 与 `desktop/package.json` 会让门禁判「新失败」而红。**推荐**：迁到 `cargo test`（用例清单见 updater 设计 §12.3）+ CI 新增 Rust job；**在迁移完成前不要删这些文件**，也不要先把它们塞进 `known-fails.txt`（那等于用豁免掩盖真回归） |
+| **安装器调起失败 = 本次会话面板不可用** | Phase 5/6 实测 | 低频路径，**已装应用不受影响**（旧版本仍在原地），仅本次会话面板连不上网关（sidecar 已回收且本模块无法重启它——`gateway::spawn` 需要 `PanelGuard`，而窗口 UA 与端口已固定）。已决定**不做** `gateway::restart()`（要复用同端口与同令牌才成立，复杂度不值当），作为**已知限制**记在代码注释里；**用户重开应用即恢复** |
+| **setup 失败时无任何用户可见提示** | Phase 6 前 | shell 实测发现：setup 里 panic 发生在 tao 的 `did_finish_launching` 内 → **non-unwinding panic，进程直接 abort**，用户什么都看不到；而 Electron 是 `dialog.showErrorBox` + exit(1)（`main.js:2106-2113`）。**Phase 6 必须统一处理**（例如把可预期的失败提前到 setup 之外，或在 abort 前落一条日志/原生提示） |
 | **更新器事件契约走形** | Phase 4 移植 | 硬约束不是事件名，而是 ① `window.irouterShell` 的**存在性**（为假则「软件更新」整段消失，`ShellSettingsModal.js:66-70`）② payload 字段形状 ③ `shell:update-error` 的 payload 是**裸字符串**（发对象面板显示 `[object Object]`）④ **检查失败不发 `update-error`**，错误装进 `shell:update-available` 的 `error` 字段（双发会造成面板状态竞态）⑤ shim 的 `unlisten` 必须**同步**返回（Tauri `listen()` 是 async，面板写的是 `unsubX?.()`，返回 Promise 会静默不执行、监听器泄漏）。详见 updater 设计 §7 |
 | **自研更新体验不可接受** | Phase 4 实测 | 单独评估 `tauri-plugin-updater`，接受密钥义务后再定 |
 | **体积超线** | Phase 5 | 回到 Phase 2 查负载；**不做**有损替换 |
