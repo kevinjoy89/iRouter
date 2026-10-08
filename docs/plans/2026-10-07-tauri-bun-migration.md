@@ -336,6 +336,28 @@ CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构
 
 **出口条件：** 三平台产物齐备，macOS dmg ≤ 70MB。
 
+**Phase 5 实测产物（2026-10-08，CI run 37736663294，四 job 全绿）**：
+
+| 平台 | 产物 | 体积 |
+| :--- | :--- | ---: |
+| macOS arm64 | `iRouter-0.3.7-macos-arm64.dmg` | **46.44 MiB** |
+| macOS amd64 | `iRouter-0.3.7-macos-amd64.dmg` | **49.58 MiB** |
+| Windows | `iRouter-0.3.7-windows-amd64-installer.exe` | **41.14 MiB** |
+| Windows（便携） | `iRouter-0.3.7-windows-amd64-portable.zip` | 67.71 MiB |
+| Linux | `iRouter-0.3.7-linux-amd64.deb` | 57.95 MiB |
+| Linux（便携） | `iRouter-0.3.7-linux-amd64.tar.gz` | 57.23 MiB |
+
+**验收线达成**：Electron 版 macOS dmg 为 **139.3 MiB**，现在 **46.44 MiB** —— 降幅 **66.7%**，
+且远低于「dmg ≤ 70MB」的硬线。这就是本迁移最初那个问题（「每次打包都是几百兆」）的最终答案。
+
+六个产物名全部与 `desktop/updater/asset.js` 的 `getExpectedAssetName` **逐字对齐**，由 CI 里的
+三层断言（规则全等 → 产物名全等 → `selectAsset` 精确命中）把守——改名即红。
+
+各 job 用时：macOS arm64 4m40s / amd64 6m22s / Windows 7m48s / Linux 6m44s。
+
+**仍未验证**：三个成功平台的产物只做了**包内冒烟**（sidecar / 网关负载 / `LSMinimumSystemVersion`
+在包里），**没有「装上去跑一遍」**；`tauri build` 在本机从未跑过（磁盘与时间约束），CI 是唯一验证途径。
+
 ---
 
 ### Phase 6：切换、验收与清理
