@@ -244,9 +244,64 @@ pub fn of(locale: Locale) -> &'static Strings {
 }
 
 #[cfg(test)]
+impl Strings {
+    /// 全部 39 个字段的 `(键名, 文案)`。**测试专用**（release 里不编译）。
+    ///
+    /// 为什么要它：这条表会随菜单增长，逐个字段手写断言必然漏；遍历能让"新增键忘翻译"
+    /// 立刻红。键名与 `MENU_TRANSLATIONS` 的驼峰键一一对应，便于和 JS 侧对账。
+    pub fn all(&self) -> [(&'static str, &'static str); 39] {
+        [
+            ("view", self.view),
+            ("window", self.window),
+            ("about", self.about),
+            ("services", self.services),
+            ("hide", self.hide),
+            ("hideOthers", self.hide_others),
+            ("unhide", self.unhide),
+            ("quit", self.quit),
+            ("reload", self.reload),
+            ("forceReload", self.force_reload),
+            ("actualSize", self.actual_size),
+            ("zoomIn", self.zoom_in),
+            ("zoomOut", self.zoom_out),
+            ("toggleFullScreen", self.toggle_full_screen),
+            ("minimize", self.minimize),
+            ("zoom", self.zoom),
+            ("front", self.front),
+            ("close", self.close),
+            ("openDashboard", self.open_dashboard),
+            ("gatewayAddr", self.gateway_addr),
+            ("quitApp", self.quit_app),
+            ("trayTooltip", self.tray_tooltip),
+            ("settings", self.settings),
+            ("help", self.help),
+            ("checkForUpdates", self.check_for_updates),
+            ("checkingForUpdates", self.checking_for_updates),
+            ("upToDate", self.up_to_date),
+            ("upToDateDetail", self.up_to_date_detail),
+            ("updateAvailable", self.update_available),
+            ("updateAvailableDetail", self.update_available_detail),
+            ("openUpdateSettings", self.open_update_settings),
+            ("later", self.later),
+            ("updateCheckFailed", self.update_check_failed),
+            ("currentVersion", self.current_version),
+            ("latestVersion", self.latest_version),
+            ("copy", self.copy),
+            ("paste", self.paste),
+            ("cut", self.cut),
+            ("selectAll", self.select_all),
+        ]
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    /// 与 `tests/unit/desktop-shell-i18n.test.js`（随 `desktop/` 处置）的对账见
+    /// `docs/plans/2026-10-08-r1-coverage.md`。Rust 侧比 JS 侧**更强**：
+    /// 三份字典是同一个 `Strings` 结构体的三个实例，**缺键/多余键都是编译错误**，
+    /// 所以 JS 那条"每种语言不能有英文之外的意外多余键"在 Rust 里没有对应测试，也不需要。
     #[test]
     fn normalize_matches_electron_rules() {
         assert_eq!(normalize("zh-CN"), Locale::ZhCn);
@@ -260,13 +315,51 @@ mod tests {
         assert_eq!(normalize(""), Locale::En);
     }
 
+    /// 遍历**全部 39 个字段**（不是抽样三个）：任何语言任何键为空即红。
     #[test]
     fn every_locale_has_non_empty_labels() {
         for l in [Locale::En, Locale::ZhCn, Locale::ZhTw] {
-            let s = of(l);
-            assert!(!s.settings.is_empty());
-            assert!(!s.select_all.is_empty());
-            assert!(!s.tray_tooltip.is_empty());
+            for (key, value) in of(l).all() {
+                assert!(!value.trim().is_empty(), "{l:?} 的 {key} 为空");
+            }
         }
+    }
+
+    /// 取代 JS 侧那条 `zh-CN/zh-TW 的 settings 文案确实译成了中文`（原本只查一个键）：
+    /// 中文两语言的**每一个**键都必须含中日韩统一表意文字，杜绝"把英文抄进中文槽"。
+    #[test]
+    fn chinese_locales_are_actually_translated() {
+        for l in [Locale::ZhCn, Locale::ZhTw] {
+            for (key, value) in of(l).all() {
+                assert!(
+                    value.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)),
+                    "{l:?} 的 {key} 不含中文（是不是把英文抄过来了？）：{value:?}"
+                );
+            }
+        }
+        // 逐字钉住 JS 用例点名的那条：不是照抄 "Settings…"
+        assert_ne!(of(Locale::ZhCn).settings, "Settings…");
+        assert_ne!(of(Locale::ZhTw).settings, "Settings…");
+    }
+
+    /// 反向守卫：英文槽里不该出现中文（把 zh 抄进 en 的镜像错误）。
+    #[test]
+    fn english_locale_has_no_cjk() {
+        for (key, value) in of(Locale::En).all() {
+            assert!(
+                !value.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)),
+                "en 的 {key} 含中文：{value:?}"
+            );
+        }
+    }
+
+    /// 三份字典的键集合必须完全一致——Rust 由类型系统保证，这条断言把它钉成**可执行证据**
+    /// （将来若有人把 `Strings` 换成 HashMap 之类的动态结构，这里会立刻红）。
+    #[test]
+    fn all_locales_expose_the_same_key_set() {
+        let keys = |l: Locale| of(l).all().map(|(k, _)| k).to_vec();
+        assert_eq!(keys(Locale::En), keys(Locale::ZhCn));
+        assert_eq!(keys(Locale::En), keys(Locale::ZhTw));
+        assert_eq!(keys(Locale::En).len(), 39);
     }
 }

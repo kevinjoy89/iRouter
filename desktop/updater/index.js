@@ -7,7 +7,7 @@
  */
 
 const version = require("./version");
-const asset = require("./asset");
+const asset = require("../../tools/asset.js"); // 同上：asset.js 已搬到 tools/
 const checksum = require("./checksum");
 const checker = require("./checker");
 const download = require("./download");

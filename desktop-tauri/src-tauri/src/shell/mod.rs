@@ -41,6 +41,9 @@ mod dialogs;
 mod i18n;
 mod menus;
 mod selftest;
+// 只测不改：`crate::settings`（Lead 持有）的契约用例，见文件头 why。
+#[cfg(test)]
+mod settings_contract;
 mod signals;
 mod tray;
 mod window;

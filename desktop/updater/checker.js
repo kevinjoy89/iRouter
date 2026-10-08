@@ -8,7 +8,10 @@
 
 const https = require("node:https");
 const { compareVersions, hasNewVersion } = require("./version");
-const { selectAsset } = require("./asset");
+// asset.js 已随 Phase 6 Step 1 搬到 tools/（它是产物命名的承重真源，pack-artifacts 打包期要 require 它）。
+// ⚠️ 这条 require 断掉时**门禁看不见**：整文件在收集期失败 → vitest JSON 里没有 assertionResults
+// → verify-no-regression.mjs 只遍历 assertionResults，于是"红了但没人知道"。
+const { selectAsset } = require("../../tools/asset.js");
 
 const GITHUB_REPO = "kevinjoy89/iRouter";
 const RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`;
