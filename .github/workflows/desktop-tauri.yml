@@ -1,12 +1,22 @@
 name: Desktop (Tauri v2 + Bun sidecar)
 
-# Phase 5：三平台打包矩阵。真正的 `tauri build` 只在这里跑——
+# 四平台打包矩阵。真正的 `tauri build` 只在这里跑——
 # 本机（macOS arm64，磁盘余量小）跑不动近千 crate 的编译 + bundling。
 #
-# 与既有 `.github/workflows/ci.yml` **完全独立**（那个 job 是回归门禁，动它会牵连基线）；
-# 与 `.github/workflows/release.yml` 的分工：这个 workflow 只产出并上传可发布产物，
-# 发版仍由 release.yml 的既有流程负责（tag `v*`）。
+# 三种被触发/被调用的方式：
+#   1. `release.yml` 通过 `workflow_call` 复用（Phase 6 Step 3 起，**发版走这一条**）；
+#   2. 本文件的 pull_request / push(main) 路径过滤；
+#   3. 手动 `workflow_dispatch`（按仓库现值重建产物）。
+# **矩阵只有这一份**：发版侧不再抄第二份——两份矩阵必然漂移，而漂移只在发版时才暴露。
+# 与 `.github/workflows/ci.yml` 保持完全独立（那个 job 是回归门禁，动它会牵连基线）。
 on:
+  workflow_call:
+    inputs:
+      version:
+        description: "注入 desktop-tauri/package.json 与 tauri.conf.json 的版本（不带 v）。留空 = 用仓库现值，不注入。"
+        type: string
+        required: false
+        default: ""
   workflow_dispatch:
   pull_request:
     paths: &paths
@@ -21,13 +31,19 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/desktop-tauri.yml"
+      - ".github/workflows/release.yml" # 发版侧复用本文件的契约；改了它也该跑一遍矩阵
   push:
     branches: [main]
     paths: *paths
 
+# ⚠️ 被复用时 `github.workflow` 是**调用方**的名字（官方文档：reusable workflow 的 `github` context
+# 始终关联 caller）。若继续用 `${{ github.workflow }}-${{ github.ref }}`，一旦调用方也用同一个值 +
+# `cancel-in-progress: true`，就会**把调用方自己取消掉**（官方文档明确警告过这条）。因此：
+#   · group 用本文件专属前缀，与任何调用方的 group 值都不可能相等；
+#   · 发版（tag）构建永不取消——取消一次发版要重跑四平台。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: desktop-tauri-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
 permissions:
   contents: read
@@ -77,6 +93,56 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+
+      # 版本一致性前置断言：产品版本真源是 desktop-tauri/package.json（ADR-0004 修订版），
+      # tauri.conf.json 必须与它逐字一致。`pack-artifacts.mjs` 也会断言这一点，但那要等
+      # 40 分钟构建之后；这里放在 checkout 之后几十秒内就红，失败信息也更直白。
+      - name: Assert version consistency (fail fast)
+        shell: bash
+        run: |
+          node -e '
+            const pkg = require("./desktop-tauri/package.json").version;
+            const conf = require("./desktop-tauri/src-tauri/tauri.conf.json").version;
+            if (pkg !== conf) {
+              console.error(`::error::版本不一致：desktop-tauri/package.json=${pkg}，tauri.conf.json=${conf}`);
+              process.exit(1);
+            }
+            console.log(`版本一致：${pkg}`);
+          '
+
+      # 发版时 tag 决定版本（release.yml 的 version job 已解析并校验过一次，这是第二道）。
+      # ⚠️ 必须排在 "Build gateway payload" **之前**：`tools/build-server.mjs` 从
+      # desktop-tauri/package.json 读版本并注入 `NEXT_PUBLIC_APP_VERSION`（面板可见版本号），
+      # 晚于它就等于面板显示旧版本；也必须早于 `tauri build`（version 会进 Info.plist / NSIS / deb）。
+      - name: Sync version into package.json + tauri.conf.json
+        if: inputs.version != ''
+        shell: bash
+        env:
+          # 经 env 传递，不做 ${{ }} 内联拼接（inputs 内容不进 shell 源码）
+          INJECT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const raw = String(process.env.INJECT_VERSION || "").trim().replace(/^v/, "");
+            if (!/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/.test(raw)) {
+              console.error(`::error::非法版本号 ${JSON.stringify(process.env.INJECT_VERSION)}（期望 x.y.z，可带 -预发布段）`);
+              process.exit(1);
+            }
+            const files = ["desktop-tauri/package.json", "desktop-tauri/src-tauri/tauri.conf.json"];
+            for (const f of files) {
+              const j = JSON.parse(fs.readFileSync(f, "utf8"));
+              j.version = raw;
+              fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
+            }
+            // 回读断言：两处必须都已经是新版本（漏写任何一处都在这里红）
+            const back = files.map((f) => JSON.parse(fs.readFileSync(f, "utf8")).version);
+            if (back.some((v) => v !== raw)) {
+              console.error(`::error::版本注入后回读不一致：${files.map((f, i) => `${f}=${back[i]}`).join("，")}`);
+              process.exit(1);
+            }
+            console.log(`已注入版本 ${raw} → ${files.join(" + ")}（回读一致）`);
+          '
 
       # 与 ci.yml 同因：runner 自带的 npm 10 在本仓库依赖树上会崩
       # （Cannot read properties of null (reading 'edgesOut')），而 build-server.mjs
