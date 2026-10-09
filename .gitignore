@@ -52,6 +52,7 @@ source/*
 docs/*
 !docs/ARCHITECTURE.md
 !docs/adr
+!docs/plans
 !docs/release-notes
 test/*
 open-sse/test/*
@@ -63,6 +64,10 @@ Thanks.md
 PUBLIC.en.md
 PR/*
 package-lock.json
+# 例外：desktop-tauri 的 lock 必须入库——它的 CI 用 `npm ci` 把 Tauri CLI 锁在 2.12.1
+# （上面的裸 package-lock.json 是全局忽略，会连它一起吃）。与 desktop/package-lock.json
+# 同款：主项目按策略不带 lock，但子包带。
+!desktop-tauri/package-lock.json
 
 # vitest --reporter=json 的产物（CI 在本仓根生成后喂给回归门禁）
 /test-results.json

@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   getExpectedAssetName,
   selectAsset,
-} from "../../desktop/updater/asset.js";
+} from "../../tools/asset.js";
 
 describe("updater/asset 单元测试", () => {
   describe("getExpectedAssetName 文件名生成", () => {

@@ -1,0 +1,56 @@
+[package]
+name = "irouter"
+version = "0.3.7"
+description = "iRouter 桌面壳层（Tauri v2 + Bun sidecar）"
+edition = "2021"
+# Tauri v2 的更新器插件要求 1.90+；本机 1.98.1 满足
+rust-version = "1.90"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# image-png：`Image::from_bytes` 被 `#[cfg(any(feature = "image-ico", feature = "image-png"))]`
+# 门控（tauri-2.12.1/src/image/mod.rs:215）。托盘模板图要靠它从 include_bytes! 解码。
+tauri-plugin-shell = "2"
+# wave 2：shell owner 用（single-instance 必须最先注册，见 main.rs）
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+# wave 2：updater owner 用（调起安装器；Linux 上逐级回退 xdg-open→gio→gnome-open→kde-open，
+# Windows 走 ShellExecute 避开 cmd /c start 的引号坑，文件不存在返回 Err）
+tauri-plugin-opener = "2"
+# 托盘/菜单「检查更新…」的原生结果对话框（shell 模块用；Rust 侧调用不需要 capability）
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 更新器：GitHub Releases 检查 + 产物下载。
+# 选 0.12 而不是 lock 里已有的 0.13.5：0.13 的 rustls 路径要 aws-lc-rs（本机 registry 无、
+# 需 cmake 且构建很重）或 rustls-platform-verifier + 运行时装 provider；0.12 的 rustls-tls
+# = rustls-tls-webpki-roots + ring，而 ring/rustls/webpki-roots/hyper-rustls/tokio-rustls
+# 全部已在本机缓存。代价是树里会有两个 reqwest 版本（0.13 那份只在移动 target 参与构建）。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2", "system-proxy"] }
+tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "macros", "rt"] }
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "2"
+
+# 日志门面（后端是 main.rs 里的极简实现，不引 env_logger）
+log = "0.4"
+# 守卫令牌的熵源。刻意不引 rand —— getrandom 已是依赖树中的传递依赖，显式声明即可。
+getrandom = "0.3"
+# 系统语言检测：macOS 走 NSLocale（GUI 进程没有 LANG，只读环境变量会误判成英文）
+sys-locale = "0.3"
+
+# 进程树回收（SIGTERM/SIGKILL）。仅 Unix 需要：Windows 走 taskkill /T /F，见 gateway.rs。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# 磁盘约束：本机余量只有 ~15 GiB，而 Tauri 首次构建要编译近千个 crate。
+# 因此从一开始就关掉 debug 符号并 strip —— 这两项对 target/ 体积的影响最大。
+[profile.dev]
+debug = 0
+
+[profile.release]
+debug = 0
+strip = true

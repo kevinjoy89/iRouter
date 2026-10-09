@@ -14,3 +14,27 @@ Consequences:
 - 构建期注入是唯一可选路径：`config.js` 被客户端组件导入（`src/shared/components/Sidebar.js` 带 `"use client"`），运行时 `fs` 不可用；仓库已有 `NEXT_PUBLIC_CLOUD_URL` / `NEXT_PUBLIC_BASE_URL` 先例
 - 未经 `build-server.mjs` 的裸 `npm run dev` / `npm run build`（如 CLI 形态、直接跑根目录）不注入该变量，面板回退显示 `"0.1.0"` 缺省值——桌面形态下不可见，符合预期
 - 回退此决策需同时改动 `src/shared/constants/config.js`、`desktop/scripts/build-server.mjs`、`desktop/package.json` 三处，并重新打包验证冒烟断言
+
+---
+
+## 修订（2026-10-09，Phase 6 Step 5）
+
+**本决策的实质不变**（产品号与上游基线号解耦，理由与上文完全一致），**但产品号真源的位置变了**：
+Electron 壳层 `desktop/` 已整体删除（ADR-0007 的切换完成），真源迁到 **`desktop-tauri/package.json`**。
+
+| 上文提到的位置 | 现在 |
+| :--- | :--- |
+| `desktop/package.json`（真源） | **`desktop-tauri/package.json`**（当前 `0.3.7`） |
+| `desktop/scripts/build-server.mjs` | `tools/build-server.mjs`（读 `desktop-tauri/package.json` 注入 `NEXT_PUBLIC_APP_VERSION`） |
+| `desktop/main.js` 的 `app.getVersion()` 改写侧栏 | 由 `tauri.conf.json > version` 进 Info.plist / NSIS / deb，面板版本号经上面的注入路径保持一致 |
+| `main.js` 的「面板版本号 === app.getVersion()」冒烟断言 | 改为流水线断言（见下） |
+
+**不变量现在由谁守**：`tests/unit/version-consistency.test.js` 随壳退役，它的三条断言搬走了 ——
+- **VC1**（`src/shared/constants/config.js` 的回退字面量 == 产品号）
+- **VC3**（产品号 ≠ 上游基线号）
+  两条并入 `desktop-tauri.yml` 的 **`Assert version invariants (fail fast)`** 步骤。**位置在该 workflow 的版本注入之前**：
+  注入会把包版本改成 tag 版本，而 `config.js` 的回退值是**入库状态**的一部分，注入后再比必然"不同步"。
+  发版的正确姿势因此是"**先 bump 入库（含 `config.js`）再打 tag**"。
+- **VC2**（`desktop/package-lock.json` 自洽）随壳消失，无替代物也不需要。
+
+`CONTEXT.md` / `README*.md` / `CONTRIBUTING.md` 里指向 `desktop/` 的描述已同步更新。

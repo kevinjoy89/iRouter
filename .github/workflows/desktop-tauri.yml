@@ -1,0 +1,365 @@
+name: Desktop (Tauri v2 + Bun sidecar)
+
+# 四平台打包矩阵。真正的 `tauri build` 只在这里跑——
+# 本机（macOS arm64，磁盘余量小）跑不动近千 crate 的编译 + bundling。
+#
+# 三种被触发/被调用的方式：
+#   1. `release.yml` 通过 `workflow_call` 复用（Phase 6 Step 3 起，**发版走这一条**）；
+#   2. 本文件的 pull_request / push(main) 路径过滤；
+#   3. 手动 `workflow_dispatch`（按仓库现值重建产物）。
+# **矩阵只有这一份**：发版侧不再抄第二份——两份矩阵必然漂移，而漂移只在发版时才暴露。
+# 与 `.github/workflows/ci.yml` 保持完全独立（那个 job 是回归门禁，动它会牵连基线）。
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "注入 desktop-tauri/package.json 与 tauri.conf.json 的版本（不带 v）。留空 = 用仓库现值，不注入。"
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+  pull_request:
+    paths: &paths
+      - "desktop-tauri/**"
+      - "tools/**" # 承重构建输入：网关负载构建、Bun pin/校验/spike、产物命名真源（Phase 6 Step 1 从 desktop/ 搬出）
+      - "desktop-tauri/package.json" # 产品版本真源（ADR-0004 修订版）
+      - "src/**"
+      - "open-sse/**"
+      - "public/**"
+      - "next.config.mjs"
+      - "custom-server.js"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-tauri.yml"
+      - ".github/workflows/release.yml" # 发版侧复用本文件的契约；改了它也该跑一遍矩阵
+  push:
+    branches: [main]
+    paths: *paths
+
+# ⚠️ 被复用时 `github.workflow` 是**调用方**的名字（官方文档：reusable workflow 的 `github` context
+# 始终关联 caller）。若继续用 `${{ github.workflow }}-${{ github.ref }}`，一旦调用方也用同一个值 +
+# `cancel-in-progress: true`，就会**把调用方自己取消掉**（官方文档明确警告过这条）。因此：
+#   · group 用本文件专属前缀，与任何调用方的 group 值都不可能相等；
+#   · 发版（tag）构建永不取消——取消一次发版要重跑四平台。
+concurrency:
+  group: desktop-tauri-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  package:
+    name: package (${{ matrix.slug }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      # 一个平台红不代表另外两个不可信——三个都跑完，一次拿到全部证据
+      fail-fast: false
+      matrix:
+        include:
+          # macOS 分两次构建（per-arch，不用 universal：体积翻倍，ADR 已否）。
+          # 跨架构出 dmg 依赖 rustup 的 x86_64-apple-darwin target；
+          # macos-latest 现在是 arm64，两个 job 都在同一类 runner 上跑，行为可复现。
+          - slug: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+            expect: "iRouter-*-macos-arm64.dmg"
+          - slug: macos-amd64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: dmg
+            expect: "iRouter-*-macos-amd64.dmg"
+          - slug: windows-amd64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            expect: "iRouter-*-windows-amd64-*"
+          # ubuntu-22.04：Tauri 官方建议「用你打算支持的最老基系统构建」以压低 glibc 基线，
+          # 且该版本提供 webkit2gtk-4.1（deb 的 Depends 由 CLI 在 Linux 宿主上自动注入）。
+          - slug: linux-amd64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb
+            expect: "iRouter-*-linux-amd64.*"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # 版本一致性前置断言：产品版本真源是 desktop-tauri/package.json（ADR-0004 修订版），
+      # tauri.conf.json 必须与它逐字一致。`pack-artifacts.mjs` 也会断言这一点，但那要等
+      # 40 分钟构建之后；这里放在 checkout 之后几十秒内就红，失败信息也更直白。
+      # 版本不变量，三重。**必须排在 "Sync version" 之前**：注入会把包版本改成 tag 版本，
+      # 而 `config.js` 的回退字面量是**入库状态**的一部分，注入后再比必然"不同步"。
+      # 发版的正确姿势是"先 bump 入库（含 config.js）再打 tag"，这道检查守的就是这个。
+      #
+      # 这三条对应 Phase 6 前 `tests/unit/version-consistency.test.js` 的 VC1/VC3 —— 那个文件随
+      # `desktop/` 退役，断言搬到这里（VC2 是 npm lock 自洽，随壳消失，无替代物也不需要）。
+      - name: Assert version invariants (fail fast)
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const fail = (m) => { console.error("::error::" + m); process.exit(1); };
+
+            // ① 包版本与 Tauri 配置版本必须一致（两处都进产物：Info.plist / NSIS / deb）
+            const pkg = require("./desktop-tauri/package.json").version;
+            const conf = require("./desktop-tauri/src-tauri/tauri.conf.json").version;
+            if (pkg !== conf) fail(`版本不一致：desktop-tauri/package.json=${pkg}，tauri.conf.json=${conf}`);
+
+            // ② VC1：面板可见版本号在**裸构建**（CLI 形态 / 根目录直跑）时用的回退字面量，
+            //    必须等于产品号。漏改这里 = 那些形态的面板显示旧版本，而且**没有任何别的检查会红**
+            //    （桌面发行版会注入 NEXT_PUBLIC_APP_VERSION，把它盖住）。
+            const configSrc = fs.readFileSync("./src/shared/constants/config.js", "utf8");
+            const m = configSrc.match(/process\.env\.NEXT_PUBLIC_APP_VERSION\s*\|\|\s*"([^"]+)"/);
+            if (!m) fail(`config.js 里找不到版本行（期望形如 process.env.NEXT_PUBLIC_APP_VERSION || "x.y.z"）`);
+            if (m[1] !== pkg) fail(`config.js 回退值 ${m[1]} ≠ 产品号 ${pkg}（config.js: 那行必须与 desktop-tauri/package.json 同步）`);
+
+            // ③ VC3：产品号必须与上游基线号**解耦**（ADR-0004）。相等说明有人"顺手统一"了——
+            //    那会同时改变 UA / X-Msh-Version 这类要与上游对齐的标识，回退该决策需要重新打包验证。
+            const baseline = require("./package.json").version;
+            if (pkg === baseline) fail(`产品号 ${pkg} 与上游基线号相同 —— ADR-0004 要求二者解耦，勿"顺手统一"`);
+
+            console.log(`版本不变量通过：产品号 ${pkg}（tauri.conf 一致）｜config.js 回退值一致｜与上游基线 ${baseline} 已解耦`);
+          '
+
+      # 发版时 tag 决定版本（release.yml 的 version job 已解析并校验过一次，这是第二道）。
+      # ⚠️ 必须排在 "Build gateway payload" **之前**：`tools/build-server.mjs` 从
+      # desktop-tauri/package.json 读版本并注入 `NEXT_PUBLIC_APP_VERSION`（面板可见版本号），
+      # 晚于它就等于面板显示旧版本；也必须早于 `tauri build`（version 会进 Info.plist / NSIS / deb）。
+      - name: Sync version into package.json + tauri.conf.json
+        if: inputs.version != ''
+        shell: bash
+        env:
+          # 经 env 传递，不做 ${{ }} 内联拼接（inputs 内容不进 shell 源码）
+          INJECT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const raw = String(process.env.INJECT_VERSION || "").trim().replace(/^v/, "");
+            if (!/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/.test(raw)) {
+              console.error(`::error::非法版本号 ${JSON.stringify(process.env.INJECT_VERSION)}（期望 x.y.z，可带 -预发布段）`);
+              process.exit(1);
+            }
+            const files = ["desktop-tauri/package.json", "desktop-tauri/src-tauri/tauri.conf.json"];
+            for (const f of files) {
+              const j = JSON.parse(fs.readFileSync(f, "utf8"));
+              j.version = raw;
+              fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
+            }
+            // 回读断言：两处必须都已经是新版本（漏写任何一处都在这里红）
+            const back = files.map((f) => JSON.parse(fs.readFileSync(f, "utf8")).version);
+            if (back.some((v) => v !== raw)) {
+              console.error(`::error::版本注入后回读不一致：${files.map((f, i) => `${f}=${back[i]}`).join("，")}`);
+              process.exit(1);
+            }
+            console.log(`已注入版本 ${raw} → ${files.join(" + ")}（回读一致）`);
+          '
+
+      # 与 ci.yml 同因：runner 自带的 npm 10 在本仓库依赖树上会崩
+      # （Cannot read properties of null (reading 'edgesOut')），而 build-server.mjs
+      # 内部会 fork `npm install`，所以必须在 PATH 上换掉它。
+      - name: Use npm 11 (runner-bundled npm 10 crashes on this dependency tree)
+        run: npm install -g npm@11
+
+      - name: Install Rust toolchain (${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri -> target
+
+      # Tauri v2 在 Ubuntu 上的系统依赖（官方 prerequisites）。
+      # 含 libayatana-appindicator3-dev：壳开了 tray-icon feature，构建期需要它的头文件。
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev build-essential curl wget file libssl-dev libxdo-dev
+
+      - name: Install Tauri CLI (locked to 2.12.1)
+        working-directory: desktop-tauri
+        run: npm ci
+
+      # 网关负载（≈50 MiB 文件字节）是 bundle.resources 的来源；缺了 Tauri 会在
+      # ResourcePathNotFound 上硬失败，这里先构建，失败信息更直白。
+      # 走 desktop-tauri 的 `gateway:build`（= `node ../tools/build-server.mjs`）而不是
+      # `npm --prefix desktop run build-server`：后者只是同一支脚本的 delegate，
+      # 而 Phase 6 Step 4 会删掉 desktop/——继续用它等于给自己埋一根定时断线。
+      - name: Build gateway payload
+        run: npm --prefix desktop-tauri run gateway:build
+
+      # ⚠️ 即便 beforeBundleCommand 挂在 tauri.conf.json 上，也要**显式跑一次**：
+      # `--no-bundle` 时 bundle 阶段整个被跳过、hook 不执行（打包方案 §3.2）。
+      # 脚本幂等：已 stage 且哈希/版本一致就直接返回 0。
+      - name: Stage Bun sidecar (hash-locked, idempotent)
+        working-directory: desktop-tauri
+        run: node scripts/stage-sidecar.mjs --target ${{ matrix.target }} --scope bin
+
+      - name: Build bundles (${{ matrix.bundles }})
+        working-directory: desktop-tauri
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --ci
+
+      # 打包后收尾：改成 asset.js 期望的名字 → 自研 zip/tar.gz → **改名之后**才算 checksums.txt，
+      # 并用 asset.js 的 getExpectedAssetName 对新名字做全等断言（§5.6 的防复发门禁）。
+      - name: Rename artifacts + build portable archives + checksums
+        working-directory: desktop-tauri
+        run: node scripts/pack-artifacts.mjs --target ${{ matrix.target }} --out artifacts
+
+      # 发布侧 fail-closed 门禁（Lead 的 D-4 处置）：更新器在**拿不到 checksums.txt 时
+      # 会跳过哈希校验**（与 Electron 版行为对齐）。那个洞不能留在用户机器上，
+      # 只能在发布侧堵死——清单缺失/不全/哈希不符，这里直接红。
+      - name: Verify checksums.txt covers every artifact (fail-closed)
+        working-directory: desktop-tauri
+        run: node scripts/pack-artifacts.mjs --verify --target ${{ matrix.target }} --out artifacts
+
+      - name: Assert expected artifact names exist
+        shell: bash
+        working-directory: desktop-tauri
+        run: |
+          set -euo pipefail
+          echo "== artifacts =="; ls -l artifacts
+          shopt -s nullglob
+          hits=(artifacts/${{ matrix.expect }})
+          if [ ${#hits[@]} -eq 0 ]; then
+            echo "::error::没有匹配 ${{ matrix.expect }} 的产物"
+            exit 1
+          fi
+          echo "命名断言通过：${hits[*]}"
+
+      # ---------------------------------------------------------------- 包内冒烟
+      # 验收清单 §10 的 3/4：sidecar 与网关负载必须真在包里，且最低系统版本是 13.0。
+      # 这三段是「产物名对不对」之外唯一能在 CI 里验证包体内容的地方。
+      - name: Package smoke — macOS (mount dmg)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        working-directory: desktop-tauri
+        run: |
+          set -euo pipefail
+          DMG=$(ls artifacts/*.dmg | head -1)
+          echo "mount $DMG"
+          MOUNT=$(hdiutil attach -nobrowse -readonly "$DMG" | tail -1 | awk '{for (i=3;i<=NF;i++) printf "%s%s", $i, (i<NF?" ":"")}')
+          echo "mounted at: $MOUNT"
+          APP=$(ls -d "$MOUNT"/*.app | head -1)
+          test -f "$APP/Contents/MacOS/irouter-bun" || { echo "::error::sidecar 不在 .app 里"; exit 1; }
+          test -f "$APP/Contents/Resources/gateway/custom-server.js" || { echo "::error::网关负载不在 Resources/gateway 里"; exit 1; }
+          echo "sidecar 架构：$(lipo -archs "$APP/Contents/MacOS/irouter-bun")"
+          # 同类隐患：`codesign -dv | head -3` 也会因 head 提前退出触发 SIGPIPE + pipefail。
+          CS_OUT=$(codesign -dv "$APP" 2>&1 || true); printf '%s\n' "$CS_OUT" | head -3
+          codesign --verify --deep --strict "$APP" && echo "codesign --verify 通过"
+          MIN=$(defaults read "$APP/Contents/Info.plist" LSMinimumSystemVersion)
+          [ "$MIN" = "13.0" ] || { echo "::error::LSMinimumSystemVersion=$MIN，期望 13.0（Bun 要求 macOS 13+）"; exit 1; }
+          # 安全边界：自测接缝是 `#[cfg(debug_assertions)]` 门控的，**release 产物里必须一个字节都没有**。
+          # 一个"能触发动作"的环境变量若漏进 release，就是本地任意进程可用的后门
+          # （`IROUTER_SHELL_SELFTEST=quit` 就能让应用退出）。debug 侧的断言在 verify-shell.mjs，
+          # release 侧就在这里——两处合起来才闭环。
+          SETFOUND=$(grep -a -c 'IROUTER_SHELL_SELFTEST' "$APP/Contents/MacOS/iRouter" || true)
+          [ "${SETFOUND:-0}" -eq 0 ] || { echo "::error::release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1; }
+          echo "自测接缝 release 断言通过：0 命中"
+          hdiutil detach "$MOUNT"
+
+      - name: Package smoke — Linux (deb + tar.gz)
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        working-directory: desktop-tauri
+        run: |
+          set -euo pipefail
+          DEB=$(ls artifacts/*.deb | head -1)
+          TGZ=$(ls artifacts/*.tar.gz | head -1)
+
+          # ⚠️ **不要写成 `dpkg -c "$DEB" | grep -q ...`**。
+          # `grep -q` 一命中就退出并关闭管道，还在写出的 `dpkg` 会收到 SIGPIPE（退出码 141），
+          # 而 `set -o pipefail` 会让整条管道判为失败 → **假红**。
+          # 首次三平台 CI 就是这么挂的：deb 构建成功、staging 证据也在，却被断言判成
+          # 「deb 里没有 /usr/bin/irouter-bun」。
+          # 修法：先把清单落到变量（生产者跑完，没有管道可断），再对变量 grep。
+          DEB_LIST=$(dpkg -c "$DEB")
+          TGZ_LIST=$(tar -tzf "$TGZ")
+
+          fail() { echo "::error::$1"; echo "--- 实际内容（前 40 行）---"; printf '%s\n' "$2" | head -40; exit 1; }
+
+          # ⚠️ 模式里**不能写前导 `/`**：\`dpkg -c\` 打印的是 `usr/bin/irouter-bun`
+          # （既没有前导斜杠也没有 `./`），写成 `/usr/bin/...$` 会永远匹配不上——
+          # 首次 CI 的「deb 里没有 /usr/bin/irouter-bun」就是这么来的：**包是好的，断言是错的**。
+          # 用 `(^|[ /])` 兼容三种形态：裸路径、`./` 前缀、以及被空格分隔的字段。
+          grep -qE '(^|[ /])usr/bin/irouter-bun$' <<<"$DEB_LIST" || fail "deb 里没有 usr/bin/irouter-bun" "$DEB_LIST"
+          grep -qE '(^|[ /])usr/lib/iRouter/gateway/custom-server.js$' <<<"$DEB_LIST" || fail "deb 里没有 usr/lib/iRouter/gateway/custom-server.js" "$DEB_LIST"
+          echo "== dpkg -I =="; dpkg -I "$DEB" | sed -n '/Depends/p'
+          DEPENDS=$(dpkg -I "$DEB" | sed -n 's/^ *Depends: //p')
+          grep -q 'libwebkit2gtk-4.1-0' <<<"$DEPENDS" || fail "Depends 缺 libwebkit2gtk-4.1-0（CLI 自动注入失败？）" "$DEPENDS"
+          DUP=$(printf '%s\n' "$DEPENDS" | tr ',' '\n' | sed 's/^ *//;s/ *(.*//' | sort | uniq -d)
+          [ -z "$DUP" ] || { echo "::error::Depends 有重复项：$DUP —— 不要把 webkit/gtk 手写进 bundle.linux.deb.depends"; exit 1; }
+          grep -qx 'usr/bin/iRouter' <<<"$TGZ_LIST" || fail "tar.gz 里没有 usr/bin/iRouter" "$TGZ_LIST"
+          grep -qx 'usr/bin/irouter-bun' <<<"$TGZ_LIST" || fail "tar.gz 里没有 usr/bin/irouter-bun" "$TGZ_LIST"
+          grep -qx 'usr/lib/iRouter/gateway/custom-server.js' <<<"$TGZ_LIST" || fail "tar.gz 里没有网关负载" "$TGZ_LIST"
+
+          # 安全边界：release 产物里不得出现自测接缝（见 macOS 段的说明）
+          SBTMP=$(mktemp -d)
+          tar -xzf "$TGZ" -C "$SBTMP" usr/bin/iRouter
+          SETFOUND=$(grep -a -c 'IROUTER_SHELL_SELFTEST' "$SBTMP/usr/bin/iRouter" || true)
+          rm -rf "$SBTMP"
+          [ "${SETFOUND:-0}" -eq 0 ] || { echo "::error::release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1; }
+          echo "自测接缝 release 断言通过：0 命中"
+
+      - name: Package smoke — Windows (portable zip)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        working-directory: desktop-tauri
+        run: |
+          $zip = (Get-ChildItem artifacts/*portable.zip | Select-Object -First 1).FullName
+          $entries = tar -tf $zip
+          foreach ($want in @('iRouter.exe', 'irouter-bun.exe', 'gateway/custom-server.js')) {
+            if ($entries -notcontains $want) { Write-Error "zip 里没有 $want"; exit 1 }
+          }
+          Write-Host "portable zip 内容断言通过"
+
+          # 安全边界：release 产物里不得出现自测接缝（见 macOS 段的说明）
+          $tmp = Join-Path $env:RUNNER_TEMP "sbtest"
+          Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+          Expand-Archive -Path $zip -DestinationPath $tmp
+          $exe = (Get-ChildItem -Recurse -Filter iRouter.exe $tmp | Select-Object -First 1).FullName
+          # ⚠️ `findstr` 未找到时返回 **1**，而 PowerShell 会把**最后一条原生命令的退出码**
+          # 当作整个进程的退出码 —— 即使我们用 `if` 处理了它，那个 1 仍会泄漏出去让 step 判红
+          # （首次就是这样：断言打印了「0 命中」，step 却 `exit code 1`）。
+          # 所以必须显式把 `$LASTEXITCODE` 归零。同类教训：**断言过了 ≠ 步骤会过**。
+          & findstr.exe /C:"IROUTER_SHELL_SELFTEST" "$exe" > $null 2>&1
+          $found = ($LASTEXITCODE -eq 0)
+          $LASTEXITCODE = 0
+          if ($found) { Write-Error "release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1 }
+          Remove-Item -Recurse -Force $tmp
+          Write-Host "自测接缝 release 断言通过：0 命中"
+
+      # 证据：stage-sidecar.mjs 落盘时写的 sha256 凭据（与 artifacts 分开上传，
+      # 免得被发版 glob 当成发布物收走）。
+      # ⚠️ 名字刻意**不以 `desktop-tauri-` 开头**：release.yml 用
+      # `download-artifact(pattern: desktop-tauri-*)` 只捞发布产物，前缀相同会把
+      # 这些 .sha256 证据一起拖进发布目录。
+      - name: Upload staging evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-evidence-${{ matrix.slug }}
+          path: desktop-tauri/src-tauri/binaries/*.sha256
+          if-no-files-found: ignore
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-tauri-${{ matrix.slug }}
+          path: desktop-tauri/artifacts/*
+          # 没有产物 = 这一步之前就该红；不允许「悄悄上传空目录」
+          if-no-files-found: error

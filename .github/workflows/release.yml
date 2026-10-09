@@ -1,112 +1,112 @@
 name: Release
 
-# 打 tag (v*，如 v0.3.0) 即构建 macOS / Windows / Linux 三平台桌面安装包并创建 GitHub Release。
-# 参照标准跨平台自动化构建矩阵，自动汇总全平台安装包并生成 SHA256 校验和。
+# 打 tag (v*，如 v0.4.0) 即构建 macOS / Windows / Linux 桌面安装包并创建 GitHub Release。
+#
+# Phase 6 Step 3：构建矩阵**不在本文件里**——它搬到 `desktop-tauri.yml` 并用 `workflow_call` 复用。
+# 理由：两份矩阵必然漂移，而漂移只在发版时才暴露（那时用户已经在等更新了）。
+# 本文件只负责三件事：**定版本 → 调矩阵 → 合并产物并发布（含两道门禁）**。
+#
+# 手动触发（workflow_dispatch）有两种模式，都是**不创建 Release** 的 dry-run：
+#   · 填了 `version`：四平台构建 + 版本注入 + 合并 checksums + 门禁①②，产物作为 artifact 留下；
+#   · 留空：只构建四平台产物（release job 跳过）。
+# 这是这次改写能被验证的前提：发版路径本来只能在真实 tag 上才跑得到。
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "dry-run 用的版本号（如 0.3.8，不带 v）。填了就跑完整发版链路（含两道门禁）但不创建 Release；留空则只构建四平台产物。"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: write # softprops/action-gh-release 需要写权限以创建 GitHub Release
 
 jobs:
-  build:
-    name: Build (${{ matrix.platform }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            platform: macos
-            dist-cmd: npm run dist:mac
-          - os: windows-latest
-            platform: windows
-            dist-cmd: npm run dist:win
-          - os: ubuntu-22.04
-            platform: linux
-            dist-cmd: npm run dist:linux
-    runs-on: ${{ matrix.os }}
-    env:
-      # 海外 runner 直连 GitHub Releases 官方源，避免国内镜像源偶发网络超时
-      ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/"
-      ELECTRON_BUILDER_BINARIES_MIRROR: "https://github.com/electron-userland/electron-builder-binaries/releases/download/"
+  # 版本解析 + 校验。放在最前面、独立成一个 job：调用方与被调用方（desktop-tauri.yml）
+  # 都只认这一个版本值，避免"tag 一个版本、包体另一个版本"。
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      is_tag: ${{ steps.resolve.outputs.is_tag }}
+      run_release: ${{ steps.resolve.outputs.run_release }}
     steps:
+      # 需要 checkout：版本线守卫要读 desktop-tauri/package.json 的现值，
+      # 手动触发不带 version 时也用它兜底。
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Derive version from tag
+      - name: Resolve + validate version
+        id: resolve
         shell: bash
+        env:
+          # 经 env 传入，**不**把 inputs 内联进 shell 源码
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "$GITHUB_REF_NAME" ]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          set -euo pipefail
+          REPO_VERSION=$(node -p 'require("./desktop-tauri/package.json").version')
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+            IS_TAG=true
+          elif [ -n "${INPUT_VERSION}" ]; then
+            V="${INPUT_VERSION#v}"
+            IS_TAG=false
+          else
+            V="$REPO_VERSION"
+            IS_TAG=false
           fi
 
-      # 保证构建前 desktop/package.json 版本号与 Tag 强一致
-      - name: Sync version into desktop/package.json
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          node -e '
-            const fs = require("fs");
-            const pkgPath = "desktop/package.json";
-            const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-            pkg.version = process.env.VERSION;
-            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-          '
+          if ! printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::非法版本号：${V}（期望 x.y.z，可带 -预发布段）"
+            exit 1
+          fi
 
-      # Linux 平台构建 AppImage 所需依赖包
-      - name: Install Linux system dependencies
-        if: matrix.platform == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libarchive-tools fakeroot
-
-      - name: Install root dependencies
-        run: npm install
-
-      - name: Install desktop dependencies
-        working-directory: desktop
-        run: npm install --include=dev
-
-      - name: Build and package desktop app
-        working-directory: desktop
-        run: ${{ matrix.dist-cmd }}
-
-      # 将 macOS x64 产物重命名为标准的 amd64 规范
-      - name: Normalize macOS x64 artifact name to amd64
-        if: matrix.platform == 'macos'
-        shell: bash
-        run: |
-          for f in desktop/build/dist/*-macos-x64.dmg; do
-            if [ -f "$f" ]; then
-              mv "$f" "${f/-macos-x64.dmg/-macos-amd64.dmg}"
+          # ★ 版本线守卫（Lead 决策 ②）。
+          # 仓库里 `v0.5.x`（上游基线号）与 `v0.3.x`（桌面线）tag **共存**，而发版版本从 tag 推。
+          # 若不加守卫，推一个上游 `v0.5.96` 就会产出 `iRouter-0.5.96-*` 的 Release，而存量用户的
+          # 自动更新是**字符串全等**匹配 → 等于给所有人推了一个非预期版本。这里 fail fast。
+          if [ "$IS_TAG" = "true" ]; then
+            TAG_LINE="${V%.*}"
+            REPO_LINE="${REPO_VERSION%.*}"
+            if [ "$TAG_LINE" != "$REPO_LINE" ]; then
+              echo "::error::tag 版本线 ${TAG_LINE}.x 与产品版本真源 desktop-tauri/package.json 的 ${REPO_LINE}.x 不一致（tag=${GITHUB_REF_NAME}，真源=${REPO_VERSION}）。"
+              echo "::error::若确实要切到新的版本线，先把 desktop-tauri/package.json 与 tauri.conf.json 一起 bump 到该版本线再打 tag；否则请改 tag。"
+              exit 1
             fi
-          done
+          fi
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.platform }}
-          path: |
-            desktop/build/dist/*.dmg
-            desktop/build/dist/*.exe
-            desktop/build/dist/*.deb
-            desktop/build/dist/*.tar.gz
-            desktop/build/dist/*.zip
-          if-no-files-found: error
+          RUN_RELEASE=false
+          if [ "$IS_TAG" = "true" ] || [ -n "${INPUT_VERSION}" ]; then
+            RUN_RELEASE=true
+          fi
+
+          {
+            echo "version=$V"
+            echo "is_tag=$IS_TAG"
+            echo "run_release=$RUN_RELEASE"
+          } >> "$GITHUB_OUTPUT"
+          # ⚠️ 变量一律写成 ${VAR}：紧跟中文/全角字符时，`$VAR（` 会被 bash 3.2（macOS runner 自带）
+          # 当成变量名的一部分 → `unbound variable` 直接炸（本地实跑抓到过）。
+          echo "version=${V} / is_tag=${IS_TAG} / run_release=${RUN_RELEASE}（仓库现值 ${REPO_VERSION}）"
+
+  # 四平台矩阵**只存在于 desktop-tauri.yml 一处**。这里传版本，别的什么都不管。
+  tauri:
+    name: Tauri bundles
+    needs: version
+    uses: ./.github/workflows/desktop-tauri.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
 
   release:
     name: Publish GitHub Release
-    needs: build
-    # 只在 tag 上发布。workflow_dispatch 手动触发时 GITHUB_REF_NAME 是分支名，
-    # 既拼不出发版说明路径，也不该把 Release 挂到分支上。
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, tauri]
+    # tag → 真的发布；手动触发且给了 version → dry-run（跑完两道门禁后只留 artifact，不建 Release）。
+    if: needs.version.outputs.run_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -116,11 +116,15 @@ jobs:
       # （守卫按预期报了「缺少发版说明」，而不是发出一个空正文的 Release）。
       - uses: actions/checkout@v4
 
+      # 只捞发布产物：staging 证据 artifact 名刻意不以 `desktop-tauri-` 开头（见 desktop-tauri.yml）。
+      # 默认 merge-multiple=false，每个平台一个子目录——现有的 find/basename/sha256sum 全都按
+      # 子目录写的，保持原样即可。
       - uses: actions/download-artifact@v4
         with:
+          pattern: desktop-tauri-*
           path: artifacts
 
-      # 汇总三平台产物生成唯一的 checksums.txt，供用户下载校验
+      # 汇总四平台产物生成唯一的 checksums.txt，供用户下载校验
       - name: Generate consolidated checksums.txt
         run: |
           cd artifacts
@@ -130,22 +134,58 @@ jobs:
           echo "== checksums.txt =="
           cat checksums.txt
 
+      # 供应链门禁：**每个要发布的产物都必须出现在 checksums.txt 里**。
+      #
+      # 为什么这道门必须在这里、而不是在客户端：更新器在找不到 checksums.txt 时是
+      # **跳过校验并继续安装**（照抄 Electron 版行为，为的是不让一次缺清单的发版卡死所有人的自更新）。
+      # 于是"清单缺项"的后果是——那个平台的用户会在**无任何哈希校验**的情况下装上更新。
+      # 客户端放宽 + 发版侧收紧，才是完整的处置。
+      - name: Assert every release asset is covered by checksums.txt
+        run: |
+          cd artifacts
+          # 单一来源的资产过滤表达式，避免两处 find 漂移。
+          # ⚠️ 必须把 "$@" 透传给 find：否则 `assets -exec basename {} \;` 的参数会被静默丢掉，
+          # 变成"列全部路径"，既让重名检测失效，又让下面的 diff 拿路径去比 basename（必红）。
+          assets() { find . -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.deb" -o -name "*.tar.gz" -o -name "*.zip" \) "$@"; }
+
+          # 跨平台重名检测：下面的 `basename | sort -u` 会把同名文件**静默合并**（两边都少一行，
+          # diff 照样绿）——「少了一个文件但检查说通过」是本项目最该防的一类假绿。先堵这条通道。
+          DUP=$(assets -exec basename {} \; | sort | uniq -d)
+          if [ -n "$DUP" ]; then
+            echo "::error::发现跨平台重名产物：$DUP —— basename|sort -u 会把它们合并成一行导致假绿"
+            exit 1
+          fi
+
+          assets -exec basename {} \; | sort -u > /tmp/irouter-assets.txt
+          awk '{print $2}' checksums.txt | sort -u > /tmp/irouter-hashed.txt
+          echo "待发布产物 $(wc -l < /tmp/irouter-assets.txt) 个 / 清单条目 $(wc -l < /tmp/irouter-hashed.txt) 个"
+          if ! diff -u /tmp/irouter-hashed.txt /tmp/irouter-assets.txt; then
+            echo "::error::checksums.txt 与待发布产物不一致（左=清单，右=产物）——不得发布清单不全的版本"
+            exit 1
+          fi
+          echo "✅ 清单覆盖全部产物"
+
       # 发版说明是发版的必填项。此前这里不设 name/body，发布出来的 Release
       # 标题是 tag 名、正文为空（v0.3.3 那次 4193 字的正文是事后手工补的）。
+      # ⚠️ 路径用**解析出来的版本**而不是 $GITHUB_REF_NAME：dry-run 时后者是分支名，
+      # 用它只会得到一条无意义的失败；用解析版本，dry-run 才真的能提前拦下"发版说明没写"。
       - name: Verify release notes exist
         run: |
-          FILE="docs/release-notes/${GITHUB_REF_NAME}.zh-CN.md"
+          FILE="docs/release-notes/v${{ needs.version.outputs.version }}.zh-CN.md"
           if [ ! -f "$FILE" ]; then
-            echo "::error::缺少发版说明 $FILE —— 打 tag 前先补 docs/release-notes/${GITHUB_REF_NAME}.zh-CN.md"
+            echo "::error::缺少发版说明 $FILE —— 打 tag 前先补 docs/release-notes/v${{ needs.version.outputs.version }}.zh-CN.md"
             exit 1
           fi
           echo "使用发版说明：$FILE"
 
+      # ⚠️ 资产名一个字都不能改：老版本用户的自动更新按 `tools/asset.js` 的规则做**字符串全等**匹配，
+      # 改名 = 切断所有存量用户的更新通道。这个 glob 与 §5.4 的发布名一一对应，不要"顺手整理"。
       - name: Create GitHub Release
+        if: needs.version.outputs.is_tag == 'true'
         uses: softprops/action-gh-release@v2
         with:
           name: iRouter ${{ github.ref_name }}
-          body_path: docs/release-notes/${{ github.ref_name }}.zh-CN.md
+          body_path: docs/release-notes/v${{ needs.version.outputs.version }}.zh-CN.md
           files: |
             artifacts/**/*.dmg
             artifacts/**/*.exe
@@ -156,3 +196,19 @@ jobs:
           draft: false
           generate_release_notes: false
 
+      # dry-run 的出口：不建 Release，只把合并后的东西留下给人核对（资产名/清单/发版说明）。
+      - name: Dry-run summary (no Release created)
+        if: needs.version.outputs.is_tag != 'true'
+        run: |
+          echo "== dry-run：未创建 Release（版本 ${{ needs.version.outputs.version }}）=="
+          find artifacts -type f | sort
+          echo "== checksums.txt =="
+          cat artifacts/checksums.txt
+
+      - name: Upload dry-run bundle
+        if: needs.version.outputs.is_tag != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dry-run-v${{ needs.version.outputs.version }}
+          path: artifacts/**
+          if-no-files-found: error

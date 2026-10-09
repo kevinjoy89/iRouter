@@ -20,12 +20,30 @@ process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
 const PANEL_CLIENT_HEADER = "x-irouter-client";
 const PANEL_CLIENT_VALUE = "irouter-app";
 
+// Tauri 壳层每次启动生成的随机令牌（`IR_PANEL_GUARD_TOKEN`，经 webview UA 携带）。
+//
+// 为什么要有它：固定头与 `Electron/` UA 都写在开源仓库里，**任何本地进程都能伪造**——它们
+// 只是「防误开」，不是安全边界。Tauri 壳把 webview 的 UA 设成
+// `iRouter/<ver> iRouterGuard/<token>`（见 desktop-tauri/src-tauri/src/guard.rs），令牌每次启动
+// 重新生成、只存在于内存与该进程环境里，于是「能加载该 origin」重新等于「就是我们的窗口」。
+//
+// 迁移期两种壳并存：Electron 版仍走原路径（固定头 / Electron UA），Tauri 版走令牌。
+// 等 Electron 壳退役后再收紧（见 ADR-0007 与迁移计划 Phase 6）。
+const PANEL_GUARD_TOKEN = process.env.IR_PANEL_GUARD_TOKEN || "";
+const GUARD_UA_PREFIX = "iRouterGuard/";
+
+function hasValidGuardToken(ua) {
+  return Boolean(PANEL_GUARD_TOKEN) && ua.includes(`${GUARD_UA_PREFIX}${PANEL_GUARD_TOKEN}`);
+}
+
 function isBlockedPanelRequest(req) {
-  // 桌面窗口识别：Electron UA 天然携带（零依赖，不依赖 webRequest 注入）；
-  // 也接受显式客户端头。浏览器无法天然携带两者之一，即被连接级拒绝。
+  // 桌面窗口识别：Tauri 的随机令牌（最强）→ 显式客户端头 → Electron UA（迁移期兼容）。
+  // 浏览器无法天然携带三者之一，即被连接级拒绝。
   const ua = req.headers["user-agent"] || "";
   const hasClient =
-    req.headers[PANEL_CLIENT_HEADER] === PANEL_CLIENT_VALUE || ua.includes("Electron/");
+    hasValidGuardToken(ua) ||
+    req.headers[PANEL_CLIENT_HEADER] === PANEL_CLIENT_VALUE ||
+    ua.includes("Electron/");
   if (hasClient) return false;
   const accept = req.headers.accept || "";
   const isHtmlPage = accept.includes("text/html");

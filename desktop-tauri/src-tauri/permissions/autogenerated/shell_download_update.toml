@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-shell-download-update"
+description = "Enables the shell_download_update command without any pre-configured scope."
+commands.allow = ["shell_download_update"]
+
+[[permission]]
+identifier = "deny-shell-download-update"
+description = "Denies the shell_download_update command without any pre-configured scope."
+commands.deny = ["shell_download_update"]

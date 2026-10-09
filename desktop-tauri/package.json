@@ -1,0 +1,19 @@
+{
+  "name": "irouter-tauri-shell",
+  "version": "0.3.7",
+  "description": "iRouter 桌面壳层（Tauri v2 + Bun sidecar），替代 desktop/ 的 Electron 实现",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "node scripts/dev.mjs",
+    "build": "tauri build",
+    "stage": "node scripts/stage-sidecar.mjs",
+    "verify:guard": "node scripts/verify-guard-chain.mjs",
+    "verify:shell": "node scripts/verify-shell.mjs",
+    "pack": "node scripts/pack-artifacts.mjs",
+    "verify:updater-shim": "node scripts/verify-updater-shim.mjs",
+    "gateway:build": "node ../tools/build-server.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1"
+  }
+}

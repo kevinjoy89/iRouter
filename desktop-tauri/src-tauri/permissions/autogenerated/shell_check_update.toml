@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-shell-check-update"
+description = "Enables the shell_check_update command without any pre-configured scope."
+commands.allow = ["shell_check_update"]
+
+[[permission]]
+identifier = "deny-shell-check-update"
+description = "Denies the shell_check_update command without any pre-configured scope."
+commands.deny = ["shell_check_update"]

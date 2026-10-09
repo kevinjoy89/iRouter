@@ -1,6 +1,6 @@
 # iRouter Context
 
-iRouter 是 9Router（开源 AI 路由网关，decolua/9router）的跨平台安装版：装完是一个真正的桌面应用，窗口内直接显示 9Router 面板，无需打开系统浏览器。9Router 源码基于上游 **v0.5.91** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/` 等）；桌面壳层在 `desktop/`。
+iRouter 是 9Router（开源 AI 路由网关，decolua/9router）的跨平台安装版：装完是一个真正的桌面应用，窗口内直接显示 9Router 面板，无需打开系统浏览器。9Router 源码基于上游 **v0.5.91** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/` 等）；桌面壳层在 `desktop-tauri/`（Tauri v2 + Bun sidecar）。
 
 ## Language
 
@@ -17,11 +17,11 @@ _Avoid_: 锁版上游、零改动、submodule（均为旧结构用语）
 _Avoid_: 升级（歧义：易与产品发版混淆）、更新版本
 
 **产品版本号（product version）**:
-iRouter 自身对外可见的版本号（当前 `0.3.7`），真源为 `desktop/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.95`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
+iRouter 自身对外可见的版本号（当前 `0.3.7`），真源为 `desktop-tauri/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.95`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
 _Avoid_: 网关版本（易与上游基线号混淆）、应用版本
 
 **壳层（shell layer）**:
-位于 `desktop/` 的桌面化定制代码，负责：窗口、托盘、单实例、自启、打包安装器。壳层与网关源码同仓库，通过进程边界交互。
+位于 `desktop-tauri/` 的桌面化定制代码（Rust + Tauri v2），负责：窗口、托盘、单实例、自启、sidecar 守护与自动更新。壳层与网关源码同仓库，通过进程边界交互。
 _Avoid_: 封装、wrapper（与本仓库其他含义混淆）
 
 **内嵌面板（embedded dashboard）**:
@@ -40,6 +40,15 @@ _Avoid_: 安装目录（与程序文件位置无关）；笼统的「数据目�
 **应用数据目录（app data dir）**:
 Electron 的 `userData`（macOS `~/Library/Application Support/iRouter`），装 Chromium 缓存与窗口状态。它**不装网关数据库**——那是「网关数据目录」的事。二者在自动化测试里会被强制指向同一路径，不要据此推断生产行为。
 _Avoid_: 与「网关数据目录」互指
+
+**网关运行时（gateway runtime）**:
+承载网关进程的 JavaScript 运行时。它与**壳层**是两个独立组件：壳层管窗口与打包，网关运行时管跑 `custom-server.js` 与 Next 产物。二者可以由同一个可执行文件兼任，也可以各自独立。讨论「瘦身」时须分别记账——把壳层的体积当成运行时的体积（或反过来）会算错整笔账。
+它与**网关源码所用的语言**是两条独立的轴：换语言（JS ↔ TS）不改变运行时需求（TS 编译产物仍是 JS，仍要引擎来跑），只有改成编译型语言才会同时去掉运行时——那属于重写产品，不属于换运行时。
+_Avoid_: Node 运行时（那是当前实现，不是概念）；与「壳层」混谈成「GUI」；把「语言」当成「运行时」（换语言不省体积）
+
+**安装包 / 安装体积 / 构建输出目录（installer / installed footprint / build output）**:
+三个不同的计量对象，优化手段各异：**安装包**是分发的单个文件（dmg / exe / deb）；**安装体积**是装好后的程序目录，含解压后的运行时与网关负载；**构建输出目录**是打包工具一次运行落盘的全部内容，可含多个架构的安装包与解压产物。报体积数字必须点明是哪一层。
+_Avoid_: 「几百兆」「包体积」（不带对象分不清是哪一层，三者的结论也不同）
 
 ### 模型路由
 

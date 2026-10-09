@@ -453,6 +453,50 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         // Non-localhost or proxy failed: manual input mode
         setStep("input");
         window.open(data.authUrl, "_blank");
+      } else if (
+        isLocalhost &&
+        !PROXY_OAUTH_PROVIDERS.has(provider)
+      ) {
+        // 通用授权码回环（claude / gemini-cli / antigravity / gitlab / cline …）。
+        //
+        // 为什么不再开 popup 等三通道：桌面壳把跨域授权页交给系统浏览器（main.js 的
+        // setWindowOpenHandler 对非网关源一律 deny + openExternal），window.open 返回
+        // null；即使弹窗真被创建，面板在 127.0.0.1 而 redirect 落在 localhost，host 不同
+        // 即不同 origin，postMessage / BroadcastChannel / localStorage 三条全部命中不了。
+        // 于是这条路径过去实际退化成「复制 URL 手粘」。
+        //
+        // 现在：先把 state/PKCE/redirectUri/meta 登记到服务端，授权页照旧交给系统浏览器，
+        // 回调由网关自己的 /callback **在服务端**完成换取并落库，这里只轮询结果。
+        let registered = false;
+        try {
+          const reg = await fetch(`/api/oauth/${provider}/register-session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              state: data.state,
+              codeVerifier: data.codeVerifier,
+              redirectUri,
+              meta: oauthMeta ?? null,
+              systemId: data.systemId ?? null,
+            }),
+          });
+          const regData = await reg.json().catch(() => null);
+          registered = reg.ok && regData?.success !== false;
+        } catch {
+          registered = false;
+        }
+
+        if (registered) {
+          // proxyProvider 让既有的轮询 effect 接手（它会打 poll-status 并在 done/error 处停）
+          setAuthData({ ...data, redirectUri, proxyProvider: provider });
+          setStep("waiting");
+          window.open(data.authUrl, "_blank"); // 系统浏览器/新标签页；返回 null 也无妨
+        } else {
+          // 登记失败 → 回落到今天的手粘路径，不能让用户卡在等待里
+          setAuthData({ ...data, redirectUri });
+          setStep("input");
+          window.open(data.authUrl, "_blank");
+        }
       } else {
         // Localhost (non-Codex/xAI): Open popup and wait for message
         setStep("waiting");
@@ -842,7 +886,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
                 progress_activity
               </span>
               <span className="text-sm">
-                {isXaiProvider ? "Waiting for Grok Build OAuth…" : "Waiting for popup authorization…"}
+                {isXaiProvider ? "Waiting for Grok Build OAuth…" : "Waiting for authorization in your browser…"}
               </span>
             </div>
 

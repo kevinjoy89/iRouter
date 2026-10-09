@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "本地 origin（窗口先加载的兜底页 dist/index.html，不调任何 IPC）的权限集。远端面板的权限**不在这个文件里**：面板 origin 的端口每次启动都可能变（pickPort 扫到 20128..20178 后回落 OS 临时端口，无上界），端口写死会让更新通道与设置读写被 ACL 静默拒绝——那一条由 main.rs 用 Manager::add_capability 按实际端口动态加，内容与理由见 capabilities/README.md。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

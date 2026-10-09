@@ -27,11 +27,31 @@ describe("isStrayActionPost", () => {
     expect(isStrayActionPost({ method: "POST", url: "/login", headers: { "next-action": "abc" } })).toBe(true);
   });
 
-  it("/callback 的 action 形态 POST 同样拦截（OAuth 回跳是 GET，body 读不到）", () => {
-    expect(isStrayActionPost(req("POST", "/callback?code=1", "multipart/form-data"))).toBe(true);
-    expect(isStrayActionPost({ method: "POST", url: "/callback", headers: { "next-action": "abc" } })).toBe(true);
-    // 表单式回跳（application/x-www-form-urlencoded）不受影响
-    expect(isStrayActionPost(req("POST", "/callback?code=1", "application/x-www-form-urlencoded"))).toBe(false);
+  // ⚠️ 这个用例**必须与"仓库有没有构建过"解耦**。
+  //
+  // `isStrayActionPost(req)` 的第二参数默认是 `getRouteHandlerMatcher()`，它读
+  // `<repo>/.next/app-path-routes-manifest.json` —— 于是同一条断言在两种仓库状态下给出**相反**结果：
+  //   未构建（清单缺失）→ 回退前缀规则 → `/callback` 不以 /api、/v1 开头 → 判为 stray = true
+  //   已构建（清单存在）→ `/callback/route.js` **导出了 POST**（src/app/callback/route.js:84）
+  //                     → 它是真端点 → 不是 stray = false
+  //
+  // 2026-10-08 实测踩到：Phase 6 Step 1 里跑了一次 `next build`，本文件就从绿变红——
+  // 而实现是对的（POST /callback 确实由路由处理）。**测试依赖环境而环境变了，不等于代码坏了。**
+  // 现在两种语义分别用显式参数钉死，不再随构建状态漂移。
+  it("/callback：清单缺失（未构建）时按前缀规则拦截", () => {
+    expect(isStrayActionPost(req("POST", "/callback?code=1", "multipart/form-data"), null)).toBe(true);
+    expect(isStrayActionPost({ method: "POST", url: "/callback", headers: { "next-action": "abc" } }, null)).toBe(true);
+  });
+
+  it("/callback：清单存在且它是真路由（route.js 导出 GET+POST）→ 放行", () => {
+    const callbackIsRoute = (p) => p === "/callback";
+    expect(isStrayActionPost(req("POST", "/callback?code=1", "multipart/form-data"), callbackIsRoute)).toBe(false);
+    expect(isStrayActionPost({ method: "POST", url: "/callback", headers: { "next-action": "abc" } }, callbackIsRoute)).toBe(false);
+  });
+
+  it("/callback：表单式回跳（x-www-form-urlencoded）不受影响", () => {
+    expect(isStrayActionPost(req("POST", "/callback?code=1", "application/x-www-form-urlencoded"), null)).toBe(false);
+    expect(isStrayActionPost(req("POST", "/callback?code=1", "application/x-www-form-urlencoded"), () => true)).toBe(false);
   });
 
   it("API / 网关 / 静态资源放行", () => {

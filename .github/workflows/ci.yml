@@ -76,10 +76,32 @@ jobs:
       - name: Install root dependencies
         run: npm install
 
-      - name: Install desktop dependencies
-        working-directory: desktop
-        run: npm install --include=dev
+      # 原 «Install desktop dependencies» 已删：desktop/package.json 的 dependencies 为空，
+      # devDependencies 只有 electron/electron-builder —— 那一步**只为 Electron 存在**。
+      # 网关负载的构建（tools/build-server.mjs）只用根依赖（next），不依赖它。
+      - name: Verify gateway payload build
+        run: node tools/build-server.mjs
 
-      - name: Verify build-server compilation
-        working-directory: desktop
-        run: npm run build-server
+      # Phase 0 门禁（ADR-0007）：Bun 必须能跑通完整网关，三平台同一套断言。
+      # 本步骤验证的是「能力」——能否用 Bun 替代 Electron 里兼任网关运行时的 Node。
+      # 随包分发的那份 Bun 产物（哈希锁定在 tools/bun-pin.json）在打包
+      # 流水线用 tools/verify-bun-pin.mjs 校验，两者职责不同。
+      # NODE_OPTIONS：Node 22 的 node:sqlite 需要该标志；Node 24+ 上被忽略，无害。
+      - name: Set up Bun (pinned)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Assert Bun version matches pin
+        shell: bash
+        run: |
+          PIN=$(node -p "require('./tools/bun-pin.json').version")
+          GOT=$(bun --version)
+          echo "pin=$PIN got=$GOT"
+          [ "$PIN" = "$GOT" ] || { echo "::error::Bun 版本与 pin 不符"; exit 1; }
+
+      - name: Bun gateway gate — Phase 0
+        shell: bash
+        env:
+          NODE_OPTIONS: --experimental-sqlite
+        run: node tools/bun-gateway-spike.mjs --port 31888
