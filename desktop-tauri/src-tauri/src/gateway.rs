@@ -91,7 +91,8 @@ fn pid_file(data_dir: &Path) -> PathBuf {
 
 /// 网关数据目录：与 Electron 版一致用 `~/.irouter`（**不是**上游默认的 `~/.9router`）。
 ///
-/// 注意它与「应用数据目录」（`app_data_dir()`，装 webview 缓存）是两个地方——见 CONTEXT.md
+/// 注意它与「应用数据目录」（系统 webview 的存储/缓存，按 `tauri.conf.json > identifier` 落盘，
+/// 见 CONTEXT.md）是两个地方——**这里只装网关数据库与凭据**
 /// 的「网关数据目录 / 应用数据目录」两条术语。
 pub fn resolve_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(dir) = std::env::var("DATA_DIR") {

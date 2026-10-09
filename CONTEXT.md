@@ -25,7 +25,7 @@ _Avoid_: 网关版本（易与上游基线号混淆）、应用版本
 _Avoid_: 封装、wrapper（与本仓库其他含义混淆）
 
 **内嵌面板（embedded dashboard）**:
-iRouter 应用窗口内直接渲染的 9Router Web 面板（Electron 窗口指向本机网关地址），不经系统浏览器。
+iRouter 应用窗口内直接渲染的 9Router Web 面板（Tauri 窗口指向本机网关地址，渲染交给系统 webview），不经系统浏览器。
 _Avoid_: 浏览器访问（那是 CLI 形态的旧体验）
 
 **网关服务（gateway）**:
@@ -38,7 +38,14 @@ _Avoid_: 服务端、后端（过于泛化）
 _Avoid_: 安装目录（与程序文件位置无关）；笼统的「数据目录」（分不清是哪一层）
 
 **应用数据目录（app data dir）**:
-Electron 的 `userData`（macOS `~/Library/Application Support/iRouter`），装 Chromium 缓存与窗口状态。它**不装网关数据库**——那是「网关数据目录」的事。二者在自动化测试里会被强制指向同一路径，不要据此推断生产行为。
+系统 webview 的存储与缓存目录，装 webview 缓存与窗口状态。它**不装网关数据库**——那是「网关数据目录」的事。
+
+按**应用标识符**落盘（`tauri.conf.json > identifier`，当前 `com.irouter.desktop`），macOS 上实测为
+`~/Library/WebKit/com.irouter.desktop`（存储）与 `~/Library/Caches/com.irouter.desktop`（缓存）。
+
+> 换壳带来的路径变化：Electron 时代是 `~/Library/Application Support/iRouter`（取自 `app.setName`）。
+> 升级到 Tauri 版后旧目录不会被自动清理，但**没有任何状态依赖它**（装的都是可重建的缓存），手动删除无副作用。
+> Electron 时代「自动化测试把两者强制指向同一路径」的机制（`IROUTER_USER_DATA`）**已随壳一起移除**。
 _Avoid_: 与「网关数据目录」互指
 
 **网关运行时（gateway runtime）**:

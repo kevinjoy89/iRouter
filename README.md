@@ -14,7 +14,7 @@ English | [简体中文](./README.zh-CN.md)
 
 ---
 
-**iRouter** is a cross-platform standalone desktop application for 9Router. It packages the gateway and dashboard into a true native desktop app powered by Electron—no system Node.js environment required and no need to open a separate browser tab.
+**iRouter** is a cross-platform standalone desktop application for 9Router. It packages the gateway and dashboard into a true native desktop app powered by Tauri (Rust) with a bundled Bun gateway runtime—no system Node.js required and no need to open a separate browser tab.
 
 The gateway core is based on upstream [decolua/9router](https://github.com/decolua/9router) (MIT, **v0.5.95**) with custom extensions in the repository root (`src/`, `open-sse/`, `tests/`), while the desktop shell layer is maintained under `desktop-tauri/` (Tauri v2 + Bun sidecar; the former Electron shell under `desktop/` was removed in 2026-10 — see [ADR 0007](./docs/adr/0007-tauri-bun-shell.md)). For architecture decisions and terms, see [CONTEXT.md](./CONTEXT.md) and [docs/adr/](./docs/adr/).
 
@@ -22,7 +22,7 @@ The gateway core is based on upstream [decolua/9router](https://github.com/decol
 
 ## ✨ Key Features
 
-- 🖥️ **Native Desktop Experience**: Built with Electron, supporting system tray residency, single-instance lock, and auto-start on boot. Closing the window simply minimizes it to the tray, keeping the background gateway service running seamlessly.
+- 🖥️ **Native Desktop Experience**: Built with Tauri v2 (system webview), supporting system tray residency, single-instance lock, and auto-start on boot. Closing the window simply minimizes it to the tray, keeping the background gateway service running seamlessly.
 - 🎯 **Effort Cap Degradation & Effort-Aware Routing**: Proactively clamps the request `reasoning_effort` to the supported tier set declared by each provider, prioritizing combo model members that natively support the target effort.
 - 🔄 **Intelligent Auto-Retry**: Automatically intercepts rate-limiting and temporary gateway errors (429, 503, 529) with jittered exponential backoff before the first byte is streamed, preventing external CLI agents (Claude Code, Codex, Cursor) from aborting immediately.
 - 🛡️ **Egress Request Redaction (DLP)**: Inspects and sanitizes outbound request bodies for sensitive credentials, private keys, national IDs, and payment card numbers before forwarding, operating with a fail-open guarantee.
