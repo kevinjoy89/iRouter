@@ -83,6 +83,9 @@ export function ConfigFileCard() {
   const [status, setStatus] = useState({ type: "", message: "" });
   const fileRef = useRef(null);
   const pickedFileRef = useRef(null);
+  // 导出是否"已完成、正等壳层回报落盘路径"。用 ref 而不是 state：它是事件配对的标志位，
+  // 不需要触发重渲染（路径到了才 setStatus）。
+  const awaitingSavedPathRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -97,6 +100,23 @@ export function ConfigFileCard() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // 导出是**静默**落到系统下载目录的：面板本来只知道"发出去了"。
+  // 壳层在下载完成时发 `shell:download-saved { path }`（路径只有它知道——面板既不知道
+  // 系统下载目录，也不知道重名去重后的 "name (1).json" 后缀），这里补在成功提示下面。
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? window.irouterShell : null;
+    if (!api?.onDownloadSaved) return undefined;
+    return api.onDownloadSaved((payload) => {
+      // 只认"刚做过导出"的那一次：避免把将来的其它下载也贴到这张卡上
+      if (!awaitingSavedPathRef.current) return;
+      awaitingSavedPathRef.current = false;
+      const savedPath = payload?.path;
+      if (!savedPath) return;
+      // 函数式更新：事件到达时可能晚于下面的 setStatus，不要覆盖 message
+      setStatus((prev) => (prev.type === "success" ? { ...prev, path: savedPath } : prev));
+    });
   }, []);
 
   const reset = () => {
@@ -141,6 +161,8 @@ export function ConfigFileCard() {
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = `irouter-config-${new Date().toISOString().replace(/[.:]/g, "-")}.json`;
+        // 先置标志再 click：下载事件走 IPC 回来，可能早于下面的 setStatus 落地
+        awaitingSavedPathRef.current = true;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
@@ -249,6 +271,16 @@ export function ConfigFileCard() {
       {status.message ? (
         <Notice tone={status.type === "error" ? "error" : "success"}>
           {status.message}
+          {status.path ? (
+            // 完整路径（不缩成 ~）：用户要的是"文件到底在哪"，而这一行用 break-all 换行，
+            // 不会撑破布局。title 再给一份，方便悬停复制。
+            <div
+              className="mt-1 font-mono text-[12px] leading-relaxed break-all opacity-80"
+              title={status.path}
+            >
+              {status.path}
+            </div>
+          ) : null}
         </Notice>
       ) : null}
     </>

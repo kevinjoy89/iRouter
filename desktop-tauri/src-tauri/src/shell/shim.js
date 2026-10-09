@@ -20,6 +20,8 @@
 
   const PLATFORM = "__IROUTER_PLATFORM__";
   const EVENT_OPEN_SETTINGS = "shell:open-settings";
+  // 与 Rust 侧 `shell::window::EV_DOWNLOAD_SAVED` **逐字同名**（契约，改要两边一起改）
+  const EVENT_DOWNLOAD_SAVED = "shell:download-saved";
 
   // 面板可能在本脚本之前/之后就绪：所有对外成员先挂上，内部等 IPC 好了再生效。
   const existing = window.irouterShell || {};
@@ -144,6 +146,52 @@
 
   // 脚本一加载就订阅：早了会被缓冲（pendingOpen），晚了会丢（所以不等调用方）。
   ensureListener();
+
+  // ---------------------------------------------------------------- 下载落盘通知
+  // 导出配置是**静默**落到系统下载目录的，面板只显示「已导出」而用户不知道文件在哪。
+  // 路径只有壳层知道（面板不知道下载目录，也不知道重名去重后的 "name (1).json" 后缀），
+  // 所以由壳层在下载完成时发 shell:download-saved 通知它。
+  //
+  // 这里**不需要 pending 缓冲**：订阅发生在面板挂载时，而下载只可能由用户点击触发，
+  // 一定晚于订阅。漏掉事件的唯一情形是"下载早于面板加载"，那种情况本来也没有 UI 可更新。
+  const downloadCallbacks = new Set();
+  let downloadListening = false;
+  shell.onDownloadSaved = (cb) => {
+    if (typeof cb !== "function") return () => {};
+    downloadCallbacks.add(cb);
+    if (!downloadListening) {
+      downloadListening = true;
+      whenReady(() => {
+        const i = internals();
+        try {
+          const handler = i.transformCallback((message) => {
+            const payload = message && message.payload ? message.payload : {};
+            downloadCallbacks.forEach((fn) => {
+              try {
+                fn(payload);
+              } catch (e) {
+                console.warn("[irouter-shell] onDownloadSaved 回调抛错", e);
+              }
+            });
+          });
+          i.invoke("plugin:event|listen", {
+            event: EVENT_DOWNLOAD_SAVED,
+            target: { kind: "Any" },
+            handler: handler,
+          }).catch((e) => {
+            downloadListening = false;
+            console.warn("[irouter-shell] 订阅 shell:download-saved 失败", e);
+          });
+        } catch (e) {
+          downloadListening = false;
+          console.warn("[irouter-shell] 注册下载事件监听失败", e);
+        }
+      });
+    }
+    return () => {
+      downloadCallbacks.delete(cb);
+    };
+  };
 
   // ---------------------------------------------------------------- 右键菜单
   // Tauri v2 没有 context-menu 事件（API notes §5.2），触发链是：

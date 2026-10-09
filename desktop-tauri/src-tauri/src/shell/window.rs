@@ -6,8 +6,24 @@
 //!   - `hideDock()`        `:417-419`
 //!   - `quit()`（退出）    见 `main.js` 的 quit 定义与 `:2148-2154` 的 before-quit
 
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
 use tauri::webview::DownloadEvent;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+
+/// 下载完成后通知面板的事件名。
+///
+/// **为什么需要它**：导出是**静默**落到 `~/Downloads` 的，用户在面板上只看到「配置已导出」，
+/// 不知道文件去了哪。而路径只有壳层知道——面板既不知道系统下载目录，也不知道重名去重后的后缀
+/// （`name (1).json`）。所以由壳层把**最终落盘路径**发给它。
+pub const EV_DOWNLOAD_SAVED: &str = "shell:download-saved";
+
+/// 最近一次下载请求的 (url, 目标路径)。
+///
+/// 需要它是因为 **wry 在 macOS 上不回填 `DownloadEvent::Finished.path`**（实测为 `None`），
+/// 而 `Requested` 里的 `destination` 才是最终路径——按 url 配对取回。
+static LAST_DESTINATION: Mutex<Option<(String, PathBuf)>> = Mutex::new(None);
 
 /// 下载处理器。**必须注册** —— 否则 WKWebView 会**静默取消**下载。
 ///
@@ -25,29 +41,56 @@ use tauri::{AppHandle, Manager};
 /// 这里只负责放行与记录。
 pub fn download_handler()
 -> impl Fn(tauri::Webview<tauri::Wry>, DownloadEvent<'_>) -> bool + Send + Sync + 'static {
-    |_webview, event| {
+    |webview, event| {
         match event {
             DownloadEvent::Requested { url, destination } => {
                 log::info!("[download] 请求 {url} → 落盘 {destination:?}");
+                if let Ok(mut g) = LAST_DESTINATION.lock() {
+                    *g = Some((url.to_string(), destination.clone()));
+                }
             }
             DownloadEvent::Finished { url, path, success } => {
-                // `path` 可能是 `None`（wry 在 macOS 上没回填它）。**别打成 "→ None"** ——
-                // 那看起来像"落盘失败"，会让排障往错方向走；真实路径已在 Requested 里记过。
-                let where_ = match &path {
-                    Some(p) => format!("{p:?}"),
-                    None => "（wry 未回填路径，实际落盘位置见上面 Requested 那条）".to_string(),
-                };
-                if success {
-                    log::info!("[download] 完成 {url} → {where_}");
-                } else {
-                    // 失败必须留痕：否则又是一次"点了没反应"
-                    log::error!("[download] 失败 {url}（path={path:?}）");
+                let url_s = url.to_string();
+                // wry 在 macOS 上不回填 `path`（实测 `None`）：用 Requested 记下的目的地配回来。
+                let remembered = LAST_DESTINATION
+                    .lock()
+                    .ok()
+                    .and_then(|g| {
+                        g.as_ref()
+                            .filter(|(u, _)| *u == url_s)
+                            .map(|(_, p)| p.clone())
+                    });
+                let final_path = path.or(remembered);
+                match (success, final_path) {
+                    (true, Some(p)) => {
+                        log::info!("[download] 完成 {url_s} → {p:?}");
+                        notify_panel(&webview, &p);
+                    }
+                    (true, None) => {
+                        // 完成但拿不到路径：面板就只显示原来的成功文案，不编造路径
+                        log::warn!("[download] 完成但拿不到落盘路径：{url_s}");
+                    }
+                    (false, _) => {
+                        // 失败必须留痕：否则又是一次"点了没反应"
+                        log::error!("[download] 失败 {url_s}");
+                    }
                 }
             }
             _ => {}
         }
         // ★ 返回 false 会让本次下载被取消；true 才放行
         true
+    }
+}
+
+/// 把最终落盘路径发给主窗口（失败只记日志，绝不影响下载本身）。
+fn notify_panel(webview: &tauri::Webview<tauri::Wry>, path: &Path) {
+    if let Err(e) = webview.emit_to(
+        tauri::EventTarget::webview_window(MAIN_WINDOW),
+        EV_DOWNLOAD_SAVED,
+        serde_json::json!({ "path": path.to_string_lossy() }),
+    ) {
+        log::warn!("发送 {EV_DOWNLOAD_SAVED} 失败：{e}");
     }
 }
 
