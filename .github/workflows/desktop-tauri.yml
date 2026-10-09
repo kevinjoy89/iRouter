@@ -120,7 +120,7 @@ jobs:
             //    （桌面发行版会注入 NEXT_PUBLIC_APP_VERSION，把它盖住）。
             const configSrc = fs.readFileSync("./src/shared/constants/config.js", "utf8");
             const m = configSrc.match(/process\.env\.NEXT_PUBLIC_APP_VERSION\s*\|\|\s*"([^"]+)"/);
-            if (!m) fail("config.js 里找不到版本行（期望形如 process.env.NEXT_PUBLIC_APP_VERSION || "x.y.z"）");
+            if (!m) fail(`config.js 里找不到版本行（期望形如 process.env.NEXT_PUBLIC_APP_VERSION || "x.y.z"）`);
             if (m[1] !== pkg) fail(`config.js 回退值 ${m[1]} ≠ 产品号 ${pkg}（config.js: 那行必须与 desktop-tauri/package.json 同步）`);
 
             // ③ VC3：产品号必须与上游基线号**解耦**（ADR-0004）。相等说明有人"顺手统一"了——
