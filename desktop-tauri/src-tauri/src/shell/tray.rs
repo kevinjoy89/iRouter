@@ -23,7 +23,6 @@ use super::i18n;
 use super::{window, ShellState, TRAY_ID};
 
 /// 托盘菜单项 id（与 `menus.rs` 的应用菜单共用一套全局菜单事件处理器）。
-pub const ID_ADDR: &str = "tray:gateway-addr";
 pub const ID_OPEN: &str = "tray:open-dashboard";
 pub const ID_CHECK_UPDATE: &str = "menu:check-update";
 pub const ID_SETTINGS: &str = "menu:settings";
@@ -99,9 +98,11 @@ pub fn refresh(app: &AppHandle) {
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let t = i18n::of(super::locale(app));
 
-    let addr = MenuItem::with_id(app, ID_ADDR, gateway_addr_line(app, t.gateway_addr), false, None::<&str>)?;
+    // 2026-10-09 按用户要求移除两项：
+    //   - 「网关地址」：不可点的信息行，地址在面板与设置里都能看到，托盘里占位不值当
+    //   - 「检查更新…」：应用菜单（`menus.rs:75,145`）已有同一项且共用同一个 id，
+    //     从托盘去掉**不失去能力**（cmd 事件处理器仍在 `menus.rs:177`）
     let open = MenuItem::with_id(app, ID_OPEN, t.open_dashboard, true, None::<&str>)?;
-    let check = MenuItem::with_id(app, ID_CHECK_UPDATE, t.check_for_updates, true, None::<&str>)?;
     // macOS 已把「设置…」放进 App 菜单（Cmd+,），托盘不再重复（`main.js:1492-1495`）。
     let settings: Option<MenuItem<Wry>> = if cfg!(target_os = "macos") {
         None
@@ -109,10 +110,9 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         Some(MenuItem::with_id(app, ID_SETTINGS, t.settings, true, None::<&str>)?)
     };
     let quit = MenuItem::with_id(app, ID_QUIT, t.quit_app, true, None::<&str>)?;
-    let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
 
-    let mut items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = vec![&addr, &sep1, &open, &check];
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = vec![&open];
     if let Some(settings) = &settings {
         items.push(settings);
     }
@@ -121,16 +121,9 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     Menu::with_items(app, &items)
 }
 
-/// 第一项（不可点）的文案：`网关地址：http://127.0.0.1:<port>/v1`（全角冒号，同 `main.js:1488`）。
-///
-/// 端口来自 `gateway::Gateway`（自适应端口，`gateway.rs`）。取不到 state 时（例如
-/// 开发期 `IROUTER_PANEL_URL` 那条不拉 sidecar 的路径）只显示标签，不编造端口。
-fn gateway_addr_line(app: &AppHandle, label: &str) -> String {
-    match app.try_state::<crate::gateway::Gateway>() {
-        Some(gw) => format!("{label}：http://127.0.0.1:{}/v1", gw.port),
-        None => label.to_string(),
-    }
-}
+// 这里原先有 `gateway_addr_line()`（把网关地址渲染成不可点的一行，`main.js:1488`）。
+// 2026-10-09 按用户要求从托盘移除该项，函数随之删除——**别照着 Electron 版再加回来**：
+// 地址在面板与设置里都看得到，托盘里再占一行不值当。
 
 /// 对齐 `desktop/main.js:401-404` 的 `trayTooltip()`：`iRouter 网关 :20128`。
 fn tooltip(app: &AppHandle) -> String {
