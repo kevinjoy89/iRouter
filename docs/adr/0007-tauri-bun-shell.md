@@ -8,7 +8,12 @@ v0.3.3 实测：dmg 139.3 MiB、解压 .app 324 MiB，其中 Electron 运行时 
 
 裁剪类手段已经用尽，没有剩余空间可挖：`electronLanguages` 已把 275 个语言目录（49.9 MiB）裁到 14 个（4.7 MiB），`asar` 开启、`files` 是 4 项白名单、产物里 0 个 source map、`app.asar` 只有 104 KiB。剩下的可裁项（SwiftShader 15.8 MiB、`chrome_*_percent.pak` 1.9 MiB）也只够把 dmg 压到 ~120 MiB。
 
-顺带回收的稳态内存：实测 5 个进程合计 **668 MB**（GPU 277 / 渲染 203 / 网关 105 / 主 72 / 网络 11，见 `docs/packaged-runtime-footprint.zh-CN.md`）。其中约 563 MB 是 Chromium 的多进程开销，随壳一起消失；系统 webview 仍有代价，但量级估算落在 200–300 MB（**未实测，属估算**）。
+顺带回收的稳态内存：实测 5 个进程合计 **668 MB**（GPU 277 / 渲染 203 / 网关 105 / 主 72 / 网络 11，见 `docs/packaged-runtime-footprint.zh-CN.md`）。其中约 563 MB 是 Chromium 的多进程开销，随壳一起消失；系统 webview 仍有代价。
+**2026-10-09 实测（v0.4.0 安装版运行中，同一口径 RSS）**：4 个进程合计 **301.1 MB** ——
+壳 102.7 / 网关 78.7 / WebKit WebContent 106.2 / WebKit Networking 13.5。
+即 **668 → 301 MB（−54.9%）**。估算区间 200–300 MB 的上沿被命中，估算成立。
+（口径说明：WebKit 的辅助进程父进程是 `launchd`，不在应用进程树里，靠 `lsof` 的文件句柄归属；
+与 Electron 基线的测法一致，可直接比较。）
 
 ## 为什么是 Tauri，不是别的壳
 

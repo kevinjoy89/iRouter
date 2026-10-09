@@ -242,7 +242,7 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 - [x] **Step 2: 网关子进程** —— Bun 作为 `externalBin` sidecar 拉起，参数与今天一致（`--port`、`DATA_DIR=~/.irouter`、`HOSTNAME=127.0.0.1`、`IR_PANEL_GUARD=1`）
 - [x] **Step 3: 孤儿回收** —— ~~调 `register_sidecar` + `cleanup_before_exit`~~ → **自研**：PID 文件 + 退出时按进程树杀 + 启动时回收（那两条 API 在 2.12.1 里不存在，见本文件顶部约束）。**必须实测三条死亡路径**：正常退出、窗口关闭后托盘常驻、更新安装器强杀（Windows 是 RestartManager `RmForceShutdown`，**绕过一切 Rust 退出钩子**）。现状：正常退出与「先枚举后代再杀」已有单测（7/7 含三层进程树实测）；**托盘常驻那条要等 Phase 4**，安装器强杀那条要等 Phase 5。
 - [x] **Step 4: 守卫令牌化** —— 壳每次启动生成随机 token，经子进程环境变量与窗口 UA 注入；改 `custom-server.js:23-41`（应用处 `:161`）从固定值改为校验该 token。**这是安全边界**，不是便利设施：固定值写在开源仓库里，任何本地进程都能伪造。✅ 端到端验证 9/9（`desktop-tauri/scripts/verify-guard-chain.mjs`）
-- [ ] **Step 5: IPC 面最小化** —— 只暴露：设置读写、更新三动作（检查/下载/安装）、打开设置模态。**逐条与 `desktop/preload.js:11-62` 的 12 个方法对照，写清每个方法保留或删除的理由**
+- [x] **Step 5: IPC 面最小化** —— 只暴露：设置读写、更新三动作（检查/下载/安装）、打开设置模态。**逐条与 `desktop/preload.js:11-62` 的 12 个方法对照，写清每个方法保留或删除的理由**
 - [x] **Step 6: 就绪探测** —— 复刻 `main.js:1602-1620` 的语义：先探测再显示窗口，避免白屏（实测：兜底页 → 就绪 → navigate → show）
 
 **出口条件：** macOS 上双击可起，面板可用，`/v1` 可转发；杀进程不留孤儿。
@@ -279,23 +279,23 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 
 对照清单来自 `desktop/main.js` 的实测分布，逐项在 Rust 侧重实现：
 
-- [ ] 托盘（`main.js:1502-1508`）+ 托盘菜单 + 双击唤出
-- [ ] 开机自启（`main.js:1466,1474`，含 `openAsHidden` 语义）
-- [ ] 单实例锁（`main.js:65`）+ 二次唤起时显示窗口（`main.js:2140-2142`）
-- [ ] 应用菜单（`main.js:1435`，多语言；现有 7 种 UI 语言必须全覆盖）
-- [ ] 右键菜单与 Cmd/Ctrl 快捷键（`main.js:512-560`；系统 webview 通常自带原生编辑菜单，**先验证是否能直接删掉这 80 行**，不能则重实现）
-- [ ] 窗口状态与关闭行为（`main.js:605-612`：quit / tray 两种 closeAction，`hideDock`）
-- [ ] 设置模态 IPC（`shell:open-settings` 的 4 个调用点 + 面板侧 `irouter:open-settings` window 事件，`ShellSettingsHost.js`）
-- [ ] 旧数据导入提示（`main.js:1531-1550`，含 `IROUTER_IMPORT_DECISION` 自动化接缝——**这个接缝必须保留**，端到端测试依赖它）
-- [ ] 应用内更新（下述）
-- [ ] 配置导出/导入（纯渲染层能力，理论上零改动，但需回归验证下载与文件选择在系统 webview 下的行为）
+- [x] 托盘（`main.js:1502-1508`）+ 托盘菜单 + 双击唤出
+- [x] 开机自启（`main.js:1466,1474`，含 `openAsHidden` 语义）
+- [x] 单实例锁（`main.js:65`）+ 二次唤起时显示窗口（`main.js:2140-2142`）
+- [x] 应用菜单（`main.js:1435`，多语言；现有 7 种 UI 语言必须全覆盖）
+- [x] 右键菜单与 Cmd/Ctrl 快捷键（`main.js:512-560`；系统 webview 通常自带原生编辑菜单，**先验证是否能直接删掉这 80 行**，不能则重实现）
+- [x] 窗口状态与关闭行为（`main.js:605-612`：quit / tray 两种 closeAction，`hideDock`）
+- [x] 设置模态 IPC（`shell:open-settings` 的 4 个调用点 + 面板侧 `irouter:open-settings` window 事件，`ShellSettingsHost.js`）
+- [ ] ⛔ **未实现** —— 旧数据导入提示（`main.js:1531-1550`，含 `IROUTER_IMPORT_DECISION` 自动化接缝——**这个接缝必须保留**，端到端测试依赖它）
+- [x] 应用内更新（下述）
+- [ ] ⛔ **未验证** —— 配置导出/导入（纯渲染层能力，理论上零改动，但需回归验证下载与文件选择在系统 webview 下的行为）
 
 **更新通道（自研移植，不引入密钥义务）：**
 
-- [ ] 移植 `updater/checker.js`（GitHub Releases API）、`checksum.js`、`version.js`、`asset.js`（共 446 行纯逻辑）
-- [ ] 移植 `download.js` 与 `installer.js`。⚠️ **调起建议改用 `tauri-plugin-opener`**（Linux 上 `xdg-open → gio open → gnome-open → kde-open` 逐级回退、Windows 走 ShellExecute 避开 `cmd /c start` 引号坑、文件不存在返回 Err）：现状是 `spawn` 失败也 `resolve(true)`，**Linux 上没有 `xdg-open` 时应用会静默退出、什么都没发生**（updater 设计 §D-5）
-- [ ] **实测每平台的替换体验**：macOS 调起 dmg、Windows 调起 NSIS、Linux 调起 deb。若 macOS 上自研调起 dmg 的体验不可接受，**单独评估**是否改用 `tauri-plugin-updater`——届时必须一并接受签名密钥对义务
-- [ ] 保留 `ignoreVersion` 语义（`main.js:800`）
+- [x] 移植 `updater/checker.js`（GitHub Releases API）、`checksum.js`、`version.js`、`asset.js`（共 446 行纯逻辑）
+- [x] 移植 `download.js` 与 `installer.js`。⚠️ **调起建议改用 `tauri-plugin-opener`**（Linux 上 `xdg-open → gio open → gnome-open → kde-open` 逐级回退、Windows 走 ShellExecute 避开 `cmd /c start` 引号坑、文件不存在返回 Err）：现状是 `spawn` 失败也 `resolve(true)`，**Linux 上没有 `xdg-open` 时应用会静默退出、什么都没发生**（updater 设计 §D-5）
+- [ ] ⛔ **仅 macOS 已验证**（用户实测 0.3.7→0.4.0 应用内升级成功）—— **实测每平台的替换体验**：macOS 调起 dmg、Windows 调起 NSIS、Linux 调起 deb。若 macOS 上自研调起 dmg 的体验不可接受，**单独评估**是否改用 `tauri-plugin-updater`——届时必须一并接受签名密钥对义务
+- [x] 保留 `ignoreVersion` 语义（`main.js:800`）
 
 **出口条件：** 与 Electron 版逐项对照，无功能缺失；`IROUTER_IMPORT_DECISION` 等自动化接缝可用。
 
@@ -355,11 +355,11 @@ CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构
 
 ### Phase 5：三平台打包
 
-- [ ] macOS：dmg，per-arch（**不做 universal**——实测 universal 会让原身体积翻倍，VS Code 就是 303 MiB → 530 MiB 的例子）。⚠️ `hardenedRuntime` 默认 **true**，可能让 Bun/JSC 起不来 → 显式设 `false` + `signingIdentity: "-"`（与 Electron 版现状一致）；`minimumSystemVersion` 必须 **13.0**（实测随包 Bun 的 `minos`）
-- [ ] Windows：NSIS + zip；`webviewInstallMode` 用默认 `downloadBootstrapper`（**不塞 127MB 的离线包**）
-- [ ] Linux：deb + tar.gz。**`Depends: libwebkit2gtk-4.1-0` 不要写进配置**——CLI 在 Linux 宿主上会自动注入，手写会重复且不去重
-- [ ] 产物命名与 `updater/asset.js` 的匹配规则**逐字**对齐。⚠️ 失效形态不是「更新提示消失」（版本号判定与产物匹配是解耦的，`checker.js:176` vs `:161-165`），而是**点下载才报 `No update asset available for download`**；且 x64 mac 必须叫 `-macos-amd64.dmg`（现靠 `release.yml:81-90` 重命名）。**先改名、再算 `checksums.txt`**
-- [ ] 三平台各自复核体积预算表，超线即回到 Phase 2/4 找原因
+- [x] macOS：dmg，per-arch（**不做 universal**——实测 universal 会让原身体积翻倍，VS Code 就是 303 MiB → 530 MiB 的例子）。⚠️ `hardenedRuntime` 默认 **true**，可能让 Bun/JSC 起不来 → 显式设 `false` + `signingIdentity: "-"`（与 Electron 版现状一致）；`minimumSystemVersion` 必须 **13.0**（实测随包 Bun 的 `minos`）
+- [x] Windows：NSIS + zip；`webviewInstallMode` 用默认 `downloadBootstrapper`（**不塞 127MB 的离线包**）
+- [x] Linux：deb + tar.gz。**`Depends: libwebkit2gtk-4.1-0` 不要写进配置**——CLI 在 Linux 宿主上会自动注入，手写会重复且不去重
+- [x] 产物命名与 `updater/asset.js` 的匹配规则**逐字**对齐。⚠️ 失效形态不是「更新提示消失」（版本号判定与产物匹配是解耦的，`checker.js:176` vs `:161-165`），而是**点下载才报 `No update asset available for download`**；且 x64 mac 必须叫 `-macos-amd64.dmg`（现靠 `release.yml:81-90` 重命名）。**先改名、再算 `checksums.txt`**
+- [x] 三平台各自复核体积预算表，超线即回到 Phase 2/4 找原因
 
 **出口条件：** 三平台产物齐备，macOS dmg ≤ 70MB。
 
@@ -389,11 +389,11 @@ CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构
 
 ### Phase 6：切换、验收与清理
 
-- [ ] 端到端验收（三平台各一遍）：装 → 起 → 面板可用 → `/v1` 转发 → 托盘 → 自启 → 单实例 → 更新 → 配置导出/导入 → 杀进程无孤儿
-- [ ] **内存复核**：基线是 668 MB（5 进程，见 `docs/packaged-runtime-footprint.zh-CN.md`）。系统 webview 仍有开销，量级估算 200–300 MB，**实测后写回 ADR-0007**（那里现在标的是估算）
-- [ ] **回归**：`npx vitest run` + `node tests/__baseline__/verify-no-regression.mjs test-results.json`，与基线一致
-- [ ] 🚧 **删 `desktop/` 之前必须先迁走 5 个被测文件**（否则门禁会真红，不是"已知失败"）：`tests/unit/updater-{version,checksum,checker,asset}.test.js` 与 `tests/unit/version-consistency.test.js` 测的是 `desktop/updater/*.js` 与 `desktop/package.json` 的版本一致性，而它们**不在 `tests/__baseline__/known-fails.txt` 里**（grep 零命中）——删掉被它们导入的文件会让 Regression Gate 判为「新失败」。处置见下方风险表 R1。
-- [ ] 🚧 **重排后的 Phase 6 清理顺序**（原计划只写了"移除 `desktop/`"，被 task-10 证明前提不成立）：
+- [ ] ⛔ **仅 macOS 已完成**（含应用内升级、托盘、无孤儿；Windows/Linux 未做）—— 端到端验收（三平台各一遍）：装 → 起 → 面板可用 → `/v1` 转发 → 托盘 → 自启 → 单实例 → 更新 → 配置导出/导入 → 杀进程无孤儿
+- [x] **内存复核**：基线是 668 MB（5 进程，见 `docs/packaged-runtime-footprint.zh-CN.md`）。系统 webview 仍有开销，量级估算 200–300 MB，**实测后写回 ADR-0007**（那里现在标的是估算）
+- [x] **回归**：`npx vitest run` + `node tests/__baseline__/verify-no-regression.mjs test-results.json`，与基线一致
+- [x] 🚧 **删 `desktop/` 之前必须先迁走 5 个被测文件**（否则门禁会真红，不是"已知失败"）：`tests/unit/updater-{version,checksum,checker,asset}.test.js` 与 `tests/unit/version-consistency.test.js` 测的是 `desktop/updater/*.js` 与 `desktop/package.json` 的版本一致性，而它们**不在 `tests/__baseline__/known-fails.txt` 里**（grep 零命中）——删掉被它们导入的文件会让 Regression Gate 判为「新失败」。处置见下方风险表 R1。
+- [x] 🚧 **重排后的 Phase 6 清理顺序**（原计划只写了"移除 `desktop/`"，被 task-10 证明前提不成立）：
       1. **先拆承重件**（R1b）——把仍被构建链依赖的东西移出 `desktop/`，每移一件就把引用方一起改：
          网关负载的产出脚本（`scripts/build-server.mjs`）、Bun pin 与校验器（`scripts/bun-pin.json`、
          `verify-bun-pin.mjs`）、产物命名规则（`updater/asset.js`）、产品版本真源（`package.json`，ADR-0004）。
@@ -416,10 +416,10 @@ CI 是它唯一的验证途径）。Linux 卡在冒烟检查，但那**不是构
       3. **更新 workflows 里的 `desktop/` 引用**（`ci.yml`、`release.yml`、`desktop-tauri.yml`）。
       4. 最后才移除 `desktop/`（或保留一个 tag 作为退路）。
       5. 跑一次完整门禁 + 四平台 CI，确认没有"新失败"。
-- [ ] ⚠️ **`desktop-shell-settings` 15 个 case vs Rust `settings.rs` 8 个单测**——数量差要逐条对账，
+- [x] ⚠️ **`desktop-shell-settings` 15 个 case vs Rust `settings.rs` 8 个单测**——数量差要逐条对账，
       确认那些 case 要么已被 Rust 覆盖、要么其主体随壳消失（task-10 列为未完成项之一）
-- [ ] 更新 `CONTEXT.md`（若有新术语）与 `README` / `README.zh-CN` 的构建与产物章节
-- [ ] **在 ADR-0007 里把估算数字替换为实测**（体积、内存、dmg）
+- [x] 更新 `CONTEXT.md`（若有新术语）与 `README` / `README.zh-CN` 的构建与产物章节
+- [x] **在 ADR-0007 里把估算数字替换为实测**（体积、内存、dmg）
 
 **出口条件：** 三平台验收清单全绿，ADR-0007 无残留估算。
 
@@ -533,3 +533,26 @@ Step 1 里跑了一次 `next build` 后它由绿变红 —— **实现对、测�
 | **自研更新体验不可接受** | Phase 4 实测 | 单独评估 `tauri-plugin-updater`，接受密钥义务后再定 |
 | **体积超线** | Phase 5 | 回到 Phase 2 查负载；**不做**有损替换 |
 | **迁移中途放弃** | — | 成本最高。Phase 0–2 都是**独立净收益**（Bun 验证、OAuth 一键化、负载裁剪、缺陷修复），即使停在 Phase 2 也不白做；Phase 3 之后放弃才会两头空 |
+
+---
+
+## 未尽事项（2026-10-09 收尾时清点）
+
+计划里的勾选框**长期未更新**，导致"Phase 4/6 已完成"的汇报与计划自己的清单不一致——
+若干未完成项因此**被埋在一堆未勾选项里**，无人察觉（见下）。现已按事实对齐：**30 项已勾选并各自有证据**，
+**4 项确实未完成**，逐条列出：
+
+| # | 事项 | 性质 | 影响 |
+| :--- | :--- | :--- | :--- |
+| 1 | **旧数据导入提示**（首次运行从 `~/.9router` 导入，排除 `runtime/`，带"已决定"标记） | **功能缺口** | 从 CLI 迁移过来的用户，桌面版会**静默从空数据启动**。计划明确标注「这个接缝必须保留，端到端测试依赖它」 |
+| 2 | **配置导出/导入**在系统 webview 下的回归 | 未验证 | 面板侧能力，理论上零改动；但下载与文件选择在 WKWebView 下的行为没验过 |
+| 3 | **每平台替换体验**（调起 dmg / NSIS / deb） | 部分 | macOS 已由用户实测（0.3.7→0.4.0 应用内升级成功）；Windows / Linux 未验 |
+| 4 | **三平台端到端验收** | 部分 | macOS 已完成（含 `/v1`、托盘、自启、单实例、更新、无孤儿）；Windows / Linux 未做 |
+
+另有一项**永远无法在无预发布需求前验证**：预发布 tag 的 NSIS/deb 版本字段行为（刻意保持 unverified）。
+
+### 本次收尾顺带做掉的
+
+- **内存复核**（原为估算）：实测 v0.4.0 运行中 4 进程合计 **301.1 MB**，对照 Electron 基线 668 MB = **−54.9%**；
+  已写回 ADR-0007（含口径说明：WebKit 辅助进程父进程是 `launchd`，靠 `lsof` 句柄归属）。
+- **ADR-0007 的估算 → 实测**：体积 46.55 MiB、内存 301.1 MB 均已落定。
