@@ -85,11 +85,45 @@ pub fn settings_payload(app: &AppHandle) -> Result<Value, String> {
         return Err("壳层设置序列化结果不是对象".into());
     };
     map.insert("launchAtLogin".into(), Value::Bool(autostart_enabled(app)));
-    map.insert(
-        "appVersion".into(),
-        Value::String(app.package_info().version.to_string()),
-    );
+    let app_version = app.package_info().version.to_string();
+    map.insert("appVersion".into(), Value::String(app_version.clone()));
+    // 陈旧「有更新」的第二道防线（第一道在 `updater::checker` 的缓存失效里）
+    sanitize_stale_update(&mut value, &app_version);
     Ok(value)
+}
+
+/// 抹掉 `lastCheckResult` 里**对当前应用版本已不成立**的 `updateAvailable`。
+///
+/// ## 为什么需要它（与 `checker.rs` 的缓存版本失效是两道独立防线）
+///
+/// 用户报告的历史问题：**升级到最新版后，之前提示的"可用更新"依然留着**——
+/// 面板侧栏的红点、"有新版本可用"、版本卡片一直在，**只有手动点一次「检查更新」才消失**。
+///
+/// - **第一道防线**（`updater::checker`）：缓存命中必须同时满足"同一应用版本"，
+///   于是启动 3s 后的静默检查会重算 → 覆盖掉旧结论。这解决了**开着自动检查**的用户。
+/// - **但 `checkUpdates=false` 的用户根本不触发检查**，旧结论会一直挂着。
+///   而这里是设置进面板的**唯一出口**，在此判定一次适用范围，两种情况就都堵住了。
+///
+/// 判据与缓存侧一致：结论里的 `current` 必须等于当前运行版本；不等（或字段缺失）
+/// 就说明那个"可用更新"是针对**别的版本**说的，对现在不成立 → 一律报 `false`。
+///
+/// 返回是否发生了修正（便于日志与测试）。
+pub fn sanitize_stale_update(settings: &mut Value, app_version: &str) -> bool {
+    let Some(result) = settings
+        .get_mut("lastCheckResult")
+        .and_then(|v| v.as_object_mut())
+    else {
+        return false;
+    };
+    let conclusion_matches = result.get("current").and_then(|v| v.as_str()) == Some(app_version);
+    if conclusion_matches {
+        return false;
+    }
+    if result.get("updateAvailable").and_then(|v| v.as_bool()) != Some(true) {
+        return false; // 本来就没说"有更新"，不用动
+    }
+    result.insert("updateAvailable".into(), Value::Bool(false));
+    true
 }
 
 /// 对齐 `main.js:1464-1470` 的 `autostartEnabled()`（读失败一律 false）。
@@ -202,5 +236,54 @@ pub fn request_update_check(app: &AppHandle) {
         json!({ "force": true }),
     ) {
         log::warn!("发送 shell:check-update-requested 失败：{e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// ★ 显示层防线：关闭自动检查的用户也要能看到旧结论失效。
+    #[test]
+    fn stale_update_claim_is_cleared() {
+        let mut v = json!({
+            "lastCheckResult": { "current": "0.3.7", "latest": "0.4.0", "updateAvailable": true }
+        });
+        assert!(
+            sanitize_stale_update(&mut v, "0.4.0"),
+            "结论是在 0.3.7 上得出的，对 0.4.0 不成立，应当被修正"
+        );
+        assert_eq!(v["lastCheckResult"]["updateAvailable"], json!(false));
+        // 只动这一个字段：其余信息仍保留给面板显示"上次检查"用
+        assert_eq!(v["lastCheckResult"]["latest"], json!("0.4.0"));
+        assert_eq!(v["lastCheckResult"]["current"], json!("0.3.7"));
+    }
+
+    #[test]
+    fn matching_version_is_left_untouched() {
+        let mut v = json!({
+            "lastCheckResult": { "current": "0.3.7", "latest": "0.4.0", "updateAvailable": true }
+        });
+        assert!(!sanitize_stale_update(&mut v, "0.3.7"));
+        assert_eq!(
+            v["lastCheckResult"]["updateAvailable"],
+            json!(true),
+            "同版本下的「有更新」是真的，绝不能抹掉"
+        );
+    }
+
+    #[test]
+    fn missing_or_unrelated_payloads_are_safe() {
+        // 没有 lastCheckResult
+        let mut a = json!({ "closeAction": "dock" });
+        assert!(!sanitize_stale_update(&mut a, "0.4.0"));
+        // 结论里缺 current（旧格式/手改）：宁可不改，也不误报有更新
+        let mut b = json!({ "lastCheckResult": { "latest": "0.4.0", "updateAvailable": true } });
+        assert!(sanitize_stale_update(&mut b, "0.4.0"));
+        assert_eq!(b["lastCheckResult"]["updateAvailable"], json!(false));
+        // 本来就没说有更新 → 无需改动（也不该报告"修正了"）
+        let mut c = json!({ "lastCheckResult": { "current": "0.3.7", "updateAvailable": false } });
+        assert!(!sanitize_stale_update(&mut c, "0.4.0"));
     }
 }

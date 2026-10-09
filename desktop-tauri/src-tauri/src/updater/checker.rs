@@ -209,12 +209,25 @@ pub async fn check_for_updates<F: Fetcher + ?Sized>(
 
     // 短路 2：4h 缓存（命中缓存也**不**在这里写回 lastCheckAt —— 那在 commands 侧，
     // 且现实现不区分 cached，见设计 §2.8 的滑动窗口）
+    //
+    // ★ **与 JS 基线的一处有意差异**（2026-10-09，用户报告的历史问题）：
+    //   JS 只看时间（`Date.now() - lastCheckAt < 4h`）。于是**在 4h 窗口内升级应用**之后，
+    //   旧缓存会继续说"有新版本可用" —— 而那个"新版本"正是用户现在跑的版本。
+    //   实测症状：升级到 0.4.0 后，面板侧栏的红点、"有新版本可用"、版本卡片一直留着，
+    //   **只有手动点一次「检查更新」才会消失**。
+    //   根因是**缓存的适用条件不完整**：它是在另一个应用版本下算出来的结论，
+    //   对当前版本不成立。加上版本比对后，升级当天就会自动重算。
     if !opts.force {
         if let (Some(at), Some(stored)) = (opts.last_check_at, opts.last_check_result) {
+            // 缺 `current` 字段（旧格式/手改）按"不适用"处理 —— 宁可多跑一次联网检查，
+            // 也不要拿一个无法判定适用性的结论去糊弄用户。
+            let same_app_version = stored.get("current").and_then(|v| v.as_str()) == Some(current);
             // JS: `new Date(lastCheckAt).getTime()`；非法日期 → NaN → 比较为 false → 联网
-            if let Some(then) = clock::parse_iso8601_ms(at) {
-                if now_ms - then < CACHE_INTERVAL_MS {
-                    return cached_from(stored);
+            if same_app_version {
+                if let Some(then) = clock::parse_iso8601_ms(at) {
+                    if now_ms - then < CACHE_INTERVAL_MS {
+                        return cached_from(stored);
+                    }
                 }
             }
         }
@@ -460,6 +473,31 @@ mod tests {
 
         let r2 = block_on(check_for_updates(&*f, &opts("9.9.9", true), NOW));
         assert!(!r2.update_available);
+    }
+
+    /// ★ 用户报告的历史问题的回归测试：**升级后旧结论必须失效**。
+    ///
+    /// 场景：0.9.9 → 升级到 0.3.1（版本号只作区分用）。缓存里存着"在 0.9.9 上检查出
+    /// 0.3.1 可用"的结论且时间在 4h 内。JS 只按时间判缓存 → 直接返回旧结论 →
+    /// 面板继续显示"有新版本可用"，而用户跑的**就是** 0.3.1。
+    #[test]
+    fn cache_from_a_different_app_version_is_not_trusted() {
+        let stored = serde_json::json!({
+            "current": "0.9.9", "latest": "0.3.1", "updateAvailable": true
+        });
+        let at = clock::iso8601_from_unix_ms(NOW - 60 * 1000); // 1 分钟前，远在 4h 内
+        let f = MockFetcher::ok(mock_releases());
+        let mut o = opts("0.3.1", false); // 当前跑的是 0.3.1
+        o.last_check_at = Some(&at);
+        o.last_check_result = Some(&stored);
+        let r = block_on(check_for_updates(&*f, &o, NOW));
+
+        assert_eq!(
+            f.call_count(),
+            1,
+            "缓存是别的应用版本下的结论，必须重算而不是直接采信"
+        );
+        assert!(!r.cached, "重算出来的结果不是 cached");
     }
 
     #[test]
