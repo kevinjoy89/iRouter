@@ -58,6 +58,9 @@ function sanitize(headers) {
     // Header mang thông tin máy → placeholder (xem MACHINE_HEADERS)
     const machine = MACHINE_HEADERS.get(k.toLowerCase());
     if (machine) s = machine;
+    // MiniMax Code 动态生成的随机会话 ID 与本机时区偏移 → placeholder
+    if (k.toLowerCase() === "x-mavis-session-id") s = "<UUID>";
+    if (k.toLowerCase() === "x-mavis-timezone-offset") s = "<TZ>";
     // User-Agent dạng "9Router/<ver>" — giữ tên app, khử phần version
     s = s.replace(/^(9Router)\/[\d.]+$/i, "$1/<VER>");
     out[k] = s;

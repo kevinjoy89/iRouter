@@ -1,4 +1,15 @@
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+let mockResponse = { status: 200, payload: new Uint8Array() };
+const mockConnect = vi.fn();
+
+vi.mock("http2", () => ({
+  default: {
+    connect: (...args) => mockConnect(...args),
+  },
+}));
+
 import {
   clearCursorModelCache,
   parseCursorUsableModels,
@@ -40,13 +51,33 @@ function model(id, name) {
   return field(1, concat(field(1, text(id)), field(4, text(name))));
 }
 
+function createMockClient(status, payload) {
+  const client = new EventEmitter();
+  client.close = vi.fn();
+  client.request = vi.fn(() => {
+    const req = new EventEmitter();
+    req.end = vi.fn(() => {
+      process.nextTick(() => {
+        req.emit("response", { ":status": String(status) });
+        if (payload?.length) {
+          req.emit("data", Buffer.from(payload));
+        }
+        req.emit("end");
+      });
+    });
+    return req;
+  });
+  return client;
+}
+
 describe("Cursor live model catalog", () => {
   beforeEach(() => {
     clearCursorModelCache();
+    mockConnect.mockReset();
+    mockConnect.mockImplementation(() => createMockClient(mockResponse.status, mockResponse.payload));
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
     clearCursorModelCache();
   });
 
@@ -65,7 +96,7 @@ describe("Cursor live model catalog", () => {
 
   it("fetches the account-specific catalog and caches it", async () => {
     const payload = concat(model("claude-4.6-opus", "Claude 4.6 Opus"));
-    global.fetch = vi.fn().mockResolvedValue(new Response(payload, { status: 200 }));
+    mockResponse = { status: 200, payload };
     const credentials = {
       accessToken: "cursor-token",
       providerSpecificData: { machineId: "machine-id" },
@@ -78,22 +109,12 @@ describe("Cursor live model catalog", () => {
       models: [{ id: "claude-4.6-opus", name: "Claude 4.6 Opus" }],
     });
 
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(global.fetch).toHaveBeenCalledWith(
-      "https://agent.api5.cursor.sh/agent.v1.AgentService/GetUsableModels",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.any(Uint8Array),
-        headers: expect.objectContaining({
-          "content-type": "application/proto",
-          accept: "application/proto",
-        }),
-      }),
-    );
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+    expect(mockConnect).toHaveBeenCalledWith("https://agent.api5.cursor.sh");
   });
 
   it("fails open when the Cursor catalog request fails", async () => {
-    global.fetch = vi.fn().mockResolvedValue(new Response("no", { status: 403 }));
+    mockResponse = { status: 403, payload: new Uint8Array() };
 
     await expect(resolveCursorModels({
       accessToken: "cursor-token",

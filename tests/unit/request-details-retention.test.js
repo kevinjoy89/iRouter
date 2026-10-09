@@ -23,7 +23,11 @@ beforeEach(() => {
   vi.resetModules();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // 若后台维护子进程尚未完全退出，等待其退出，避免删除临时目录引发竞争导致收尾日志报错
+  for (let i = 0; i < 40 && globalThis.__requestDetailsMaintenanceChild; i += 1) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
   try { global._dbAdapter?.instance?.close?.(); } catch {}
   delete global._dbAdapter;
   delete globalThis.__requestDetailsRetentionTimer;
@@ -260,11 +264,11 @@ describe("requestDetails 保留策略与上限钳制", () => {
     try {
       const { startRequestDetailsMaintenance, getMaintenanceState } = await import("@/lib/db/repos/requestDetailsRepo.js");
       startRequestDetailsMaintenance({ days: 7 });
-      for (let i = 0; i < 600 && !getMaintenanceState().finishedAt; i += 1) {
+      for (let i = 0; i < 600 && (!getMaintenanceState().finishedAt || globalThis.__requestDetailsMaintenanceChild); i += 1) {
         await new Promise((r) => setTimeout(r, 50));
       }
       // 等子进程 exit 回调里的收尾日志
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 100));
     } finally {
       console.log = origLog;
       console.warn = origWarn;

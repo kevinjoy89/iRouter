@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/localDb", () => ({
-  getSettings: async () => ({ requireApiKey: false, comboStrategy: "fallback" }),
+  getSettings: async () => ({ requireApiKey: false, comboStrategy: "fallback", autoRetry: { enabled: false } }),
   getModelAliases: async () => ({}),
   getComboByName: async (name) => fx.combos.find((c) => c.name === name) || null,
   getProviderNodes: async () => [],
