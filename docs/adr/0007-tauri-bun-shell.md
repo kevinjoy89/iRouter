@@ -54,3 +54,18 @@ Consequences:
 - 网关负载仍需顺手裁剪，否则预算被吃掉：`@img/sharp-libvips-darwin-arm64` 18 MiB 是死重（`next.config.mjs:31` 设了 `images: { unoptimized: true }`，且 `src/` 与 `open-sse/` 中 sharp 零引用），排除后 76.6 → 59 MiB。它同时是个缺陷：负载只在本机（arm64）构建一次，`dist:mac` 却带 `--x64`，x64 包里装的是 arm64 的 libvips
 - 上游同步保持不变（网关源码一行未动），这是选 Bun sidecar 而非重写的主要理由
 - ADR 0001 被本 ADR 取代，且不只是「被更好的方案取代」：**它的理由段与代码实际行为不符**（见上「OAuth 三通道」一节）
+
+## 关于 Rust 源码里的 `desktop/*.js` 引用
+
+Phase 6 Step 4 删除了 Electron 壳（提交 `f36b73fc` 是 `desktop/` **最后一次存在**的提交），
+但 `desktop-tauri/src-tauri/src/**` 里仍留有约 **49 处**对 `desktop/main.js:*`、
+`desktop/settings.js:*`、`desktop/updater/*.js` 的引用。**这是有意保留的溯源信息，不是待清理的残留。**
+
+理由：这些注释回答的是"这段 Rust 为什么这样写" —— 例如"对齐 `main.js:1452-1462` 的托盘菜单"、
+"`desktop/settings.js:82` 要求尾换行"。**删掉它们等于删掉决策依据**，将来维护者会重新问同一个问题。
+
+**要找这些文件**：`git show f36b73fc:desktop/main.js`（或 `git show f36b73fc:desktop/settings.js` 等），
+行号以该提交为准。
+
+唯一例外是**断言/日志文案**：面向排障的字符串若引用一个已不存在的文件，会把人引向死路 ——
+这类文案统一注明"已随 Phase 6 删除，见 git 历史 f36b73fc"。

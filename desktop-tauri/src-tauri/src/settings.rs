@@ -188,7 +188,10 @@ mod tests {
         let d = tmp("format");
         write(&d, json!({"closeAction": "quit"}));
         let text = std::fs::read_to_string(settings_path(&d)).unwrap();
-        assert!(text.ends_with("\n"), "必须有尾换行（对齐 desktop/settings.js:82）");
+        assert!(
+            text.ends_with("\n"),
+            "必须有尾换行（对齐 Electron 版 settings.js:82 —— 该文件已随 Phase 6 删除，见 git 历史 f36b73fc）"
+        );
         assert!(text.contains("\n  \"closeAction\""), "必须是 2 空格缩进");
     }
 

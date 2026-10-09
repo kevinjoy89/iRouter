@@ -97,17 +97,38 @@ jobs:
       # 版本一致性前置断言：产品版本真源是 desktop-tauri/package.json（ADR-0004 修订版），
       # tauri.conf.json 必须与它逐字一致。`pack-artifacts.mjs` 也会断言这一点，但那要等
       # 40 分钟构建之后；这里放在 checkout 之后几十秒内就红，失败信息也更直白。
-      - name: Assert version consistency (fail fast)
+      # 版本不变量，三重。**必须排在 "Sync version" 之前**：注入会把包版本改成 tag 版本，
+      # 而 `config.js` 的回退字面量是**入库状态**的一部分，注入后再比必然"不同步"。
+      # 发版的正确姿势是"先 bump 入库（含 config.js）再打 tag"，这道检查守的就是这个。
+      #
+      # 这三条对应 Phase 6 前 `tests/unit/version-consistency.test.js` 的 VC1/VC3 —— 那个文件随
+      # `desktop/` 退役，断言搬到这里（VC2 是 npm lock 自洽，随壳消失，无替代物也不需要）。
+      - name: Assert version invariants (fail fast)
         shell: bash
         run: |
           node -e '
+            const fs = require("fs");
+            const fail = (m) => { console.error("::error::" + m); process.exit(1); };
+
+            // ① 包版本与 Tauri 配置版本必须一致（两处都进产物：Info.plist / NSIS / deb）
             const pkg = require("./desktop-tauri/package.json").version;
             const conf = require("./desktop-tauri/src-tauri/tauri.conf.json").version;
-            if (pkg !== conf) {
-              console.error(`::error::版本不一致：desktop-tauri/package.json=${pkg}，tauri.conf.json=${conf}`);
-              process.exit(1);
-            }
-            console.log(`版本一致：${pkg}`);
+            if (pkg !== conf) fail(`版本不一致：desktop-tauri/package.json=${pkg}，tauri.conf.json=${conf}`);
+
+            // ② VC1：面板可见版本号在**裸构建**（CLI 形态 / 根目录直跑）时用的回退字面量，
+            //    必须等于产品号。漏改这里 = 那些形态的面板显示旧版本，而且**没有任何别的检查会红**
+            //    （桌面发行版会注入 NEXT_PUBLIC_APP_VERSION，把它盖住）。
+            const configSrc = fs.readFileSync("./src/shared/constants/config.js", "utf8");
+            const m = configSrc.match(/process\.env\.NEXT_PUBLIC_APP_VERSION\s*\|\|\s*"([^"]+)"/);
+            if (!m) fail("config.js 里找不到版本行（期望形如 process.env.NEXT_PUBLIC_APP_VERSION || "x.y.z"）");
+            if (m[1] !== pkg) fail(`config.js 回退值 ${m[1]} ≠ 产品号 ${pkg}（config.js: 那行必须与 desktop-tauri/package.json 同步）`);
+
+            // ③ VC3：产品号必须与上游基线号**解耦**（ADR-0004）。相等说明有人"顺手统一"了——
+            //    那会同时改变 UA / X-Msh-Version 这类要与上游对齐的标识，回退该决策需要重新打包验证。
+            const baseline = require("./package.json").version;
+            if (pkg === baseline) fail(`产品号 ${pkg} 与上游基线号相同 —— ADR-0004 要求二者解耦，勿"顺手统一"`);
+
+            console.log(`版本不变量通过：产品号 ${pkg}（tauri.conf 一致）｜config.js 回退值一致｜与上游基线 ${baseline} 已解耦`);
           '
 
       # 发版时 tag 决定版本（release.yml 的 version job 已解析并校验过一次，这是第二道）。

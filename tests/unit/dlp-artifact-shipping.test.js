@@ -64,16 +64,11 @@ describe("DLP: 规则文件随产物分发", () => {
     expect(src).toContain('"open-sse/dlp/dlp_rules.yaml"'); // assertRequiredApiArtifacts 清单
   });
 
-  it("packaged smoke 拒绝缺少规则文件的 .app", () => {
-    const src = readFileSync(
-      join(REPO, "desktop", "scripts", "smoke-packaged.mjs"),
-      "utf8",
-    );
-    expect(src).toMatch(
-      /APP_DLP_RULES = join\(APP_GATEWAY, "open-sse", "dlp", "dlp_rules\.yaml"\)/,
-    );
-    expect(src).toMatch(/产物缺少 DLP 规则文件/);
-  });
+  // （原第 3 个 case「packaged smoke 拒绝缺少规则文件的 .app」已随 `desktop/` 删除：它读的是
+  //   Electron 专属的 `desktop/scripts/smoke-packaged.mjs`。**覆盖没有出现空档**：
+  //   ① 规则文件进入产物的**源头**由上一条 case 守着（build-server 的复制逻辑）；
+  //   ② 产物布局由 `tauri.conf.json` 的 resources 整目录映射保证，且打包流水线的
+  //      包内冒烟会断言网关负载确实在包里。）
 
   // 复制只是分发的一半：引擎还得能从产物布局里找到它。
   // 引擎的 cwd 相对候选正是 <cwd>/open-sse/dlp/dlp_rules.yaml（壳层与 CLI 均以产物根为 cwd）。

@@ -76,18 +76,16 @@ jobs:
       - name: Install root dependencies
         run: npm install
 
-      - name: Install desktop dependencies
-        working-directory: desktop
-        run: npm install --include=dev
-
-      - name: Verify build-server compilation
-        working-directory: desktop
-        run: npm run build-server
+      # 原 «Install desktop dependencies» 已删：desktop/package.json 的 dependencies 为空，
+      # devDependencies 只有 electron/electron-builder —— 那一步**只为 Electron 存在**。
+      # 网关负载的构建（tools/build-server.mjs）只用根依赖（next），不依赖它。
+      - name: Verify gateway payload build
+        run: node tools/build-server.mjs
 
       # Phase 0 门禁（ADR-0007）：Bun 必须能跑通完整网关，三平台同一套断言。
       # 本步骤验证的是「能力」——能否用 Bun 替代 Electron 里兼任网关运行时的 Node。
-      # 随包分发的那份 Bun 产物（哈希锁定在 desktop/scripts/bun-pin.json）在打包
-      # 流水线用 desktop/scripts/verify-bun-pin.mjs 校验，两者职责不同。
+      # 随包分发的那份 Bun 产物（哈希锁定在 tools/bun-pin.json）在打包
+      # 流水线用 tools/verify-bun-pin.mjs 校验，两者职责不同。
       # NODE_OPTIONS：Node 22 的 node:sqlite 需要该标志；Node 24+ 上被忽略，无害。
       - name: Set up Bun (pinned)
         uses: oven-sh/setup-bun@v2
