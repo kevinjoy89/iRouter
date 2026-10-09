@@ -11,7 +11,8 @@
     "verify:shell": "node scripts/verify-shell.mjs",
     "pack": "node scripts/pack-artifacts.mjs",
     "verify:updater-shim": "node scripts/verify-updater-shim.mjs",
-    "gateway:build": "node ../tools/build-server.mjs"
+    "gateway:build": "node ../tools/build-server.mjs",
+    "verify:legacy-import": "node scripts/verify-legacy-import.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1"
