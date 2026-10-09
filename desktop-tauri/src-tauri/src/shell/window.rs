@@ -31,8 +31,14 @@ pub fn download_handler()
                 log::info!("[download] 请求 {url} → 落盘 {destination:?}");
             }
             DownloadEvent::Finished { url, path, success } => {
+                // `path` 可能是 `None`（wry 在 macOS 上没回填它）。**别打成 "→ None"** ——
+                // 那看起来像"落盘失败"，会让排障往错方向走；真实路径已在 Requested 里记过。
+                let where_ = match &path {
+                    Some(p) => format!("{p:?}"),
+                    None => "（wry 未回填路径，实际落盘位置见上面 Requested 那条）".to_string(),
+                };
                 if success {
-                    log::info!("[download] 完成 {url} → {path:?}");
+                    log::info!("[download] 完成 {url} → {where_}");
                 } else {
                     // 失败必须留痕：否则又是一次"点了没反应"
                     log::error!("[download] 失败 {url}（path={path:?}）");
