@@ -36,5 +36,5 @@
 
 ## 阶段 5：变更归档与分支合并
 - [x] 在 `openspec/changes/upstream-sync-v0.5.99/` 下归档 `proposal.md`、`design.md`、`tasks.md`
-- [ ] 提交主合并 Commit
-- [ ] 将已完全验证的 `sync/v0.5.99` 分支合并回 `main`
+- [x] 提交主合并 Commit
+- [x] 将已完全验证的 `sync/v0.5.99` 分支合并回 `main`
