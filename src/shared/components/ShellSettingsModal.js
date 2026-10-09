@@ -16,6 +16,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Modal from "@/shared/components/Modal";
 import Button from "@/shared/components/Button";
+import SettingsNav from "@/shared/components/settings/SettingsNav";
 import GeneralSettings from "@/shared/components/settings/GeneralSettings";
 import UpdateSettings, {
   useSoftwareUpdate,
