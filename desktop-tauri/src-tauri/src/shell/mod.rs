@@ -61,7 +61,7 @@ use tauri::{AppHandle, Manager, RunEvent, WindowEvent, Wry};
 // 当前 crate 内没有调用者，故允许 unused。
 #[allow(unused_imports)]
 pub use commands::open_settings;
-pub use window::{opened_at_login, AUTOSTART_ARG};
+pub use window::{download_handler, opened_at_login, AUTOSTART_ARG};
 
 /// 主窗口 label。托盘 id 也在这里定义，方便 `tray_by_id` 取回。
 pub const MAIN_WINDOW: &str = "main";

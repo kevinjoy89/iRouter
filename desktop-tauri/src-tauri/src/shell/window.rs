@@ -6,7 +6,44 @@
 //!   - `hideDock()`        `:417-419`
 //!   - `quit()`（退出）    见 `main.js` 的 quit 定义与 `:2148-2154` 的 before-quit
 
+use tauri::webview::DownloadEvent;
 use tauri::{AppHandle, Manager};
+
+/// 下载处理器。**必须注册** —— 否则 WKWebView 会**静默取消**下载。
+///
+/// 事实依据（不是推测）：wry 的导航代理里，只有当注册了下载处理器时才放行，
+/// 否则直接 `WKNavigationActionPolicy::Cancel`：
+/// `wry-0.57.0/src/wkwebview/navigation.rs:68-74`。
+///
+/// 不注册的后果是**假成功**：面板侧 `anchor.click()` 立即返回，于是它紧接着
+/// `setStatus("配置已导出")` —— 界面说成功，文件却不存在。Electron 版没有这个问题
+/// （Chromium 自带下载），所以这是换壳引入的**行为回归**，靠 CI 与单测都抓不到。
+///
+/// 落盘位置不用我们决定：wry 的 `download_policy` 已经把 destination 预填成
+/// `~/Downloads/<suggestedFilename>`（即面板 `a.download` 设的名字）并做了重名去重
+/// （`wry-0.57.0/src/wkwebview/download.rs:57-72`）——**与 Electron 的默认行为一致**。
+/// 这里只负责放行与记录。
+pub fn download_handler()
+-> impl Fn(tauri::Webview<tauri::Wry>, DownloadEvent<'_>) -> bool + Send + Sync + 'static {
+    |_webview, event| {
+        match event {
+            DownloadEvent::Requested { url, destination } => {
+                log::info!("[download] 请求 {url} → 落盘 {destination:?}");
+            }
+            DownloadEvent::Finished { url, path, success } => {
+                if success {
+                    log::info!("[download] 完成 {url} → {path:?}");
+                } else {
+                    // 失败必须留痕：否则又是一次"点了没反应"
+                    log::error!("[download] 失败 {url}（path={path:?}）");
+                }
+            }
+            _ => {}
+        }
+        // ★ 返回 false 会让本次下载被取消；true 才放行
+        true
+    }
+}
 
 use super::ShellState;
 

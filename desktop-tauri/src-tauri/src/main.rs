@@ -124,6 +124,9 @@ fn main() {
                     // 面板桥：window.irouterShell（shell 与 updater 各注入一份，靠 Object.assign 合并）
                     .initialization_script(shell::shim_script())
                     .initialization_script(updater::shim_js())
+                    // 下载处理器：不挂的话 WKWebView 会**静默取消**下载 —— 面板「导出配置」
+                    // 会变成"界面提示成功、文件不存在"。详见 shell::window::download_handler。
+                    .on_download(shell::download_handler())
                     .build().map_err(|e| e.to_string())?;
                 return Ok(());
             }
@@ -209,6 +212,8 @@ fn start_gateway_and_window(handle: &tauri::AppHandle) -> Result<(), String> {
                 // 面板桥：与上面那条捷径**必须都挂**，漏一个「软件更新」整段就从 UI 消失
                 .initialization_script(shell::shim_script())
                 .initialization_script(updater::shim_js())
+                // 下载处理器：同上，两个窗口都要挂
+                .on_download(shell::download_handler())
                 .build()
                 .map_err(|e| e.to_string())?;
 
