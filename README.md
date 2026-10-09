@@ -16,7 +16,7 @@ English | [简体中文](./README.zh-CN.md)
 
 **iRouter** is a cross-platform standalone desktop application for 9Router. It packages the gateway and dashboard into a true native desktop app powered by Tauri (Rust) with a bundled Bun gateway runtime—no system Node.js required and no need to open a separate browser tab.
 
-The gateway core is based on upstream [decolua/9router](https://github.com/decolua/9router) (MIT, **v0.5.95**) with custom extensions in the repository root (`src/`, `open-sse/`, `tests/`), while the desktop shell layer is maintained under `desktop-tauri/` (Tauri v2 + Bun sidecar; the former Electron shell under `desktop/` was removed in 2026-10 — see [ADR 0007](./docs/adr/0007-tauri-bun-shell.md)). For architecture decisions and terms, see [CONTEXT.md](./CONTEXT.md) and [docs/adr/](./docs/adr/).
+The gateway core is based on upstream [decolua/9router](https://github.com/decolua/9router) (MIT, **v0.5.99**) with custom extensions in the repository root (`src/`, `open-sse/`, `tests/`), while the desktop shell layer is maintained under `desktop-tauri/` (Tauri v2 + Bun sidecar; the former Electron shell under `desktop/` was removed in 2026-10 — see [ADR 0007](./docs/adr/0007-tauri-bun-shell.md)). For architecture decisions and terms, see [CONTEXT.md](./CONTEXT.md) and [docs/adr/](./docs/adr/).
 
 ---
 
@@ -36,12 +36,12 @@ The gateway core is based on upstream [decolua/9router](https://github.com/decol
 
 ### Option 1: Download Pre-built Installers (Recommended)
 Download the latest pre-compiled binary package from [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases):
-- **macOS (Apple Silicon)**: `iRouter-0.3.7-macos-arm64.dmg`
-- **macOS (Intel)**: `iRouter-0.3.7-macos-amd64.dmg`
-- **Windows (Installer)**: `iRouter-0.3.7-windows-amd64-installer.exe`
-- **Windows (Portable)**: `iRouter-0.3.7-windows-amd64-portable.zip`
-- **Linux (deb)**: `iRouter-0.3.7-linux-amd64.deb`
-- **Linux (tar.gz)**: `iRouter-0.3.7-linux-amd64.tar.gz`
+- **macOS (Apple Silicon)**: `iRouter-0.4.0-macos-arm64.dmg`
+- **macOS (Intel)**: `iRouter-0.4.0-macos-amd64.dmg`
+- **Windows (Installer)**: `iRouter-0.4.0-windows-amd64-installer.exe`
+- **Windows (Portable)**: `iRouter-0.4.0-windows-amd64-portable.zip`
+- **Linux (deb)**: `iRouter-0.4.0-linux-amd64.deb`
+- **Linux (tar.gz)**: `iRouter-0.4.0-linux-amd64.tar.gz`
 
 Drag **iRouter** into your `Applications` folder to start.
 

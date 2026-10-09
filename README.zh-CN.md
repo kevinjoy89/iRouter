@@ -16,7 +16,7 @@
 
 **iRouter** 是 9Router 的跨平台独立桌面客户端。安装后是一个原生的桌面应用程序，内置 9Router 控制面板，无需安装系统 Node.js 环境，也无需打开外部浏览器。
 
-网关核心源码基于上游 [decolua/9router](https://github.com/decolua/9router)（MIT）**v0.5.91** 定制与维护，位于仓库根目录（`src/`、`open-sse/`、`tests/`）；桌面壳层（Tauri v2 + Bun sidecar）位于 `desktop-tauri/`；原 Electron 壳 `desktop/` 已于 2026-10 移除（见 [ADR 0007](./docs/adr/0007-tauri-bun-shell.md)）。术语表见 [CONTEXT.md](./CONTEXT.md)，技术决策详见 [docs/adr/](./docs/adr/)。
+网关核心源码基于上游 [decolua/9router](https://github.com/decolua/9router)（MIT）**v0.5.99** 定制与维护，位于仓库根目录（`src/`、`open-sse/`、`tests/`）；桌面壳层（Tauri v2 + Bun sidecar）位于 `desktop-tauri/`；原 Electron 壳 `desktop/` 已于 2026-10 移除（见 [ADR 0007](./docs/adr/0007-tauri-bun-shell.md)）。术语表见 [CONTEXT.md](./CONTEXT.md)，技术决策详见 [docs/adr/](./docs/adr/)。
 
 ---
 
@@ -36,12 +36,12 @@
 
 ### 方式一：下载预编译安装包（推荐）
 前往 [GitHub Releases](https://github.com/kevinjoy89/iRouter/releases) 下载对应平台的最新安装包：
-- **macOS (Apple Silicon)**: `iRouter-0.3.7-macos-arm64.dmg`
-- **macOS (Intel)**: `iRouter-0.3.7-macos-amd64.dmg`
-- **Windows (安装程序)**: `iRouter-0.3.7-windows-amd64-installer.exe`
-- **Windows (绿色便携版)**: `iRouter-0.3.7-windows-amd64-portable.zip`
-- **Linux (deb)**: `iRouter-0.3.7-linux-amd64.deb`
-- **Linux (tar.gz)**: `iRouter-0.3.7-linux-amd64.tar.gz`
+- **macOS (Apple Silicon)**: `iRouter-0.4.0-macos-arm64.dmg`
+- **macOS (Intel)**: `iRouter-0.4.0-macos-amd64.dmg`
+- **Windows (安装程序)**: `iRouter-0.4.0-windows-amd64-installer.exe`
+- **Windows (绿色便携版)**: `iRouter-0.4.0-windows-amd64-portable.zip`
+- **Linux (deb)**: `iRouter-0.4.0-linux-amd64.deb`
+- **Linux (tar.gz)**: `iRouter-0.4.0-linux-amd64.tar.gz`
 
 下载后将 **iRouter** 拖入「应用程序（Applications）」即可。
 
