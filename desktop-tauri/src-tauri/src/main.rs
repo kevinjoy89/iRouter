@@ -124,7 +124,7 @@ fn main() {
                     // 面板桥：window.irouterShell（shell 与 updater 各注入一份，靠 Object.assign 合并）
                     .initialization_script(shell::shim_script())
                     .initialization_script(updater::shim_js())
-                    .build()?;
+                    .build().map_err(|e| e.to_string())?;
                 return Ok(());
             }
 
@@ -132,18 +132,74 @@ fn main() {
             shell::init(&handle)?;
             updater::init(&handle)?;
 
-            let panel_guard = PanelGuard::generate();
-            let gw = gateway::spawn(&handle, &panel_guard)?;
-            let port = gw.port;
-            // 必须在窗口 build() 之前加：面板是远端 origin，权限按实际端口给
-            add_remote_panel_capability(&handle, port)?;
-            let pid = gw.pid();
-            handle.manage(gw);
-            log::info!("网关 pid={pid:?} port={port}");
+            // 首次运行：旧 CLI 数据导入询问。**必须排在网关启动之前** ——
+            // 网关起来就会打开目标目录里的库，导入晚于它就等于让用户重启一次才生效。
+            // 详见 `shell::legacy_import` 模块头（三道护栏与「只复制不覆盖」）。
+            let import_plan = match gateway::resolve_data_dir(&handle) {
+                Ok(d) => shell::legacy_import::evaluate(&d),
+                Err(e) => {
+                    // 解析不出目标目录就无从导入。**不阻断启动**（那种情况下网关自己也起不来，
+                    // 会在 `gateway::spawn` 处报出真正的原因），但必须留痕，别让询问静默消失。
+                    log::error!("无法解析网关数据目录，跳过旧数据导入询问：{e}");
+                    shell::legacy_import::Plan::Proceed
+                }
+            };
+            match import_plan {
+                shell::legacy_import::Plan::Proceed => {
+                    if let Err(e) = start_gateway_and_window(&handle) {
+                        log::error!("启动网关/窗口失败：{e}");
+                        handle.exit(1);
+                        return Ok(());
+                    }
+                }
+                shell::legacy_import::Plan::Ask { legacy, data_dir } => {
+                    // 询问是异步的（`blocking_show` 不能在主线程用），启动流程移进回调。
+                    let h = handle.clone();
+                    shell::legacy_import::ask(&handle, legacy, data_dir, move |decision| {
+                        if decision == shell::legacy_import::Decision::Cancel {
+                            // 对齐 Electron `main.js:2097-2100`：取消 = 不启动（不导入、不记录）
+                            log::info!("用户取消了旧数据导入询问，按 Electron 版行为退出");
+                            h.exit(0);
+                            return;
+                        }
+                        if let Err(e) = start_gateway_and_window(&h) {
+                            log::error!("启动网关/窗口失败：{e}");
+                            h.exit(1);
+                        }
+                    });
+                }
+            }
 
-            // 窗口先加载本地兜底页并隐藏：网关还没就绪时不会闪错误页。
-            let ua_for_window = panel_guard.user_agent();
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("构建 iRouter 失败")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                if let Some(gw) = app.try_state::<Gateway>() {
+                    gw.kill();
+                }
+            }
+        });
+
+/// 网关 + 窗口的启动流程。
+///
+/// **抽成独立函数的原因**：首次运行的旧数据导入询问是**异步**的（原生模态框不能用
+/// `blocking_show`，见 `shell::legacy_import::ask`），决策回调里要继续走这一段。
+/// 所以它不能留在 `setup` 闭包里，必须能被「立即调用」和「回调里调用」两条路径共用。
+fn start_gateway_and_window(handle: &tauri::AppHandle) -> Result<(), String> {
+    let panel_guard = PanelGuard::generate();
+    let gw = gateway::spawn(handle, &panel_guard)?;
+    let port = gw.port;
+    // 必须在窗口 build() 之前加：面板是远端 origin，权限按实际端口给
+    add_remote_panel_capability(handle, port).map_err(|e| e.to_string())?;
+    let pid = gw.pid();
+    handle.manage(gw);
+    log::info!("网关 pid={pid:?} port={port}");
+
+    // 窗口先加载本地兜底页并隐藏：网关还没就绪时不会闪错误页。
+    let ua_for_window = panel_guard.user_agent();
+    let window = WebviewWindowBuilder::new(handle, "main", WebviewUrl::App("index.html".into()))
                 .title("iRouter")
                 .inner_size(1360.0, 900.0)
                 .min_inner_size(900.0, 600.0)
@@ -153,7 +209,8 @@ fn main() {
                 // 面板桥：与上面那条捷径**必须都挂**，漏一个「软件更新」整段就从 UI 消失
                 .initialization_script(shell::shim_script())
                 .initialization_script(updater::shim_js())
-                .build()?;
+                .build()
+                .map_err(|e| e.to_string())?;
 
             // 等就绪 → 导航到面板 → 显示。放在后台线程，别卡事件循环。
             let ua = panel_guard.user_agent();
@@ -176,17 +233,8 @@ fn main() {
                     log::error!("网关未就绪，仍显示兜底页");
                     let _ = window.show();
                 }
-            });
+    });
 
-            Ok(())
-        })
-        .build(tauri::generate_context!())
-        .expect("构建 iRouter 失败")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
-                if let Some(gw) = app.try_state::<Gateway>() {
-                    gw.kill();
-                }
-            }
-        });
+    Ok(())
+}
 }
