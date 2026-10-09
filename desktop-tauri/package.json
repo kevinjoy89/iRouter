@@ -1,6 +1,6 @@
 {
   "name": "irouter-tauri-shell",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "iRouter 桌面壳层（Tauri v2 + Bun sidecar），替代 desktop/ 的 Electron 实现",
   "scripts": {
     "tauri": "tauri",
