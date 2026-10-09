@@ -452,6 +452,25 @@ tag 下 `contents: write`、tag checkout 与注入版本的一致性、老客户
 **仓库侧 required status checks**（job 名从 `Build (macos)` 变成 `version`/`tauri`/`release`，
 若按旧名配了必需检查会卡住合并——GitHub settings 读不到，需人工核对）、预发布 tag 的版本字段行为。
 
+## Phase 6 完成记录（2026-10-09）
+
+**Electron 壳层已下线，仓库只剩一套壳。** 五步各自独立提交、逐步验证：
+
+| 步 | 内容 | 关键验证 |
+| :--- | :--- | :--- |
+| 1 | 承重构建输入从 `desktop/` 搬到 `tools/` 与 `build/` | 四平台 CI + 回归门禁 |
+| 2 | 6 个 JS 测试的覆盖面搬到 Rust 侧 / 流水线断言 | `settings` 15-vs-8 对账（7 条原本无等价断言，已补）；门禁回基线 |
+| 3 | `release.yml` 改用 `desktop-tauri.yml` 四平台矩阵 | **dry-run 实测**（含跨 reusable 边界的 artifact 传递） |
+| 4 | 删除 `desktop/` + 6 个随它退役的测试 | 32 文件 / −7987 行；**门禁 `No regression` 退出码 0**；四平台 CI 全绿 |
+| 5 | ADR-0004 修订、顶层文档同步 | 本文件 |
+
+**先补门禁盲区，再删目录**：`verify-no-regression.mjs` 原本看不见"文件级加载失败"（Step 1 的
+`require("./asset")` 断裂就是这样全绿过关的）。第 4 步之前先堵上，并用负向验证证明
+——**那次事故今天会红**。否则删除动作本身就发生在盲区里。
+
+**仍只能等真实 tag 验证**（不冒充已验证）：`action-gh-release` 本身与 GitHub 侧最终资产名、
+tag 下 `contents: write`、老客户端自更新验收、仓库侧 required status checks、预发布 tag 的版本字段。
+
 ## 门禁的已知盲区与干扰项（2026-10-08 实测，Step 4 归因前必读）
 
 **① 盲区（已堵，2026-10-08）：收集期失败的文件，门禁看不见。**

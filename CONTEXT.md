@@ -1,6 +1,6 @@
 # iRouter Context
 
-iRouter 是 9Router（开源 AI 路由网关，decolua/9router）的跨平台安装版：装完是一个真正的桌面应用，窗口内直接显示 9Router 面板，无需打开系统浏览器。9Router 源码基于上游 **v0.5.91** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/` 等）；桌面壳层在 `desktop/`。
+iRouter 是 9Router（开源 AI 路由网关，decolua/9router）的跨平台安装版：装完是一个真正的桌面应用，窗口内直接显示 9Router 面板，无需打开系统浏览器。9Router 源码基于上游 **v0.5.91** 定制，位于本仓库根目录（`src/`、`open-sse/`、`tests/` 等）；桌面壳层在 `desktop-tauri/`（Tauri v2 + Bun sidecar）。
 
 ## Language
 
@@ -17,11 +17,11 @@ _Avoid_: 锁版上游、零改动、submodule（均为旧结构用语）
 _Avoid_: 升级（歧义：易与产品发版混淆）、更新版本
 
 **产品版本号（product version）**:
-iRouter 自身对外可见的版本号（当前 `0.3.7`），真源为 `desktop/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.95`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
+iRouter 自身对外可见的版本号（当前 `0.3.7`），真源为 `desktop-tauri/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.95`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
 _Avoid_: 网关版本（易与上游基线号混淆）、应用版本
 
 **壳层（shell layer）**:
-位于 `desktop/` 的桌面化定制代码，负责：窗口、托盘、单实例、自启、打包安装器。壳层与网关源码同仓库，通过进程边界交互。
+位于 `desktop-tauri/` 的桌面化定制代码（Rust + Tauri v2），负责：窗口、托盘、单实例、自启、sidecar 守护与自动更新。壳层与网关源码同仓库，通过进程边界交互。
 _Avoid_: 封装、wrapper（与本仓库其他含义混淆）
 
 **内嵌面板（embedded dashboard）**:

@@ -11,17 +11,18 @@
 ```
 iRouter/
 ├── src/ open-sse/ tests/ cli/   # 9Router 网关源码（基于上游基线定制，独立维护）
-├── desktop/                     # 桌面壳层：Electron 主进程、托盘、窗口、打包与单实例管理
-│   ├── main.js                  # Electron 主进程入口与进程生命周期
-│   ├── settings.js              # 壳层独立配置与持久化
-│   ├── scripts/                 # 打包与自动化冒烟测试脚本
-│   └── resources/               # 应用图标等静态资产
+├── desktop-tauri/               # 桌面壳层：Tauri v2（Rust）+ Bun sidecar
+│   ├── src-tauri/src/           # 壳层 Rust 源码：托盘/窗口/单实例/自启/更新器
+│   ├── scripts/                 # sidecar staging、产物打包改名与各 verify:* 脚本
+│   └── src-tauri/tauri.conf.json# 打包配置（版本号与 resources 映射）
+├── tools/                       # 承重构建输入：网关负载构建、Bun pin/校验、产物命名真源
+├── build/                       # 构建产物（gitignore）：gateway/server = 随包分发的网关负载
 ├── openspec/                    # 功能规格与变更记录（包含上游同步记录）
 ├── docs/adr/                    # 架构决策记录（Architecture Decision Records）
 └── CONTEXT.md                   # 核心术语与定义
 ```
 
-- **壳层与网关边界**：壳层位于 `desktop/`，负责窗口、托盘、单实例与守护子进程；网关服务运行在本地回环地址 `127.0.0.1:20128`，两者通过进程边界和 HTTP 协议解耦交互。
+- **壳层与网关边界**：壳层位于 `desktop-tauri/`（Rust），负责窗口、托盘、单实例与 sidecar 守护；网关服务以 Bun 子进程运行在本地回环地址 `127.0.0.1:20128`，两者通过进程边界和 HTTP 协议解耦交互。**壳层代码里出现的 `desktop/main.js:*` 之类引用是移植溯源**（指向已删除的 Electron 实现），查法见 ADR-0007。
 - **数据目录隔离**：网关核心数据存储在 `~/.irouter`（包含 SQLite 数据库与凭据），Chromium 缓存位于系统 `userData` 目录，两者完全隔离。
 
 ---
