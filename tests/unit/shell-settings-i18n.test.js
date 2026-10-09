@@ -191,8 +191,8 @@ describe("壳层设置模态框：结构与接线", () => {
   it("壳层专属段按 window.irouterShell 是否存在决定是否进导航（浏览器下不出现）", () => {
     expect(src).toMatch(/window\.irouterShell/);
     expect(src).toMatch(/Boolean\(window\.irouterShell\)/);
-    // 窗口 / 更新两段必须带 shellOnly，并在 shellReady 为真时才进导航
-    for (const key of ["window", "updates"]) {
+    // 软件更新段必须带 shellOnly，并在 shellReady 为真时才进导航
+    for (const key of ["updates"]) {
       const entry = src.slice(src.indexOf(`key: "${key}"`));
       expect(entry.slice(0, 240), `${key} 段缺少 shellOnly`).toMatch(
         /shellOnly: true/,
@@ -201,8 +201,8 @@ describe("壳层设置模态框：结构与接线", () => {
     expect(src).toMatch(/SECTIONS\.filter\(\(s\) => !s\.shellOnly \|\| shellReady\)/);
   });
 
-  it("窗口行为两项都落在窗口段里（跟着分段走，不在模态框内联）", () => {
-    const win = readPanel("WindowSettings.js");
+  it("窗口行为两项都落在通用段里（跟着分段走，不在模态框内联）", () => {
+    const win = readPanel("GeneralSettings.js");
     expect(win).toMatch(/Launch at Login/);
     expect(win).toMatch(/When closing the window/);
   });
@@ -241,20 +241,20 @@ describe("壳层设置模态框：结构与接线", () => {
     expect(src, "分段表不应再有分组表").not.toMatch(/NAV_GROUPS/);
   });
 
-  it("「网关设置」是最后一项（它是出口，不是设置项）", () => {
+  it("「软件更新」是最后一项（用户要求）", () => {
     const table = src.slice(
       src.indexOf("const SECTIONS = ["),
       src.indexOf("];", src.indexOf("const SECTIONS = [")),
     );
     const keys = [...table.matchAll(/key: "([a-z]+)"/g)].map((m) => m[1]);
-    expect(keys[keys.length - 1]).toBe("gateway");
-    // 网关数据不再单列导航项，改为并入存储页
+    expect(keys[keys.length - 1]).toBe("updates");
+    // 网关数据不再单列导航项，改为并入数据与日志页
     expect(keys).not.toContain("data");
   });
 
   it("存储与网关数据合并为一页（数据位置 + 读数 + 保留策略 + 配置导出导入）", () => {
-    const storage = readPanel("StorageSettings.js");
-    expect(storage, "存储页应渲染两张网关数据卡片").toMatch(
+    const storage = readPanel("DataLogsSettings.js");
+    expect(storage, "数据与日志页应渲染两张网关数据卡片").toMatch(
       /import \{ ConfigFileCard, DataLocationCard \} from "\.\/GatewayDataCards"/,
     );
     expect(storage).toMatch(/<DataLocationCard \/>/);
@@ -266,7 +266,7 @@ describe("壳层设置模态框：结构与接线", () => {
   });
 
   it("数据位置排在第一位，且文案落在「数据」而非「网关配置」上（用户要求）", () => {
-    const storage = readPanel("StorageSettings.js");
+    const storage = readPanel("DataLogsSettings.js");
     const at = (needle) => storage.indexOf(needle);
     expect(at("<DataLocationCard />")).toBeGreaterThan(-1);
     expect(at("<DataLocationCard />")).toBeLessThan(at("<StatGrid>"));
@@ -280,7 +280,7 @@ describe("壳层设置模态框：结构与接线", () => {
   });
 
   it("保留详情天数是左右结构：一行内天数与按钮不换行（用户要求）", () => {
-    const storage = readPanel("StorageSettings.js");
+    const storage = readPanel("DataLogsSettings.js");
     const start = storage.indexOf('label="Keep details for (days)"');
     // 切到这一行的 </Row> 为止：文件顶部的注释里也出现过 "Save & clean now"，
     // 用它当右边界会把区间切反（第一版就踩了这个坑）

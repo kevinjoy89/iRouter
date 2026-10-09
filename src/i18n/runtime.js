@@ -39,7 +39,7 @@ async function loadTranslations(locale) {
  * @param {string} locale 当前语言代码
  * @return {string} 翻译后的文本，若无匹配则返回原文本
  */
-function translateDynamicPatterns(text, locale) {
+export function translateDynamicPatterns(text, locale) {
   const isZh = locale === "zh-CN";
   const isTw = locale === "zh-TW";
   if (!isZh && !isTw) return text;
@@ -228,13 +228,120 @@ function translateDynamicPatterns(text, locale) {
   }
 
   // 13. 添加模型模态框标题 "Add <kind> Model" / "Add <kind> Model to Combo"
-  const addModelMatch = text.match(/^Add\s+(.+?)\s+Model(\s+to\s+Combo)?$/i);
+  const addModelMatch = text.match(/^Add(?:\s+(.+?))?\s+Model(\s+to\s+Combo)?$/i);
   if (addModelMatch) {
     const targetKind = addModelMatch[1];
     const isToCombo = !!addModelMatch[2];
+    if (targetKind) {
+      return isTw
+        ? (isToCombo ? `新增 ${targetKind} 模型至組合` : `新增 ${targetKind} 模型`)
+        : (isToCombo ? `添加 ${targetKind} 模型到组合` : `添加 ${targetKind} 模型`);
+    }
     return isTw
-      ? (isToCombo ? `新增 ${targetKind} 模型至組合` : `新增 ${targetKind} 模型`)
-      : (isToCombo ? `添加 ${targetKind} 模型到组合` : `添加 ${targetKind} 模型`);
+      ? (isToCombo ? "新增模型至組合" : "新增模型")
+      : (isToCombo ? "添加模型到组合" : "添加模型");
+  }
+
+  // 14. 端点与密钥：允许调用的组合/模型弹窗标题 "Allowed for \"<name>\""
+  const allowedForMatch = text.match(/^Allowed\s+for\s+"(.+?)"$/i);
+  if (allowedForMatch) {
+    return isTw ? `已為 "${allowedForMatch[1]}" 允許` : `已为 "${allowedForMatch[1]}" 允许`;
+  }
+
+  // 14.1 限制密钥确认弹窗提示
+  const restrictKeyConfirmMatch = text.match(
+    /^Restrict\s+API\s+key\s+"(.+?)"\?\s+It\s+will\s+only\s+be\s+able\s+to\s+call\s+the\s+combos\s+and\s+models\s+you\s+add\.\s+Until\s+you\s+add\s+one,\s+it\s+can\s+call\s+nothing\.$/i,
+  );
+  if (restrictKeyConfirmMatch) {
+    return isTw
+      ? `限制 API 金鑰 "${restrictKeyConfirmMatch[1]}"？該金鑰將只能呼叫您新增的組合和模型。在您新增之前，它無法呼叫任何內容。`
+      : `限制 API 密钥 "${restrictKeyConfirmMatch[1]}"？该密钥将只能调用您添加的组合和模型。在您添加之前，它无法调用任何内容。`;
+  }
+
+  // 15. 组合全选与选择计数 "Select all (N)" / "N selected"
+  const selectAllMatch = text.match(/^Select\s+all\s*\(\s*(\d+)\s*\)$/i);
+  if (selectAllMatch) {
+    return isTw ? `全選 (${selectAllMatch[1]})` : `全选 (${selectAllMatch[1]})`;
+  }
+  const selectedCountMatch = text.match(/^(\d+)\s+selected$/i);
+  if (selectedCountMatch) {
+    return isTw ? `已選取 ${selectedCountMatch[1]} 項` : `已选择 ${selectedCountMatch[1]} 项`;
+  }
+
+  // 16. 上下文与最大输出 "ctx 128k" / "max 16k"
+  const ctxMatch = text.match(/^ctx\s+(.+)$/i);
+  if (ctxMatch) {
+    return isTw ? `上下文 ${ctxMatch[1]}` : `上下文 ${ctxMatch[1]}`;
+  }
+  const maxOutputMatch = text.match(/^max\s+(.+)$/i);
+  if (maxOutputMatch) {
+    return isTw ? `最大 ${maxOutputMatch[1]}` : `最大 ${maxOutputMatch[1]}`;
+  }
+
+  // 17. 组合更多模型计数 "+N more"
+  const plusMoreMatch = text.match(/^\+(\d+)\s+more$/i);
+  if (plusMoreMatch) {
+    return isTw ? `+${plusMoreMatch[1]} 更多` : `+${plusMoreMatch[1]} 更多`;
+  }
+
+  // 18. 回退模型提示 "No models in pool (will fallback to <model>)"
+  const noModelsPoolMatch = text.match(/^No\s+models\s+in\s+pool\s*\(will\s+fallback\s+to\s+(.+?)\)$/i);
+  if (noModelsPoolMatch) {
+    return isTw
+      ? `池中暫無模型（將回退到 ${noModelsPoolMatch[1]}）`
+      : `池中暂无模型（将回退到 ${noModelsPoolMatch[1]}）`;
+  }
+
+  // 19. 融合裁判自动选择 "Auto — <model>"
+  const autoJudgeMatch = text.match(/^Auto\s*—\s*(.+)$/i);
+  if (autoJudgeMatch) {
+    return isTw ? `自動 — ${autoJudgeMatch[1]}` : `自动 — ${autoJudgeMatch[1]}`;
+  }
+
+  // 20. 配额倒计时 "in 22d 5h 40m" / "expires in 20h 25m"
+  const quotaCountdownMatch = text.match(/^(in|expires\s+in)\s+(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m)?$/i);
+  if (quotaCountdownMatch) {
+    const isExpires = quotaCountdownMatch[1].toLowerCase().startsWith("expires");
+    const d = quotaCountdownMatch[2];
+    const h = quotaCountdownMatch[3];
+    const m = quotaCountdownMatch[4];
+    const parts = [];
+    if (d) parts.push(`${d}天`);
+    if (h) parts.push(isTw ? `${h}小時` : `${h}小时`);
+    if (m) parts.push(isTw ? `${m}分鐘` : `${m}分钟`);
+    const timeStr = parts.join(" ");
+    if (isExpires) {
+      return isTw ? `${timeStr}後到期` : `${timeStr}后到期`;
+    }
+    return isTw ? `${timeStr}後` : `${timeStr}后`;
+  }
+
+  // 20.1 赠送福利包 "Bonus Pack N"
+  const bonusPackMatch = text.match(/^Bonus\s+Pack\s+(\d+)$/i);
+  if (bonusPackMatch) {
+    return isTw ? `福利包 ${bonusPackMatch[1]}` : `福利包 ${bonusPackMatch[1]}`;
+  }
+
+  // 21. CLI 工具检查与本地未安装提示 "Checking <tool>..." / "<tool> not detected locally"
+  const checkingToolMatch = text.match(/^Checking\s+(.+?)\.\.\.$/i);
+  if (checkingToolMatch) {
+    return isTw ? `正在檢查 ${checkingToolMatch[1]}...` : `正在检查 ${checkingToolMatch[1]}...`;
+  }
+  const notDetectedMatch = text.match(/^(.+?)\s+not\s+detected\s+locally$/i);
+  if (notDetectedMatch) {
+    return isTw ? `本機未偵測到 ${notDetectedMatch[1]}` : `本地未检测到 ${notDetectedMatch[1]}`;
+  }
+
+  // 21.1 CLI 工具手动配置标题 "<tool> Configuration"
+  const toolConfigMatch = text.match(/^(.+?)\s+Configuration$/i);
+  if (toolConfigMatch) {
+    return isTw ? `${toolConfigMatch[1]} 設定` : `${toolConfigMatch[1]} 配置`;
+  }
+
+  // 22. 媒体提供商头部页面描述 "Manage your <kind> providers"
+  const manageProvidersMatch = text.match(/^Manage\s+your\s+(.+?)\s+providers$/i);
+  if (manageProvidersMatch) {
+    return isTw ? `管理您的 ${manageProvidersMatch[1]} 供應商` : `管理您的 ${manageProvidersMatch[1]} 供应商`;
   }
 
   return text;

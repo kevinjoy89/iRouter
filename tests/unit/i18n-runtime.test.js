@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { processTextNode } from "../../src/i18n/runtime.js";
+import { processTextNode, translateDynamicPatterns } from "../../src/i18n/runtime.js";
 
 // 回归：React 原地改写文本节点（characterData 不被 MutationObserver 观察）后，
 // 路由/语言切换触发的全量重扫曾用挂载时缓存的 _originalText 把动态文本写回旧值
@@ -194,5 +194,79 @@ describe("runtime i18n 的 skipTags 边界", () => {
     const code = makeNode("[[ALLOW_SENSITIVE]]", "code");
     processTextNode(code);
     expect(code._originalText).toBeUndefined();
+  });
+});
+
+describe("动态正则模式翻译守护（端点、组合、使用情况、配额、CLI 工具及 System One）", () => {
+  it("端点与密钥页面动态模式正确翻译", () => {
+    expect(translateDynamicPatterns('Allowed for "生产环境密钥"', "zh-CN")).toBe(
+      '已为 "生产环境密钥" 允许',
+    );
+    expect(translateDynamicPatterns('Allowed for "生产环境密钥"', "zh-TW")).toBe(
+      '已為 "生产环境密钥" 允許',
+    );
+    expect(
+      translateDynamicPatterns(
+        'Restrict API key "测试"? It will only be able to call the combos and models you add. Until you add one, it can call nothing.',
+        "zh-CN",
+      ),
+    ).toBe(
+      '限制 API 密钥 "测试"？该密钥将只能调用您添加的组合和模型。在您添加之前，它无法调用任何内容。',
+    );
+    expect(
+      translateDynamicPatterns(
+        'Restrict API key "测试"? It will only be able to call the combos and models you add. Until you add one, it can call nothing.',
+        "zh-TW",
+      ),
+    ).toBe(
+      '限制 API 金鑰 "测试"？該金鑰將只能呼叫您新增的組合和模型。在您新增之前，它無法呼叫任何內容。',
+    );
+  });
+
+  it("组合页面批量选择与上下文/限制指标正确翻译", () => {
+    expect(translateDynamicPatterns("Select all (11)", "zh-CN")).toBe("全选 (11)");
+    expect(translateDynamicPatterns("Select all (11)", "zh-TW")).toBe("全選 (11)");
+    expect(translateDynamicPatterns("3 selected", "zh-CN")).toBe("已选择 3 项");
+    expect(translateDynamicPatterns("3 selected", "zh-TW")).toBe("已選取 3 項");
+
+    expect(translateDynamicPatterns("ctx 1M", "zh-CN")).toBe("上下文 1M");
+    expect(translateDynamicPatterns("max 384k", "zh-CN")).toBe("最大 384k");
+    expect(translateDynamicPatterns("+5 more", "zh-CN")).toBe("+5 更多");
+
+    expect(
+      translateDynamicPatterns(
+        "No models in pool (will fallback to oc/mimo-v2.6-flash-free)",
+        "zh-CN",
+      ),
+    ).toBe("池中暂无模型（将回退到 oc/mimo-v2.6-flash-free）");
+
+    expect(translateDynamicPatterns("Auto — deepseek-v4", "zh-CN")).toBe(
+      "自动 — deepseek-v4",
+    );
+  });
+
+  it("配额倒计时与福利包动态模式正确翻译", () => {
+    expect(translateDynamicPatterns("in 22d 5h 40m", "zh-CN")).toBe("22天 5小时 40分钟后");
+    expect(translateDynamicPatterns("in 22d 5h 40m", "zh-TW")).toBe("22天 5小時 40分鐘後");
+    expect(translateDynamicPatterns("expires in 20h 25m", "zh-CN")).toBe("20小时 25分钟后到期");
+    expect(translateDynamicPatterns("expires in 20h 25m", "zh-TW")).toBe("20小時 25分鐘後到期");
+    expect(translateDynamicPatterns("in 15m", "zh-CN")).toBe("15分钟后");
+
+    expect(translateDynamicPatterns("Bonus Pack 1", "zh-CN")).toBe("福利包 1");
+    expect(translateDynamicPatterns("Bonus Pack 9", "zh-TW")).toBe("福利包 9");
+  });
+
+  it("CLI 工具与 System One 动态模式正确翻译", () => {
+    expect(translateDynamicPatterns("Checking Pi...", "zh-CN")).toBe("正在检查 Pi...");
+    expect(translateDynamicPatterns("Pi not detected locally", "zh-CN")).toBe("本地未检测到 Pi");
+    expect(translateDynamicPatterns("Pi Configuration", "zh-CN")).toBe("Pi 配置");
+    expect(translateDynamicPatterns("Manage your System One providers", "zh-CN")).toBe(
+      "管理您的 System One 供应商",
+    );
+    expect(translateDynamicPatterns("Manage your System One providers", "zh-TW")).toBe(
+      "管理您的 System One 供應商",
+    );
+    expect(translateDynamicPatterns("Add Model", "zh-CN")).toBe("添加模型");
+    expect(translateDynamicPatterns("Add Model to Combo", "zh-CN")).toBe("添加模型到组合");
   });
 });

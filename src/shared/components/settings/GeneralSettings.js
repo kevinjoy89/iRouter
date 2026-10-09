@@ -1,12 +1,19 @@
 "use client";
 
-// 外观设置：主题与语言。原先内联在 ShellSettingsModal 里，现在面板有导航了，
-// 每一段各自成文件——模态框只负责布局与分段切换。
-//
-// 语言切换必须走面板的 runtime i18n：就地重译整个 DOM，不整页刷新；
-// 同时写 localStorage + cookie，壳层主进程据此刷新原生菜单。
+// 通用设置：外观主题、界面语言以及桌面窗口生命周期行为
+// 方案 A 架构：整合原外观与窗口分段，Web 端与桌面壳层统一以「通用」作为第一项
+// 桌面专属项（开机自启、关窗行为）在 shell 存在时按需渲染
 import { useSyncExternalStore } from "react";
-import { Group, Row, SectionBody, SectionHeader, Segmented } from "./parts";
+import {
+  Group,
+  Notice,
+  Row,
+  SectionBody,
+  SectionHeader,
+  Segmented,
+  Select,
+  Switch,
+} from "./parts";
 import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
 import { reloadTranslations } from "@/i18n/runtime";
 import useThemeStore from "@/store/themeStore";
@@ -22,6 +29,12 @@ const LOCALE_OPTIONS = [
   { value: "en", label: "English" },
   { value: "zh-CN", label: "简体中文" },
   { value: "zh-TW", label: "繁體中文" },
+];
+
+const CLOSE_ACTIONS = [
+  { value: "quit", label: "Quit iRouter" },
+  { value: "dock", label: "Hide to tray, keep in Dock" },
+  { value: "tray", label: "Hide to tray, remove from Dock" },
 ];
 
 const LOCALE_PREF_EVENT = "irouter:locale-pref";
@@ -57,15 +70,17 @@ function subscribeLocalePref(onChange) {
 }
 
 /**
- * 外观设置段
+ * 通用设置段组件
  *
- * @return {JSX.Element} 主题与语言
+ * @param {object} props 组件属性
+ * @param {object} [props.shell] 壳层配置对象（浏览器形态下为空）
+ * @param {Function} [props.onSettingChange] 壳层配置变更回调函数
+ * @return {JSX.Element} 通用设置界面
  * @author wei
- * @since 2026-09-29
+ * @since 2026-10-09
  */
-export default function AppearanceSettings() {
+export default function GeneralSettings({ shell, onSettingChange }) {
   const { theme, setTheme } = useThemeStore();
-  // 外部系统读值，故用 useSyncExternalStore 而非 effect+setState
   const localePref = useSyncExternalStore(
     subscribeLocalePref,
     readLocalePreference,
@@ -89,7 +104,6 @@ export default function AppearanceSettings() {
     } catch {
       /* 忽略 */
     }
-    // 就地重译整个 DOM，零整页刷新；壳层主进程监听 locale cookie 变化刷新原生菜单
     await reloadTranslations();
     window.dispatchEvent(new Event(LOCALE_PREF_EVENT));
   };
@@ -97,28 +111,68 @@ export default function AppearanceSettings() {
   return (
     <>
       <SectionHeader
-        title="Appearance"
-        description="Theme and language for the whole app, menu bar included"
+        title="General"
+        description="Theme, language, and desktop window behavior"
       />
       <SectionBody>
         <Group>
-          <Row label="Theme" hint="Applies to the whole app">
+          <Row label="Theme" hint="App color scheme">
             <Segmented
-              group="theme"
-              options={THEME_OPTIONS}
+              name="theme"
               value={theme}
+              options={THEME_OPTIONS}
               onChange={setTheme}
             />
           </Row>
-          <Row label="Language" hint="Menu bar and interface text">
+          <Row label="Language" hint="User interface language">
             <Segmented
-              group="locale"
-              options={LOCALE_OPTIONS}
+              name="language"
               value={localePref}
+              options={LOCALE_OPTIONS}
               onChange={applyLocale}
             />
           </Row>
         </Group>
+
+        {shell ? (
+          <>
+            <Group>
+              <Row
+                label="Launch at Login"
+                hint="Open iRouter automatically when you sign in"
+              >
+                <Switch
+                  name="launchAtLogin"
+                  label="Launch at Login"
+                  checked={shell.launchAtLogin === true}
+                  onChange={(v) => onSettingChange?.("launchAtLogin", v)}
+                />
+              </Row>
+
+              <Row
+                label="When closing the window"
+                hint={
+                  shell.closeAction === "quit"
+                    ? "Quitting stops the gateway"
+                    : "The gateway keeps running in the background"
+                }
+              >
+                <Select
+                  name="closeAction"
+                  value={shell.closeAction}
+                  options={CLOSE_ACTIONS}
+                  onChange={(v) => onSettingChange?.("closeAction", v)}
+                />
+              </Row>
+            </Group>
+
+            {shell.closeAction === "tray" ? (
+              <Notice tone="info">
+                With the Dock icon hidden, bring the window back from the menu bar.
+              </Notice>
+            ) : null}
+          </>
+        ) : null}
       </SectionBody>
     </>
   );

@@ -818,8 +818,9 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <code className="font-mono text-sm font-medium">{cap.label}</code>
-              <span className="text-[10px] text-text-muted">— {cap.desc}</span>
+              {/* 使用 span 替代 code，避免触发 i18n runtime 的 skipTags 导致漏译 */}
+              <span className="font-mono text-sm font-medium">{translate(cap.label)}</span>
+              <span className="text-[10px] text-text-muted">— {translate(cap.desc)}</span>
             </div>
           </div>
         </div>
