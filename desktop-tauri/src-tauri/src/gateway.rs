@@ -226,8 +226,18 @@ pub fn reap_stale_gateway(data_dir: &Path) {
 pub fn kill_process_tree(pid: u32) {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+
+        // `taskkill` 是**控制台程序**，而壳层 release 版是 GUI 子系统进程、自身没有控制台
+        // （见 `main.rs` 文件头的 `windows_subsystem`）。Windows 在这种情况下会为子进程
+        // **新分配一个控制台窗口** —— 于是「启动回收孤儿」与「退出清理」各闪一次黑窗。
+        // `CREATE_NO_WINDOW`（0x0800_0000）让它复用/隐藏控制台，与 `tauri-plugin-shell`
+        // 起 sidecar 时用的同一个常量（见 `docs/plans/2026-10-07-tauri-shell-api-notes.md`）。
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
         let out = std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
         match out {
             Ok(o) if o.status.success() => log::info!("taskkill 已终止进程树 pid={pid}"),

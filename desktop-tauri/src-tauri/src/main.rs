@@ -9,6 +9,13 @@
 //!
 //! 开发期捷径：设 `IROUTER_PANEL_URL` 可跳过 sidecar 直接指向已有网关（例如正在跑的 Electron 版）。
 
+// Windows release 版**必须**是 GUI 子系统。缺了这句，链接出来的 exe 带「控制台」子系统标记，
+// 用户双击 / 装完启动时 Windows 会额外分配一个 CMD 窗口（标题就是 exe 全路径，内容是本文件
+// 日志实现打到 stderr 的壳层日志）——即用户实测的「运行时会多出一个 CMD 窗口」。
+// 用 `not(debug_assertions)` 门控（Tauri 官方模板同款）：debug 构建（`tauri dev`、
+// `verify-shell.mjs` 起的 target/debug/irouter）保持控制台子系统，日志照旧在终端里可见。
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod gateway;
 mod guard;
 mod settings;
