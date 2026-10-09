@@ -286,9 +286,9 @@ Next.js **不允许 `route.js` 与 `page.js` 共存于同一路由段**（Next 1
 - [x] 右键菜单与 Cmd/Ctrl 快捷键（`main.js:512-560`；系统 webview 通常自带原生编辑菜单，**先验证是否能直接删掉这 80 行**，不能则重实现）
 - [x] 窗口状态与关闭行为（`main.js:605-612`：quit / tray 两种 closeAction，`hideDock`）
 - [x] 设置模态 IPC（`shell:open-settings` 的 4 个调用点 + 面板侧 `irouter:open-settings` window 事件，`ShellSettingsHost.js`）
-- [ ] ⛔ **未实现** —— 旧数据导入提示（`main.js:1531-1550`，含 `IROUTER_IMPORT_DECISION` 自动化接缝——**这个接缝必须保留**，端到端测试依赖它）
+- [x] ✅ **未实现** —— 旧数据导入提示（`main.js:1531-1550`，含 `IROUTER_IMPORT_DECISION` 自动化接缝——**这个接缝必须保留**，端到端测试依赖它）
 - [x] 应用内更新（下述）
-- [ ] ⛔ **未验证** —— 配置导出/导入（纯渲染层能力，理论上零改动，但需回归验证下载与文件选择在系统 webview 下的行为）
+- [x] ✅ **未验证** —— 配置导出/导入（纯渲染层能力，理论上零改动，但需回归验证下载与文件选择在系统 webview 下的行为）
 
 **更新通道（自研移植，不引入密钥义务）：**
 
@@ -544,8 +544,28 @@ Step 1 里跑了一次 `next build` 后它由绿变红 —— **实现对、测�
 
 | # | 事项 | 性质 | 影响 |
 | :--- | :--- | :--- | :--- |
-| 1 | **旧数据导入提示**（首次运行从 `~/.9router` 导入，排除 `runtime/`，带"已决定"标记） | **功能缺口** | 从 CLI 迁移过来的用户，桌面版会**静默从空数据启动**。计划明确标注「这个接缝必须保留，端到端测试依赖它」 |
-| 2 | **配置导出/导入**在系统 webview 下的回归 | 未验证 | 面板侧能力，理论上零改动；但下载与文件选择在 WKWebView 下的行为没验过 |
+| ~~1~~ | ~~旧数据导入提示~~ | ✅ **已完成**（commit `07fdd4ce`） | 三道护栏 + 只复制不覆盖 + 源目录只读；`npm run verify:legacy-import` 12 项 PASS，含负向验证（拆掉护栏 3 → 立刻变红） |
+| ~~2~~ | ~~配置导出/导入在系统 webview 下的回归~~ | ✅ **已完成，并抓到一个真回归**（commit `910b578e`） | 见下 |
+
+### 第 2 项抓到的是**换壳引入的行为回归**（CI 与单测都抓不到）
+
+面板「导出配置」用 `Blob` + `URL.createObjectURL` + `anchor.click()`。而 WKWebView 下**下载需要宿主显式放行**：
+wry 的导航代理只有注册了下载处理器才 `Download`，否则 `WKNavigationActionPolicy::Cancel`
+（`wry-0.57.0/src/wkwebview/navigation.rs:68-74`）。
+
+**后果是"假成功"**：面板的 `anchor.click()` 立即返回，于是紧接着 `setStatus("配置已导出")` ——
+**界面说成功，`~/Downloads` 里什么都没有**。Electron 版有 Chromium 自带下载，所以这个问题只可能在换壳后出现，
+而且没有任何自动化检查会红。
+
+修法：`shell::window::download_handler()` + 两个窗口都挂 `.on_download(...)` 返回 `true`。
+落盘位置沿用 wry 默认（`~/Downloads/<a.download 的名字>` + 重名去重），**与 Electron 默认行为一致**。
+
+**导入不需要修**：`<input type=file>` 在 WKWebView 下受支持 —— wry 实现了
+`webView:runOpenPanelWithParameters:…` 并用 `NSOpenPanel`（`wry-0.57.0/src/wkwebview/class/wry_web_view_ui_delegate.rs:100-110`）。
+
+**真机验收（2026-10-09，用户操作）**：导出 → `~/Downloads/irouter-config-2026-10-09T06-15-56-802Z.json`
+（350,036 字节，合法 JSON，含 24 providerConnections / 11 combos / 1629 customModels），
+日志有 `[download] 请求 … → 落盘 …` 与 `[download] 完成`；导入 → 弹出系统文件选择框、选中后提示导入成功。
 | 3 | **每平台替换体验**（调起 dmg / NSIS / deb） | 部分 | macOS 已由用户实测（0.3.7→0.4.0 应用内升级成功）；Windows / Linux 未验 |
 | 4 | **三平台端到端验收** | 部分 | macOS 已完成（含 `/v1`、托盘、自启、单实例、更新、无孤儿）；Windows / Linux 未做 |
 
