@@ -137,6 +137,26 @@ export function parseZedCallbackPayload(input) {
   return { userId: String(userId), encryptedAccessToken: String(encryptedAccessToken) };
 }
 
+// The legacy V0 (PKCS#1 v1.5) payload has NO integrity check, so a wrong-key
+// decrypt can only be told apart from a genuine payload by its shape:
+//   - OpenSSL < 3.2 fails the unpad and throws (the easy case);
+//   - OpenSSL >= 3.2 applies "implicit rejection": privateDecrypt *succeeds*
+//     and returns random bytes instead of throwing. ~99% of those are invalid
+//     UTF-8, but ~0.8% decode cleanly into 0-8 byte strings, so the old
+//     "contains U+FFFD ⇒ garbage" test let wrong-key tokens through as
+//     credentials (and flaked the acceptance suite).
+// A real token is used verbatim in `Authorization: <userId> <token>`, so it
+// must be printable ASCII with no whitespace; zed.dev mints 64-char base64url
+// tokens (rpc::auth::random_token in zed-industries/zed). MIN 16 keeps a wide
+// margin over the observed 8-byte wrong-key garbage while never refusing a
+// usable credential.
+const MIN_ZED_TOKEN_LENGTH = 16;
+const ZED_TOKEN_SHAPE = /^[\x21-\x7E]+$/;
+
+function isPlausibleZedToken(text) {
+  return text.length >= MIN_ZED_TOKEN_LENGTH && ZED_TOKEN_SHAPE.test(text);
+}
+
 /** Decrypt the RSA-encrypted access token using the stored private key. */
 export function decryptZedAccessToken(encryptedAccessToken, privateKeyVerifier) {
   const privateKey = decodeZedPrivateKeyVerifier(privateKeyVerifier);
@@ -160,11 +180,9 @@ export function decryptZedAccessToken(encryptedAccessToken, privateKeyVerifier) 
           encrypted,
         )
         .toString("utf8");
-      // PKCS#1 v1.5 unpadding is not integrity-checked: a wrong-key decrypt
-      // can "succeed" with garbage bytes instead of throwing. Replacement
-      // characters prove the output is not the real UTF-8 token — fail loudly
-      // rather than storing garbage as a credential.
-      if (text.includes("�")) fail(oaepError);
+      // Unauthenticated padding: only accept a credential-shaped payload
+      // (see isPlausibleZedToken) — never store garbage as a credential.
+      if (!isPlausibleZedToken(text)) fail(oaepError);
       return text;
     } catch (err) {
       if (err.message.startsWith("Failed to decrypt Zed access token")) throw err;

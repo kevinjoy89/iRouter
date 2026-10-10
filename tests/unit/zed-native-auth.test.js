@@ -53,15 +53,15 @@ async function startTestProxy() {
 }
 
 /** Simulate zed.dev: RSA-encrypt a plaintext token with the flow's public key. */
-function encryptForCallback(publicKeyB64Url, plaintext) {
+function encryptForCallback(publicKeyB64Url, plaintext, padding = "oaep-sha256") {
   const der = Buffer.from(String(publicKeyB64Url), "base64url");
   const key = crypto.createPublicKey({ key: der, format: "der", type: "pkcs1" });
-  return crypto
-    .publicEncrypt(
-      { key, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
-      Buffer.from(plaintext, "utf8"),
-    )
-    .toString("base64url");
+  // zed.dev's legacy V0 format is PKCS#1 v1.5; V1 is OAEP-SHA256.
+  const scheme =
+    padding === "pkcs1v15"
+      ? { key, padding: crypto.constants.RSA_PKCS1_PADDING }
+      : { key, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" };
+  return crypto.publicEncrypt(scheme, Buffer.from(plaintext, "utf8")).toString("base64url");
 }
 
 describe("criterion 1 — Zed proxy starts", () => {
@@ -262,5 +262,40 @@ describe("criterion L — decrypt failure errors the session but keeps the serve
     const again = await startZedProxy(0);
     expect(again.port).toBe(started.port);
     clearZedSession(state);
+  });
+
+  // PKCS#1 v1.5 (zed.dev's legacy V0 format) has no integrity check. On OpenSSL
+  // >= 3.2 a wrong-key decrypt does not throw at all — "implicit rejection"
+  // returns random bytes, ~0.8% of which decode as clean 0-8 byte UTF-8. That
+  // is what let a wrong-key token through as a credential (and flaked CI at
+  // ~1 run in 120); the payload must be credential-shaped to be accepted.
+  // These are values actually observed from that path.
+  const WRONG_KEY_GARBAGE = ["", "x", "DO", ">", "Y62", "gr\u0002", "зO"];
+
+  it("V0 payload that is not credential-shaped never decrypts", () => {
+    const auth = createZedNativeAuthData({}, { nativeAppPort: 1 });
+    for (const value of WRONG_KEY_GARBAGE) {
+      const v0 = encryptForCallback(auth.publicKey, value, "pkcs1v15");
+      expect(() => decryptZedAccessToken(v0, auth.privateKeyVerifier)).toThrow(/decrypt/i);
+    }
+  });
+
+  it("legacy V0 payload with a real-shaped token still decrypts", () => {
+    const auth = createZedNativeAuthData({}, { nativeAppPort: 1 });
+    // zed.dev mints 64-char base64url tokens (rpc::auth::random_token).
+    const token = crypto.randomBytes(48).toString("base64url");
+    const v0 = encryptForCallback(auth.publicKey, token, "pkcs1v15");
+    expect(decryptZedAccessToken(v0, auth.privateKeyVerifier)).toBe(token);
+  });
+
+  it("many wrong-key ciphertexts are all rejected (no probabilistic accept)", () => {
+    const live = createZedNativeAuthData({}, { nativeAppPort: 1 });
+    const other = createZedNativeAuthData({}, { nativeAppPort: 1 });
+    // Backstop for the unauthenticated path: fresh ciphertext each round, since
+    // acceptance depends on the random padding of that one ciphertext.
+    for (let i = 0; i < 256; i++) {
+      const bad = encryptForCallback(other.publicKey, `not-for-this-key-${i}`);
+      expect(() => decryptZedAccessToken(bad, live.privateKeyVerifier)).toThrow(/decrypt/i);
+    }
   });
 });
