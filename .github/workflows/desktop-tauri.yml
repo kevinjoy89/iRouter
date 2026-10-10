@@ -210,6 +210,25 @@ jobs:
         working-directory: desktop-tauri
         run: node scripts/stage-sidecar.mjs --target ${{ matrix.target }} --scope bin
 
+      # Rust 单测（托盘图不变量、更新器版本解析、gateway 进程树回收、selftest 场景解析……）。
+      # **为什么必须补这一步**：`ci.yml` 那套回归门禁只跑 `tests/` 下的 vitest，桌面壳层的
+      # Rust 单测在 CI 里此前**完全没有覆盖**——「托盘白板」（图标被当模板渲染成实心方块）
+      # 就是 CI 全绿、一路活到实机验收的。
+      #
+      # 位置：必须在 gateway 负载与 sidecar staging 之后——build.rs 会读 tauri.conf.json 的
+      # resources/externalBin（缺 gateway 负载会硬失败）。
+      #
+      # 两个**刻意**不加的开关：
+      #   · 不加 `--target`：单测跑宿主三元组。跨架构那条 job（macos-amd64 在 arm64 runner 上
+      #     出 x86_64 包）因此不需要 Rosetta ——加了 `--target` 反而要跑 x86_64 测试二进制。
+      #     实测：宿主三元组的 externalBin 缺失不影响编译，所以这里不依赖 staging 的三元组。
+      #   · 不加 `--release`：`src/shell/selftest.rs` 有两条用例是
+      #     `#[cfg(all(test, debug_assertions))]`，release 下会被**静默跳过**——那正是
+      #     「测试在跑，但没跑全」的假绿。
+      - name: Rust unit tests
+        working-directory: desktop-tauri/src-tauri
+        run: cargo test --locked
+
       - name: Build bundles (${{ matrix.bundles }})
         working-directory: desktop-tauri
         run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --ci
@@ -320,14 +339,21 @@ jobs:
           DESKTOP_PATH="$DBTMP/${DESKTOP#./}"
           DESKTOP_NAME=$(sed -n 's/^Name=//p' "$DESKTOP_PATH")
           DESKTOP_COMMENT=$(sed -n 's/^Comment=//p' "$DESKTOP_PATH")
+          DESKTOP_CATEGORIES=$(sed -n 's/^Categories=//p' "$DESKTOP_PATH")
           if [ "$DESKTOP_NAME" != "iRouter" ]; then
             fail ".desktop 的 Name 应为 iRouter，实际「$DESKTOP_NAME」" "$(cat "$DESKTOP_PATH")"
           fi
           if [ "$DESKTOP_COMMENT" != "iRouter 本地智能网关" ]; then
             fail ".desktop 的 Comment 应为「iRouter 本地智能网关」（来自 tauri.conf.json 的 bundle.shortDescription；回落成 Cargo.toml 的 crate 描述就是那个 bug），实际「$DESKTOP_COMMENT」" "$(cat "$DESKTOP_PATH")"
           fi
+          # Categories 取自 bundle.category（AppCategory::Utility → "Utility;"，见 tauri-bundler
+          # `bundle/category.rs:188`）。不设时 `Categories=` 是**空串**——freedesktop 规范要求
+          # 至少一个主分类，缺了启动器只好把它归到「其他/未分类」。
+          if [ "$DESKTOP_CATEGORIES" != "Utility;" ]; then
+            fail ".desktop 的 Categories 应为 Utility;（来自 tauri.conf.json 的 bundle.category），实际「$DESKTOP_CATEGORIES」" "$(cat "$DESKTOP_PATH")"
+          fi
           rm -rf "$DBTMP"
-          echo "启动器文案断言通过：Name=$DESKTOP_NAME / Comment=$DESKTOP_COMMENT"
+          echo "启动器文案断言通过：Name=$DESKTOP_NAME / Comment=$DESKTOP_COMMENT / Categories=$DESKTOP_CATEGORIES"
 
           # 安全边界：release 产物里不得出现自测接缝（见 macOS 段的说明）
           SBTMP=$(mktemp -d)

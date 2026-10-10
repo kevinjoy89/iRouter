@@ -19,6 +19,7 @@
     "active": true,
     "shortDescription": "iRouter 本地智能网关",
     "longDescription": "本地 AI 路由网关：对外只暴露一个 OpenAI 兼容端点，把请求分发到 40+ 上游提供商，支持模型组合回退、多账号回退、OAuth/API Key 凭据管理、用量统计与可选云同步。",
+    "category": "Utility",
     "targets": [
       "dmg",
       "nsis",
