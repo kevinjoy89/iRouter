@@ -36,7 +36,6 @@ const nextConfig = {
     // 反向约束：谁要打开 images.unoptimized，必须同时删掉这两条排除，否则生产环境的
     // /_next/image 会在缺 sharp 时失败。改这里请连带改这条注释。
     "*": [
-      "./gitbook/**/*",
       "./node_modules/@img/**/*",
       "./node_modules/sharp/**/*"
     ]
@@ -66,7 +65,7 @@ const nextConfig = {
     config.watchOptions = {
       ...config.watchOptions,
       aggregateTimeout: 300,
-      ignored: /[\\/](node_modules|\.git|logs|\.next|\.next-cli-build|gitbook|cli|open-sse\.old|tests|docs)[\\/]/,
+      ignored: /[\\/](node_modules|\.git|logs|\.next|\.next-cli-build|cli|open-sse\.old|tests|docs)[\\/]/,
     };
     return config;
   },

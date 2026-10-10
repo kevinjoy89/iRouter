@@ -9,6 +9,7 @@ This directory archives detailed multi-language Release Notes for all official r
 
 | Version / 版本 | Release Date / 发布日期 | Gateway Baseline / 网关基线 | Release Notes / 发版说明 |
 | :--- | :---: | :---: | :--- |
+| **Unreleased** *(待发布)* | — | 9router `v0.5.99` | [简体中文](unreleased.zh-CN.md) |
 | **v0.4.2** *(Latest)* | 2026-10-09 | 9router `v0.5.99` | [English](v0.4.2.en.md) · [简体中文](v0.4.2.zh-CN.md) · [GitHub Release](https://github.com/kevinjoy89/iRouter/releases/tag/v0.4.2) |
 | **v0.4.1** | 2026-10-09 | 9router `v0.5.99` | [English](v0.4.1.en.md) · [简体中文](v0.4.1.zh-CN.md) |
 | **v0.4.0** | 2026-10-09 | 9router `v0.5.95` | [English](v0.4.0.en.md) · [简体中文](v0.4.0.zh-CN.md) · [GitHub Release](https://github.com/kevinjoy89/iRouter/releases/tag/v0.4.0) |
@@ -27,3 +28,4 @@ This directory archives detailed multi-language Release Notes for all official r
 
 - **产品版本号 (Product Version)**：真源为 `desktop/package.json`，遵循语义化版本号（SemVer）。
 - **网关基线号 (Gateway Baseline)**：真源为根目录 `package.json`，与上游 [decolua/9router](https://github.com/decolua/9router) 保持一致，用于 HTTP User-Agent 与请求头对齐，两号解耦运作（详见 [ADR 0004](../adr/0004-version-decoupling.md)）。
+- **未发布变更 (Unreleased)**：写在 [unreleased.zh-CN.md](unreleased.zh-CN.md)，**只记 v0.4.2 之后**的改动。仓库根原先的 `CHANGELOG.md` 已移除：它是**上游的产物**（v0.5.69…v0.5.99 全部历史），本仓只在它顶部累积过一个 `# Unreleased` 段，而那段里 v0.3.4–v0.4.2 时期的条目**早已随版本发布**（属重复记录），各版本真实记录以本目录的 `vX.Y.Z` 文件为准。
