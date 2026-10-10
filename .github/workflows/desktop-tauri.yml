@@ -111,9 +111,11 @@ jobs:
             const fail = (m) => { console.error("::error::" + m); process.exit(1); };
 
             // ① 包版本与 Tauri 配置版本必须一致（两处都进产物：Info.plist / NSIS / deb）
+            // ⚠ `conf` 必须留**整个配置对象**：下面 ④ 还要读 `conf.bundle.windows.nsis`。
+            // （曾写成 `.version` 只取字符串，于是 ④ 报 "Cannot read properties of undefined"）
             const pkg = require("./desktop-tauri/package.json").version;
-            const conf = require("./desktop-tauri/src-tauri/tauri.conf.json").version;
-            if (pkg !== conf) fail(`版本不一致：desktop-tauri/package.json=${pkg}，tauri.conf.json=${conf}`);
+            const conf = require("./desktop-tauri/src-tauri/tauri.conf.json");
+            if (pkg !== conf.version) fail(`版本不一致：desktop-tauri/package.json=${pkg}，tauri.conf.json=${conf.version}`);
 
             // ② VC1：面板可见版本号在**裸构建**（CLI 形态 / 根目录直跑）时用的回退字面量，
             //    必须等于产品号。漏改这里 = 那些形态的面板显示旧版本，而且**没有任何别的检查会红**
