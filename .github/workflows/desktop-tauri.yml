@@ -307,6 +307,28 @@ jobs:
           grep -qx 'usr/bin/irouter-bun' <<<"$TGZ_LIST" || fail "tar.gz 里没有 usr/bin/irouter-bun" "$TGZ_LIST"
           grep -qx 'usr/lib/iRouter/gateway/custom-server.js' <<<"$TGZ_LIST" || fail "tar.gz 里没有网关负载" "$TGZ_LIST"
 
+          # 启动器文案（用户实测：MX Linux 菜单里显示的是 Cargo.toml 的 crate 描述
+          # 「iRouter 桌面壳层（Tauri v2 + Bun sidecar）」）。.desktop 的 `Comment` 取自
+          # `bundle.shortDescription`，**不设就回落到 crate 描述**——这条回落已经踩过一次，
+          # 所以这里按字面量钉死（不只看文件在不在，那种断言抓不住文案回归）。
+          # 取路径：先把 `dpkg -c` 落进变量再 awk，避免 `grep -q`/`head` 早退触发 SIGPIPE 假红
+          # （同上面两条注释的同一个坑）。awk 全文扫完、END 里取最后一条匹配，同样不早退。
+          DESKTOP=$(printf '%s\n' "$DEB_LIST" | awk '/\/applications\/.*\.desktop$/ {n=$NF} END {print n}')
+          [ -n "$DESKTOP" ] || fail "deb 里没有 .desktop 启动器" "$DEB_LIST"
+          DBTMP=$(mktemp -d)
+          dpkg-deb -x "$DEB" "$DBTMP"
+          DESKTOP_PATH="$DBTMP/${DESKTOP#./}"
+          DESKTOP_NAME=$(sed -n 's/^Name=//p' "$DESKTOP_PATH")
+          DESKTOP_COMMENT=$(sed -n 's/^Comment=//p' "$DESKTOP_PATH")
+          if [ "$DESKTOP_NAME" != "iRouter" ]; then
+            fail ".desktop 的 Name 应为 iRouter，实际「$DESKTOP_NAME」" "$(cat "$DESKTOP_PATH")"
+          fi
+          if [ "$DESKTOP_COMMENT" != "iRouter 本地智能网关" ]; then
+            fail ".desktop 的 Comment 应为「iRouter 本地智能网关」（来自 tauri.conf.json 的 bundle.shortDescription；回落成 Cargo.toml 的 crate 描述就是那个 bug），实际「$DESKTOP_COMMENT」" "$(cat "$DESKTOP_PATH")"
+          fi
+          rm -rf "$DBTMP"
+          echo "启动器文案断言通过：Name=$DESKTOP_NAME / Comment=$DESKTOP_COMMENT"
+
           # 安全边界：release 产物里不得出现自测接缝（见 macOS 段的说明）
           SBTMP=$(mktemp -d)
           tar -xzf "$TGZ" -C "$SBTMP" usr/bin/iRouter

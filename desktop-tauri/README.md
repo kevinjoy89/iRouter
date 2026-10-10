@@ -24,7 +24,7 @@ iRouter（Rust / Tauri 主进程）
 | `src/main.rs` | Lead | 入口：建窗口、拉起 sidecar、注册 shell/updater 的 init |
 | `src/gateway.rs` | Lead | sidecar 生命周期：定位可执行文件、spawn（`--port` / `DATA_DIR` / `HOSTNAME` / `IR_PANEL_GUARD`）、就绪探测、**孤儿回收**、退出清理 |
 | `src/guard.rs` | Lead | 面板守卫令牌：每次启动随机生成，注入子进程环境 + webview UA/头 |
-| `src/shell/**` | shell owner | 托盘、自启、单实例、应用菜单、右键菜单、快捷键、设置模态 IPC |
+| `src/shell/**` / `src-tauri/assets/tray-*.png` | shell owner | 托盘、自启、单实例、应用菜单、右键菜单、快捷键、设置模态 IPC；托盘图（`tray-template.png` = macOS 模板，`tray-color.png` = Win/Linux 同轮廓品牌橙，两张必须同 alpha，测试钉住） |
 | `src/updater/**` | updater owner | 检查/下载/校验/调起安装器，事件名与 payload 必须与面板既有契约一致 |
 | `tauri.conf.json` / `capabilities/**` / `icons/**` | packaging owner | 打包配置、capability、产物命名、CI 接线 |
 

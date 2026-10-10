@@ -11,9 +11,25 @@
 
 use std::time::{Duration, Instant};
 
-/// 托盘模板图（黑 + alpha，44px @144dpi = 22pt @2x）。
-/// 见下方 `create_tray` 里关于「为什么不能用应用图标」的说明。
+/// macOS 专用托盘模板图（纯黑 + alpha，44px @144dpi = 22pt @2x）。
+/// 见下方 `create` 里关于「为什么不能用应用图标」的说明。
 const TRAY_TEMPLATE_PNG: &[u8] = include_bytes!("../../assets/tray-template.png");
+
+/// Windows / Linux 托盘图：与模板图**同一 alpha 掩膜**，RGB 统一为品牌橙 `#F14B0D`
+/// （应用图标橙色像素的中位数）。
+///
+/// 为什么不能三平台都用模板图：`icon_as_template` 是 **macOS only**（`tray/mod.rs:295`
+/// 文档原文），macOS 会按菜单栏明暗自动反色，所以纯黑掩膜在那边是对的；另两个平台
+/// **原样绘制**，纯黑图形落在深色任务栏/面板上就等于隐形——用户实机截图：
+/// Win11 深色模式基本看不到、MX Linux 的 Xfce 面板上是一团黑。
+///
+/// 品牌橙的 WCAG 对比度（黑图形同列在括号里）：白底 3.65（21.0）、Win11 深色任务栏
+/// `#202020` 上 4.46（**1.29**）、Xfce 面板 `#2E3436` 上 3.46（1.66）——三种底都 ≥3:1，
+/// 而黑色在两种深色底上都远低于 3:1。**统一的是形状**（与 macOS 同一轮廓）与品牌色。
+///
+/// 两个文件必须同形状：`tray_color_matches_template_silhouette` 逐像素比对 alpha，
+/// 只重做其中一个会立刻红。
+const TRAY_COLOR_PNG: &[u8] = include_bytes!("../../assets/tray-color.png");
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -47,7 +63,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| on_tray_icon_event(tray.app_handle(), event));
 
-    // 图标：用**专门做的模板图**，不是应用图标。
+    // 图标：**统一轮廓、按平台取色**——
+    //   · macOS：模板图（纯黑 + alpha）+ `icon_as_template(true)`，菜单栏按明暗自动反色；
+    //   · Windows / Linux：同一轮廓的品牌橙版本（这两个平台不反色，黑色在深色任务栏/
+    //     面板上等于隐形，见 `TRAY_COLOR_PNG` 的说明）。
     //
     // ⚠️ **不要再回落到 `app.default_window_icon()`**——那正是实机验收发现的白板 bug：
     // 它是 `bundle.icon` 里的第一个 png（`icons/32x32.png`），也就是应用图标，
@@ -57,19 +76,27 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     // 模板图要求：RGB 必须纯黑，形状**全部由 alpha 表达**。本图从 `desktop/resources/icon.png`
     // 的橙色路由符号提取（橙色像素 R-B 远大于灰黑背景，用行/列像素剖面的断崖自适应定界，
     // 避开右下角那团橙色辉光），44px @144dpi 让 NSImage 解释为 22pt @2x。
-    let icon = match tauri::image::Image::from_bytes(TRAY_TEMPLATE_PNG) {
+    // 橙色版只把可见像素的 RGB 换成品牌橙，alpha 逐像素照抄（测试钉住）。
+    let (icon_bytes, as_template) = if cfg!(target_os = "macos") {
+        (TRAY_TEMPLATE_PNG, true)
+    } else {
+        (TRAY_COLOR_PNG, false)
+    };
+    let icon = match tauri::image::Image::from_bytes(icon_bytes) {
         Ok(img) => Some(img),
         Err(e) => {
             // 解码失败就建无图标托盘，而不是退回应用图标（那会重现白板）
-            log::error!("托盘模板图解码失败，托盘将无图标：{e}");
+            log::error!("托盘图解码失败，托盘将无图标：{e}");
             None
         }
     };
     if let Some(icon) = icon {
         builder = builder.icon(icon);
-        // 文档原文 "Use the icon as a template. **macOS only**"（`tray/mod.rs:295`），
-        // 其它平台是空操作，所以无条件调用不用 cfg。模板图在 macOS 上会自动适配深浅色菜单栏。
-        builder = builder.icon_as_template(true);
+        // 文档原文 "Use the icon as a template. **macOS only**"（`tray/mod.rs:295`）。
+        // 只对模板图开：橙色图在另外两个平台必须按本色绘制。
+        if as_template {
+            builder = builder.icon_as_template(true);
+        }
     }
 
     builder.build(app)?;
@@ -220,6 +247,87 @@ mod tests {
         let alpha_at = |x: u32, y: u32| rgba[((y * img.width() + x) * 4 + 3) as usize];
         for (x, y) in [(0u32, 0u32), (43, 0), (0, 43), (43, 43)] {
             assert_eq!(alpha_at(x, y), 0, "角 ({x},{y}) 应完全透明（模板图不该带背景）");
+        }
+    }
+
+    /// WCAG 相对亮度（sRGB 线性化）。
+    fn rel_luminance(rgb: [u8; 3]) -> f64 {
+        let ch = |v: u8| {
+            let v = v as f64 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * ch(rgb[0]) + 0.7152 * ch(rgb[1]) + 0.0722 * ch(rgb[2])
+    }
+
+    /// WCAG 对比度 `(L_light + 0.05) / (L_dark + 0.05)`。
+    fn contrast_ratio(a: [u8; 3], b: [u8; 3]) -> f64 {
+        let (la, lb) = (rel_luminance(a), rel_luminance(b));
+        let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// Windows/Linux 的橙色图必须与 macOS 模板**同一轮廓**：尺寸一致、alpha 逐像素相等。
+    /// 形状只有一个真源——只重做其中一个文件（改了形状忘了另一个）立刻红。
+    #[test]
+    fn tray_color_matches_template_silhouette() {
+        let tpl = tauri::image::Image::from_bytes(TRAY_TEMPLATE_PNG).expect("模板图应能解码");
+        let color = tauri::image::Image::from_bytes(TRAY_COLOR_PNG).expect("橙色图应能解码");
+        assert_eq!(
+            (color.width(), color.height()),
+            (tpl.width(), tpl.height()),
+            "两张图尺寸必须一致"
+        );
+
+        let tpl_alpha: Vec<u8> = tpl.rgba().chunks(4).map(|p| p[3]).collect();
+        let color_alpha: Vec<u8> = color.rgba().chunks(4).map(|p| p[3]).collect();
+        let drift = tpl_alpha
+            .iter()
+            .zip(&color_alpha)
+            .position(|(a, b)| a != b);
+        assert!(
+            drift.is_none(),
+            "橙色图与模板图的 alpha 在第 {drift:?} 个像素起不一致——形状漂移了，\
+             两个文件必须严格同轮廓（橙色版=模板 alpha + 品牌橙 RGB）"
+        );
+    }
+
+    /// **托盘图必须在浅色与深色底上都看得见**——这条直接编码用户实机报的那个 bug：
+    /// `icon_as_template` 是 macOS only，另两个平台原样绘制，纯黑图形落在 Win11 深色任务栏
+    /// 上对比度只有 **1.29:1**（等于隐形）、Xfce 面板上 1.66:1。阈值取 WCAG 非文本对比度
+    /// 下限 3:1。
+    #[test]
+    fn tray_color_is_visible_on_light_and_dark_backgrounds() {
+        let img = tauri::image::Image::from_bytes(TRAY_COLOR_PNG).expect("橙色图应能解码");
+        let visible: Vec<[u8; 3]> = img
+            .rgba()
+            .chunks(4)
+            .filter(|p| p[3] > 128)
+            .map(|p| [p[0], p[1], p[2]])
+            .collect();
+        assert!(!visible.is_empty(), "橙色图里没有可见像素");
+
+        // 品牌色是单一色值（取色，不是重画）：所有可见像素必须同色
+        let brand = visible[0];
+        assert!(
+            visible.iter().all(|p| *p == brand),
+            "橙色图应为单色（透明像素除外），实测有 {brand:?} 以外的颜色"
+        );
+
+        for (label, bg) in [
+            ("浅色任务栏 #F3F3F3", [0xF3u8, 0xF3, 0xF3]),
+            ("Win11 深色任务栏 #202020", [0x20, 0x20, 0x20]),
+            ("Xfce 面板 #2E3436", [0x2E, 0x34, 0x36]),
+        ] {
+            let ratio = contrast_ratio(brand, bg);
+            assert!(
+                ratio >= 3.0,
+                "{label} 上的对比度只有 {ratio:.2}:1（要求 ≥3:1）——托盘图形会看不清；\
+                 纯黑图形在 #202020 上就是 1.29:1，正是用户截图里「基本看不到」的情况"
+            );
         }
     }
 }
