@@ -33,23 +33,35 @@ fn tmp(name: &str) -> std::path::PathBuf {
 }
 
 /// JS case 2：默认值**形状固定**——新增键必须显式登记，不能悄悄长出来。
-/// JS 用 `toEqual` 深比全部键；Rust 等价断言是"序列化后恰有这 5 个键 + 值正确"。
+/// JS 用 `toEqual` 深比全部键；Rust 等价断言是"序列化后恰有这 6 个键 + 值正确"。
+///
+/// ⚠️ 键数从 5 变 6 是本仓新增的 `locale`（见 `settings.rs` 头注）；
+/// 它与 `commands.rs::settings_payload` 额外插入的 `launchAtLogin` / `appVersion` 不同——
+/// 那两个是**载荷**字段，不落盘。
 #[test]
-fn js_case_02_default_shape_is_exactly_the_five_known_keys() {
+fn js_case_02_default_shape_is_exactly_the_six_known_keys() {
     let value = serde_json::to_value(ShellSettings::default()).unwrap();
     let map = value.as_object().expect("设置必须是 JSON 对象");
     let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
     keys.sort_unstable();
     assert_eq!(
         keys,
-        ["checkUpdates", "closeAction", "ignoredVersion", "lastCheckAt", "lastCheckResult"],
-        "键集合必须恰好是这 5 个（多一个=新键没登记，少一个=面板读到 undefined）"
+        [
+            "checkUpdates",
+            "closeAction",
+            "ignoredVersion",
+            "lastCheckAt",
+            "lastCheckResult",
+            "locale"
+        ],
+        "键集合必须恰好是这 6 个（多一个=新键没登记，少一个=面板读到 undefined）"
     );
     assert_eq!(map["closeAction"], json!("dock"));
     assert_eq!(map["checkUpdates"], json!(true));
     assert_eq!(map["lastCheckAt"], json!(null));
     assert_eq!(map["lastCheckResult"], json!(null));
     assert_eq!(map["ignoredVersion"], json!(null));
+    assert_eq!(map["locale"], json!(null), "默认未选择语言");
 }
 
 /// JS case 3：更新器相关键**非法类型回退默认，不抛**。

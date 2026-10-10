@@ -55,6 +55,29 @@ pub fn install_app_menu(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// 重建应用菜单（应用语言变化后刷新文案）。macOS 之外是空操作——那些平台不装应用菜单。
+///
+/// 为何需要它：菜单文案在**构建时**从 `i18n::of(locale)` 取，所以改语言必须重建菜单。
+/// 托盘侧对应 `tray::refresh`（那份靠 `set_menu` 换菜单）。
+pub fn refresh_app_menu(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        match build_app_menu(app) {
+            Ok(menu) => {
+                // 返回值是“被替换掉的旧菜单”（`Option<Menu<R>>`），不用管。
+                if let Err(e) = menu.set_as_app_menu() {
+                    log::warn!("刷新应用菜单失败：{e}");
+                }
+            }
+            Err(e) => log::warn!("构建应用菜单失败：{e}"),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+    }
+}
+
 /// 构建 macOS 应用菜单。模板对齐 `desktop/main.js:1321-1425`：
 /// `iRouter / Edit / View / Window / Help` 五项；**Edit 可见**（`main.js:1357` 是
 /// `visible: false`；这里必须可见，否则加速键失效——这正是本项交付的核心）。

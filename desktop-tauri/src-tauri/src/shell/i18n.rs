@@ -19,6 +19,21 @@ pub enum Locale {
     ZhTw,
 }
 
+impl Locale {
+    /// 语言标签。**必须与面板侧 `src/i18n/config.js` 的 `LOCALES`、以及
+    /// `public/i18n/literals/` 下的字典名逐字一致**——它是壳层与面板之间传递
+    /// 应用语言的契约（cookie 值、`appLocale` 载荷字段），也是落盘进
+    /// `shell-settings.json > locale` 的值。三处不一致会让同一台机器上的
+    /// 菜单与面板显示不同语言。
+    pub fn tag(self) -> &'static str {
+        match self {
+            Locale::En => "en",
+            Locale::ZhCn => "zh-CN",
+            Locale::ZhTw => "zh-TW",
+        }
+    }
+}
+
 /// 对应 `normalizeMenuLocale`（`desktop/main.js:1280-1298`）。
 pub fn normalize(raw: &str) -> Locale {
     if raw.trim().is_empty() {
@@ -34,6 +49,21 @@ pub fn normalize(raw: &str) -> Locale {
     // 其余语言（ja/ko/es/fr/de/ru/pt/vi…）在 Electron 版里**一律回退英文**，
     // 因为 getMenuI18n 只维护三种语言；这里保持同一行为。
     Locale::En
+}
+
+/// 受支持的语言标签 → `Locale`；**不受支持返回 `None`（= 未选择）**。
+///
+/// 与 `normalize` 的区别：`normalize` 是「尽力解析任意 locale 字符串」
+///（系统 locale 可能是 `zh-Hans-CN`、`zh_CN.UTF-8` 这类形式），
+/// 这个只认受支持集合内的精确标签。区分「用户选了英文」与「用户没选过」
+/// 是优先级链的前提（ADR 0008）——前者不可被系统语言覆盖，后者可以。
+pub fn parse_tag(raw: &str) -> Option<Locale> {
+    match raw.trim() {
+        "en" => Some(Locale::En),
+        "zh-CN" => Some(Locale::ZhCn),
+        "zh-TW" => Some(Locale::ZhTw),
+        _ => None,
+    }
 }
 
 /// 进程启动时的语言。没有跨平台的"系统 UI 语言"标准库 API，
@@ -297,6 +327,35 @@ impl Strings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `tag` 与 `normalize` 必须互为逆：一个是写入（注入 cookie / 落盘），
+    /// 一个是读取（解析系统 locale / 面板回报的值）。
+    /// 两者漂移的后果是「壳层说 zh-CN、面板归一成别的」这类难查的不一致。
+    #[test]
+    fn tag_and_normalize_are_inverse() {
+        for l in [Locale::En, Locale::ZhCn, Locale::ZhTw] {
+            assert_eq!(normalize(l.tag()), l, "{l:?} 的标签必须能被解析回自身");
+        }
+        // 标签集合就是受支持集合（与 settings.rs 的 SUPPORTED_LOCALES 同值）
+        let mut tags: Vec<&str> = [Locale::En, Locale::ZhCn, Locale::ZhTw]
+            .map(Locale::tag)
+            .to_vec();
+        tags.sort_unstable();
+        assert_eq!(tags, ["en", "zh-CN", "zh-TW"]);
+    }
+
+    /// `parse_tag` 只认受支持标签：空串与已废弃语言一律 `None`（= 未选择）。
+    /// 这一条守的是「用户选了英文」与「用户没选过」的区分——若已废弃语言
+    /// 被当成一次选择，升级后会在系统是中文时显示英文界面（ADR 0008）。
+    #[test]
+    fn parse_tag_only_accepts_supported_tags() {
+        assert_eq!(parse_tag("en"), Some(Locale::En));
+        assert_eq!(parse_tag("zh-CN"), Some(Locale::ZhCn));
+        assert_eq!(parse_tag("zh-TW"), Some(Locale::ZhTw));
+        for bad in ["", "  ", "nl", "ja", "zh", "EN", "zh-cn", "zh_CN"] {
+            assert_eq!(parse_tag(bad), None, "{bad:?} 不该算一次显式选择");
+        }
+    }
 
     /// 与 `tests/unit/desktop-shell-i18n.test.js`（随 `desktop/` 处置）的对账见
     /// `docs/plans/2026-10-08-r1-coverage.md`。Rust 侧比 JS 侧**更强**：

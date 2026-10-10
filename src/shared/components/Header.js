@@ -294,9 +294,41 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
             </span>
           </div>
         )}
+        <SettingsButton />
         <HeaderSearch />
       </div>
     </header>
+  );
+}
+
+/**
+ * 设置入口（顶栏齿轮）。
+ *
+ * 为何在面板里而不是只靠原生入口：Windows / Linux 此前只能在托盘右键菜单里找到
+ * 「设置…」，而托盘左键事件在 Linux 上**根本不会发**（Tauri 上游限制）。面板内入口
+ * 是三平台唯一真正一致的位置——webview 内容与平台无关。
+ *
+ * 为何只发 window 事件、不直接调壳层：`ShellSettingsHost` 挂在 root layout 上监听
+ * `irouter:open-settings`，浏览器形态下同样生效（只有「软件更新」等壳层专有分段不呈现）。
+ * 因此这里**不需要**判断 `window.irouterShell` 是否存在——判了反而会让浏览器形态丢入口。
+ *
+ * @return {JSX.Element} 齿轮按钮
+ */
+function SettingsButton() {
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        window.dispatchEvent(new Event("irouter:open-settings"))
+      }
+      // title 会被 runtime i18n 翻译（它监听 title 属性变化），故用 title 而非 aria-label：
+      // 后者不在翻译范围内（见 src/i18n/runtime.js 的 processTitle）。
+      title="Settings"
+      aria-label="Settings"
+      className="flex items-center justify-center rounded-lg p-2 text-text-muted transition-colors hover:bg-black/5 hover:text-text-main dark:hover:bg-white/5"
+    >
+      <span className="material-symbols-outlined text-[20px] leading-none">settings</span>
+    </button>
   );
 }
 

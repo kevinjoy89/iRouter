@@ -78,9 +78,13 @@ pub struct ShellState {
     /// 面板尚未加载完时暂存的 `shell:open-settings` 载荷（对齐 Electron 的
     /// `webContents.once("did-finish-load", …)`，`main.js:662-668`）。
     pub pending_open: Mutex<Option<Value>>,
-    /// 菜单语言。启动时按系统 locale 判定，之后不再变（没有调用者给它改——面板侧
-    /// 根本没有发射 `__IROUTER_LOCALE__` 的代码，见 `i18n` 模块头）。
+    /// **应用语言**：壳层与面板共用的那一个值，按「显式选择 > 系统语言 > 英文」
+    /// 判定（ADR 0008）。启动时定一次；用户在面板显式改语言后经
+    /// `set_app_locale` 更新，并重建原生菜单文案。
     locale: Mutex<i18n::Locale>,
+    /// 当前语言是否来自**显式选择**（而非系统 locale）。用于日志与排障：
+    /// 「首启不跟随系统」这类反馈一到，这一位立刻区分出是判定源的问题还是别处。
+    locale_explicit: AtomicBool,
     /// 最近一次「菜单触发检查更新」的时刻。`Some` = 有一次结果在等 → 收到
     /// `shell:update-available` 时弹结果对话框（见 `dialogs` 模块头）。
     pub menu_check_at: Mutex<Option<Instant>>,
@@ -89,13 +93,17 @@ pub struct ShellState {
 }
 
 impl ShellState {
-    fn new() -> Self {
+    /// 建状态并完成**应用语言判定**。规则与理由见 ADR 0008：壳层先于面板存在
+    ///（它要渲染原生菜单），所以它必须是唯一的判定点。
+    fn new(app: &AppHandle) -> Self {
+        let explicit = explicit_locale(app);
         Self {
             quitting: AtomicBool::new(false),
             last_tray_left_click: Mutex::new(None),
             zoom: Mutex::new(1.0),
             pending_open: Mutex::new(None),
-            locale: Mutex::new(i18n::system_locale()),
+            locale: Mutex::new(resolve_app_locale(explicit, i18n::system_locale())),
+            locale_explicit: AtomicBool::new(explicit.is_some()),
             menu_check_at: Mutex::new(None),
             result_listener_registered: AtomicBool::new(false),
         }
@@ -131,11 +139,17 @@ impl CloseAction {
 /// 由 `main.rs` 在 setup 阶段调用。**不得阻塞启动**：这里只建托盘/菜单（内存操作，
 /// 主线程内联执行，不走 `run_on_main_thread` 的异步往返）与注册事件钩子，没有任何网络/文件 I/O。
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
-    // 把检测到的语言打出来：菜单文案只在启动时定一次，出问题时这行是唯一线索。
+    // 把判定结果打出来：菜单文案只在启动时定一次，出问题时这行是唯一线索。
     // （曾实测：只读 LANG 环境变量会在 macOS 上把 zh_CN 误判成英文，见 i18n.rs::system_locale）
-    let detected = locale(app);
-    log::info!("菜单语言检测：{:?}（系统 locale）", detected);
-    app.manage(ShellState::new());
+    //
+    // 先 `manage` 再读：反了的话 `try_state` 会失败，于是这里算一遍系统 locale、
+    // `ShellState::new` 里再算一遍（值相同，但白跑一次）。
+    app.manage(ShellState::new(app));
+    log::info!(
+        "菜单语言检测：{:?}（{}）",
+        locale(app),
+        if locale_is_explicit(app) { "显式选择" } else { "系统 locale" }
+    );
 
     // 1) 先注册插件：它承载 RunEvent（关窗拦截）与 page load（补发打开设置）钩子，
     //    越早挂上越不容易漏事件。
@@ -168,8 +182,13 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 /// 由 `main.rs` 在建窗处挂：`.initialization_script(shell::shim_script())`。
 /// **必须与 updater 的注入脚本合并**（同一个 `window.irouterShell` 对象，见 Lead 的接口约定）：
 /// 本脚本只对已有对象做 `Object.assign`，且仅在桥不存在时才挂上合并结果，绝不整体覆盖。
-pub fn shim_script() -> String {
-    include_str!("shim.js").replace("__IROUTER_PLATFORM__", std::env::consts::OS)
+pub fn shim_script(locale: i18n::Locale) -> String {
+    include_str!("shim.js")
+        .replace("__IROUTER_PLATFORM__", std::env::consts::OS)
+        // 应用语言**烘进脚本字符串**（而不是让脚本自己去 invoke）：
+        // init 脚本在 document-start 跑，而那时 `__TAURI_INTERNALS__` 可能还没就绪
+        //（先后顺序没有文档承诺，见 shim.js 的约束 2），异步取值赶不上面板首帧。
+        .replace("__IROUTER_APP_LOCALE__", locale.tag())
 }
 
 /// 单实例插件回调：第二次启动时聚焦已有窗口。
@@ -184,11 +203,65 @@ pub fn on_second_instance(app: &AppHandle, args: Vec<String>, cwd: String) {
     window::show_window(app);
 }
 
-/// 当前菜单语言（启动时定，见 `ShellState::locale`）。
+/// 应用语言的**即时**判定（不读缓存）。
+///
+/// 为何需要它而不是直接用 `locale(app)`：注入脚本在**建窗时**就要拿到语言，
+/// 而 dev 捷径（`IROUTER_PANEL_URL`）下 `shell::init` 根本没跑、`ShellState` 不存在，
+/// 那种情况下 `locale(app)` 会直接回落到系统 locale、忽略用户的显式选择。
+pub fn app_locale_now(app: &AppHandle) -> i18n::Locale {
+    resolve_app_locale(explicit_locale(app), i18n::system_locale())
+}
+
+/// 当前**应用语言**（壳层菜单与面板共用）。判定与更新见 `ShellState::locale`。
 pub fn locale(app: &AppHandle) -> i18n::Locale {
     app.try_state::<ShellState>()
         .and_then(|state| state.locale.lock().ok().map(|l| *l))
-        .unwrap_or_else(i18n::system_locale)
+        .unwrap_or_else(|| app_locale_now(app))
+}
+
+/// 当前语言是否来自显式选择（日志与排障用）。
+pub fn locale_is_explicit(app: &AppHandle) -> bool {
+    app.try_state::<ShellState>()
+        .map(|s| s.locale_explicit.load(Ordering::SeqCst))
+        .unwrap_or(false)
+}
+
+/// 读**显式选择**的语言。`None` = 用户没选过（含选了已废弃语言的情况），
+/// 交给系统 locale——这是优先级链的第一级（ADR 0008）。
+///
+/// 文件缺失/损坏时 `settings::read` 已保证回落默认（`locale: None`），故这里不额外容错。
+fn explicit_locale(app: &AppHandle) -> Option<i18n::Locale> {
+    let data_dir = crate::gateway::resolve_data_dir(app).ok()?;
+    let raw = crate::settings::read(&data_dir).locale?;
+    i18n::parse_tag(&raw)
+}
+
+/// 优先级链的纯函数形式：显式选择 > 系统语言。
+/// 「系统语言不受支持时回落英文」由 `i18n::normalize` 保证（它已覆盖该用例）。
+fn resolve_app_locale(explicit: Option<i18n::Locale>, system: i18n::Locale) -> i18n::Locale {
+    explicit.unwrap_or(system)
+}
+
+/// 面板显式改了语言之后重算应用语言，并刷新所有原生文案。
+/// 由 `shell_set_settings` 在写入 `locale` 键之后调用（见 `commands.rs`）。
+///
+/// **不需要重启**：用户选完语言，托盘与（macOS 的）应用菜单立刻跟着变。
+pub fn set_app_locale(app: &AppHandle) {
+    let explicit = explicit_locale(app);
+    let next = resolve_app_locale(explicit, i18n::system_locale());
+    if let Some(state) = app.try_state::<ShellState>() {
+        if let Ok(mut l) = state.locale.lock() {
+            *l = next;
+        }
+        state.locale_explicit.store(explicit.is_some(), Ordering::SeqCst);
+    }
+    log::info!(
+        "应用语言已更新为 {}（{}）",
+        next.tag(),
+        if explicit.is_some() { "显式选择" } else { "系统 locale" }
+    );
+    tray::refresh(app);
+    menus::refresh_app_menu(app);
 }
 
 /// 动态插件：RunEvent + page load。命令不在这里（见 `invoke_handler`）。
@@ -320,9 +393,41 @@ mod tests {
         assert_eq!(CloseAction::parse(""), CloseAction::Dock);
     }
 
+    /// 优先级链的三条分支（ADR 0008）。
+    #[test]
+    fn app_locale_priority_chain() {
+        // ① 有显式选择时优先，哪怕它与系统语言不同
+        assert_eq!(
+            resolve_app_locale(Some(i18n::Locale::En), i18n::Locale::ZhCn),
+            i18n::Locale::En,
+            "用户选了英文，系统是中文 → 用英文"
+        );
+        // ② 没选过 → 用系统语言
+        assert_eq!(
+            resolve_app_locale(None, i18n::Locale::ZhCn),
+            i18n::Locale::ZhCn
+        );
+        // ③ 没选过且系统语言不受支持 → 英文（由 i18n::normalize 保证）
+        assert_eq!(i18n::normalize("ja"), i18n::Locale::En);
+        assert_eq!(resolve_app_locale(None, i18n::normalize("ja")), i18n::Locale::En);
+    }
+
+    /// 壳层写出的语言标签必须与面板 `LOCALES`、字典文件名一致。
+    /// 三处漂移的症状是「菜单中文、面板英文」——正是本次要修的形态。
+    #[test]
+    fn locale_tag_matches_the_panel_contract() {
+        assert_eq!(i18n::Locale::En.tag(), "en");
+        assert_eq!(i18n::Locale::ZhCn.tag(), "zh-CN");
+        assert_eq!(i18n::Locale::ZhTw.tag(), "zh-TW");
+        // 与 `crate::settings::SUPPORTED_LOCALES` 同值（落盘/读盘两侧的契约）
+        for l in [i18n::Locale::En, i18n::Locale::ZhCn, i18n::Locale::ZhTw] {
+            assert!(crate::settings::SUPPORTED_LOCALES.contains(&l.tag()));
+        }
+    }
+
     #[test]
     fn shim_script_is_self_contained_and_merges() {
-        let js = shim_script();
+        let js = shim_script(i18n::Locale::ZhCn);
         // 绝不整体覆盖 window.irouterShell（Lead 的接口约定：与 updater 脚本合并）：
         // 不允许用对象字面量替换，只允许在"此前不存在"时挂上合并后的对象。
         assert!(
@@ -335,6 +440,21 @@ mod tests {
         assert!(js.contains("shell_set_settings"));
         assert!(js.contains("shell_context_menu"));
         assert!(!js.contains("__IROUTER_PLATFORM__"), "平台占位符必须已被替换");
+        assert!(!js.contains("__IROUTER_APP_LOCALE__"), "语言占位符必须已被替换");
+        assert!(js.contains("zh-CN"), "注入的语言标签应出现在脚本里");
+    }
+
+    /// 注入脚本必须把 cookie 写进**面板 origin**，而不是先加载的兜底页。
+    /// init 脚本对每次顶层导航都跑，不 guard 就会在 `tauri://localhost` 上
+    /// 写一份面板读不到的 cookie。
+    #[test]
+    fn shim_script_guards_the_panel_origin_before_writing_the_cookie() {
+        let js = shim_script(i18n::Locale::ZhCn);
+        assert!(js.contains("document.cookie"), "应写入语言 cookie");
+        assert!(
+            js.contains("127.0.0.1") && js.contains("localhost"),
+            "必须先判定是否处于面板 origin（兜底页不写）"
+        );
     }
 
     #[test]

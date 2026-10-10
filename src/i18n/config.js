@@ -1,188 +1,40 @@
-export const LOCALES = [
-  "en",
-  "vi",
-  "zh-CN",
-  "zh-TW",
-  "ja",
-  "pt-BR",
-  "pt-PT",
-  "ko",
-  "es",
-  "de",
-  "fr",
-  "he",
-  "ar",
-  "ru",
-  "pl",
-  "cs",
-  "nl",
-  "tr",
-  "uk",
-  "tl",
-  "id",
-  "km",
-  "th",
-  "hi",
-  "bn",
-  "ur",
-  "ro",
-  "sv",
-  "it",
-  "el",
-  "hu",
-  "fi",
-  "da",
-  "no",
-  "fa",
-];
+// 受支持的语言集合。收窄到三种是刻意的：面板此前声明 34 种而实际只有 6 份字典，
+// 其余 28 种选中后 fetch 404 被吞掉、静默回落全英文——那是缺陷不是特性。
+// 集合与 `public/i18n/literals/` 下实有的字典必须一致，由
+// `tests/unit/i18n-locale-set.test.js` 断言守护（见 ADR 0008）。
+export const LOCALES = ["en", "zh-CN", "zh-TW"];
 export const DEFAULT_LOCALE = "en";
 export const LOCALE_COOKIE = "locale";
 
 export const LOCALE_NAMES = {
   en: "English",
-  vi: "Tiếng Việt",
   "zh-CN": "简体中文",
   "zh-TW": "繁體中文",
-  ja: "日本語",
-  "pt-BR": "Português (Brasil)",
-  "pt-PT": "Português (Portugal)",
-  ko: "한국어",
-  es: "Español",
-  de: "Deutsch",
-  fr: "Français",
-  he: "עברית",
-  ar: "العربية",
-  ru: "Русский",
-  pl: "Polski",
-  cs: "Čeština",
-  nl: "Nederlands",
-  tr: "Türkçe",
-  uk: "Українська",
-  tl: "Tagalog",
-  id: "Indonesia",
-  th: "ไทย",
-  km: "ខ្មែរ",
-  hi: "हिन्दी",
-  bn: "বাংলা",
-  ur: "اردو",
-  ro: "Română",
-  sv: "Svenska",
-  it: "Italiano",
-  el: "Ελληνικά",
-  hu: "Magyar",
-  fi: "Suomi",
-  da: "Dansk",
-  no: "Norsk",
-  fa: "فارسی",
 };
 
+/**
+ * 把任意语言标记归一化到受支持集合里的一个值。
+ *
+ * **不受支持的语言返回空串，表示「未选择」**——不是「显式选择了英文」。
+ * 这个区分是优先级链（显式选择 > 系统语言 > 英文）的前提：只有受支持的语言
+ * 才算一次选择，否则 `LOCALES` 与归一化会长期各说各话（见 ADR 0008）。
+ *
+ * `zh` 前缀的判定规则与壳层 `i18n.rs` 的 `normalize` 一致（含 tw/hk/hant 判繁体），
+ * 两边必须给出同一结果，否则同一台机器上菜单与面板会显示不同语言。
+ *
+ * @param {string} locale 语言标记（cookie 值、navigator.language、壳层注入值）
+ * @return {string} `en` / `zh-CN` / `zh-TW`，或空串（未选择/不受支持）
+ */
 export function normalizeLocale(locale) {
-  if (locale === "zh" || locale === "zh-CN") {
+  if (typeof locale !== "string") return "";
+  const s = locale.trim().toLowerCase();
+  if (!s) return "";
+  if (s.startsWith("zh")) {
+    if (s.includes("tw") || s.includes("hk") || s.includes("hant")) return "zh-TW";
     return "zh-CN";
   }
-  if (locale === "en") {
-    return "en";
-  }
-  if (locale === "vi") {
-    return "vi";
-  }
-  if (locale === "zh-TW") {
-    return "zh-TW";
-  }
-  if (locale === "ja") {
-    return "ja";
-  }
-  if (locale === "pt-BR") {
-    return "pt-BR";
-  }
-  if (locale === "pt-PT") {
-    return "pt-PT";
-  }
-  if (locale === "ko") {
-    return "ko";
-  }
-  if (locale === "es") {
-    return "es";
-  }
-  if (locale === "de") {
-    return "de";
-  }
-  if (locale === "fr") {
-    return "fr";
-  }
-  if (locale === "he") {
-    return "he";
-  }
-  if (locale === "ar") {
-    return "ar";
-  }
-  if (locale === "ru") {
-    return "ru";
-  }
-  if (locale === "pl") {
-    return "pl";
-  }
-  if (locale === "cs") {
-    return "cs";
-  }
-  if (locale === "nl") {
-    return "nl";
-  }
-  if (locale === "tr") {
-    return "tr";
-  }
-  if (locale === "uk") {
-    return "uk";
-  }
-  if (locale === "tl") {
-    return "tl";
-  }
-  if (locale === "id") {
-    return "id";
-  }
-  if (locale === "th") {
-    return "th";
-  }
-  if (locale === "km") {
-    return "km";
-  }
-  if (locale === "hi") {
-    return "hi";
-  }
-  if (locale === "bn") {
-    return "bn";
-  }
-  if (locale === "ur") {
-    return "ur";
-  }
-  if (locale === "ro") {
-    return "ro";
-  }
-  if (locale === "sv") {
-    return "sv";
-  }
-  if (locale === "it") {
-    return "it";
-  }
-  if (locale === "el") {
-    return "el";
-  }
-  if (locale === "hu") {
-    return "hu";
-  }
-  if (locale === "fi") {
-    return "fi";
-  }
-  if (locale === "da") {
-    return "da";
-  }
-  if (locale === "no") {
-    return "no";
-  }
-  if (locale === "fa") {
-    return "fa";
-  }
-  return DEFAULT_LOCALE;
+  if (s === "en" || s.startsWith("en-")) return "en";
+  return "";
 }
 
 export function isSupportedLocale(locale) {

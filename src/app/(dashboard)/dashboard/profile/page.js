@@ -6,33 +6,7 @@ import PricingModal from "@/shared/components/PricingModal";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
-import { translate, reloadTranslations } from "@/i18n/runtime";
-import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
-
-function getLocaleFromCookie() {
-  if (typeof document === "undefined") return "en";
-  const cookie = document.cookie
-    .split(";")
-    .find((c) => c.trim().startsWith(`${LOCALE_COOKIE}=`));
-  const value = cookie ? decodeURIComponent(cookie.split("=")[1]) : "en";
-  return normalizeLocale(value);
-}
-
-/**
- * 解析系统宿主当前语言代码
- * @return {string} 规范化后的语言代码 ('en' | 'zh-CN' | 'zh-TW')
- */
-function resolveSystemLocale() {
-  if (typeof navigator === "undefined") return "en";
-  const navLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
-  if (navLang.includes("tw") || navLang.includes("hk") || navLang.includes("hant")) {
-    return "zh-TW";
-  }
-  if (navLang.startsWith("zh")) {
-    return "zh-CN";
-  }
-  return "en";
-}
+import { translate } from "@/i18n/runtime";
 
 /**
  * 网关设置页（提供商、路由、安全、脱敏、定价…）
@@ -72,24 +46,9 @@ export default function ProfilePage({
   const oidcRedirectUri = origin ? `${origin}/api/auth/oidc/callback` : "/api/auth/oidc/callback";
 
   // 语言与主题的**切换入口**已挪到壳层设置面板（/settings，Cmd+,）。
-  // 这里保留挂载时的偏好恢复：偏好存 localStorage，若 cookie 与它不一致
-  //（刚在 /settings 改过、或换了浏览器 profile），就地同步一次。
-  useEffect(() => {
-    let saved = "system";
-    try {
-      saved = localStorage.getItem("irouter_locale_preference") || "system";
-    } catch {}
-    const targetLocale = saved === "system" ? resolveSystemLocale() : saved;
-    if (getLocaleFromCookie() !== targetLocale) {
-      document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(targetLocale)}; path=/; max-age=31536000`;
-      fetch("/api/locale", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locale: targetLocale }),
-      }).catch(() => {});
-      reloadTranslations();
-    }
-  }, []);
+  // 挂载时的偏好恢复**已移除**：显式选择的权威是壳层设置文件的 `locale` 字段，
+  // cookie 由壳层在 document-start 注入，面板不自己判定语言（ADR 0008）。
+  // 此前这里读 localStorage 再同步 cookie——那是第二份副本，与权威并存必然漂移。
   const samlAcsUrl = origin ? `${origin}/api/auth/saml/acs` : "/api/auth/saml/acs";
   const samlMetadataUrl = origin ? `${origin}/api/auth/saml/metadata` : "/api/auth/saml/metadata";
   

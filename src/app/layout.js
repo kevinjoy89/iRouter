@@ -31,6 +31,9 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
+    // `lang` 的初始值是回退值（= DEFAULT_LOCALE）；实际值由 runtime 按
+    // **应用语言**就地校正（`src/i18n/runtime.js` 的 applyDocumentLang）。
+    // 不做 SSR 的原因见那里与 ADR 0008。
     <html lang="en" suppressHydrationWarning>
       <head>
         {/* Apply persisted theme before first paint so a reload does not flash the

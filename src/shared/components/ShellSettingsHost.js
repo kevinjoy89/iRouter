@@ -8,7 +8,7 @@
 // 两个来源：
 //   1. 桌面壳主进程的 IPC（shell:open-settings）；
 //   2. 渲染进程内的 window 事件 irouter:open-settings —— 面板自己的入口
-//      （HeaderMenu 的 Settings）走这条。网络/可观测性/存储已迁进这个面板，
+//      （顶栏齿轮 SettingsButton）走这条。网络/可观测性/存储已迁进这个面板，
 //      浏览器形态下没有 IPC，必须另有一条能打开它的路径，否则那些设置够不着。
 import { useEffect, useState } from "react";
 import ShellSettingsModal from "./ShellSettingsModal";

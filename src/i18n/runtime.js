@@ -362,6 +362,25 @@ export function getCurrentLocale() {
   return currentLocale;
 }
 
+/**
+ * 把当前应用语言同步到 `<html lang>`。
+ *
+ * 为何在客户端做、而不是让根布局 SSR 直接吐对：布局是服务端组件，而语言来自
+ * 壳层注入的 cookie，读它就得用 `cookies()` → 整个 `/dashboard` 从静态预渲染
+ * 被拉成动态渲染；而且**首启那次仍读不到**（cookie 由 document-start 脚本写，
+ * 晚于 HTTP 响应到达）。代价与收益不成比例，故就地校正（ADR 0008 的已知取舍）。
+ *
+ * 静态 HTML 里的 `lang="en"` 是回退值（= DEFAULT_LOCALE），不是错误。
+ */
+function applyDocumentLang() {
+  if (typeof document === "undefined") return;
+  try {
+    document.documentElement.lang = currentLocale;
+  } catch {
+    /* 忽略 */
+  }
+}
+
 // Register callback for locale changes
 export function onLocaleChange(callback) {
   reloadCallbacks.push(callback);
@@ -499,6 +518,7 @@ export async function initRuntimeI18n() {
   if (typeof window === "undefined") return;
   
   currentLocale = getLocaleFromCookie();
+  applyDocumentLang();
   await loadTranslations(currentLocale);
   
   // Process existing DOM
@@ -549,6 +569,7 @@ export async function initRuntimeI18n() {
 // Reload translations when locale changes
 export async function reloadTranslations() {
   currentLocale = getLocaleFromCookie();
+  applyDocumentLang();
   await loadTranslations(currentLocale);
   
   // Notify all registered callbacks

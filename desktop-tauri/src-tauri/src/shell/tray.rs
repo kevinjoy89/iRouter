@@ -129,6 +129,8 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     //   - 「网关地址」：不可点的信息行，地址在面板与设置里都能看到，托盘里占位不值当
     //   - 「检查更新…」：应用菜单（`menus.rs:75,145`）已有同一项且共用同一个 id，
     //     从托盘去掉**不失去能力**（cmd 事件处理器仍在 `menus.rs:177`）
+    //
+    // 顺序：设置… / 打开面板 / —— / 退出（设置排首位的原因见下面的 push 处）。
     let open = MenuItem::with_id(app, ID_OPEN, t.open_dashboard, true, None::<&str>)?;
     // macOS 已把「设置…」放进 App 菜单（Cmd+,），托盘不再重复（`main.js:1492-1495`）。
     let settings: Option<MenuItem<Wry>> = if cfg!(target_os = "macos") {
@@ -139,10 +141,14 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let quit = MenuItem::with_id(app, ID_QUIT, t.quit_app, true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
 
-    let mut items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = vec![&open];
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = Vec::new();
+    // 「设置…」排第一位：Windows/Linux 上托盘左键事件**在 Linux 上根本不发**
+    //（Tauri 上游限制，`show_menu_on_left_click` 同样不支持），用户只能右键找菜单。
+    // 面板顶栏已另有齿轮入口，托盘这里是快捷方式——放首位把右键后的操作成本降到最低。
     if let Some(settings) = &settings {
         items.push(settings);
     }
+    items.push(&open);
     items.push(&sep2);
     items.push(&quit);
     Menu::with_items(app, &items)

@@ -128,7 +128,24 @@ jobs:
             const baseline = require("./package.json").version;
             if (pkg === baseline) fail(`产品号 ${pkg} 与上游基线号相同 —— ADR-0004 要求二者解耦，勿"顺手统一"`);
 
-            console.log(`版本不变量通过：产品号 ${pkg}（tauri.conf 一致）｜config.js 回退值一致｜与上游基线 ${baseline} 已解耦`);
+            // ④ NSIS 安装向导语言（ADR 0008 / openspec app-language）。
+            //    缺 `languages` 时 Tauri 默认只内置 English，中文 Windows 上装出来的是英文向导
+            //    （用户实测）。这条与 `.desktop` 文案断言同类——都是用户可见文案的回归守卫，
+            //    而且**没有别的地方会红**（`.github/` 里此前 `nsis` 零命中）。
+            const nsis = conf.bundle.windows.nsis;
+            const wantLangs = ["English", "SimpChinese", "TradChinese"];
+            const gotLangs = nsis.languages || [];
+            for (const lang of wantLangs) {
+              if (!gotLangs.includes(lang)) {
+                fail(`nsis.languages 缺 ${lang}（现值 ${JSON.stringify(gotLangs)}）—— 中文系统会看到英文安装向导`);
+              }
+            }
+            // 语言选择对话框必须保持关闭：需求是「跟随系统语言」，不是「让用户选」
+            if (nsis.displayLanguageSelector === true) {
+              fail("nsis.displayLanguageSelector 应为 false（需求是跟随系统语言，不插选择对话框）");
+            }
+
+            console.log(`版本不变量通过：产品号 ${pkg}（tauri.conf 一致）｜config.js 回退值一致｜与上游基线 ${baseline} 已解耦｜向导语言 ${gotLangs.join("/")}`);
           '
 
       # 发版时 tag 决定版本（release.yml 的 version job 已解析并校验过一次，这是第二道）。
@@ -362,6 +379,31 @@ jobs:
           rm -rf "$SBTMP"
           [ "${SETFOUND:-0}" -eq 0 ] || { echo "::error::release 二进制里出现了 IROUTER_SHELL_SELFTEST（debug 门控失效）"; exit 1; }
           echo "自测接缝 release 断言通过：0 命中"
+
+      - name: Package smoke — Windows (installer language)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        working-directory: desktop-tauri
+        run: |
+          # 断言**产物级**证据，而不是只看配置：Tauri 把 `nsis.languages` 渲染进它生成的
+          # installer.nsi（`!insertmacro MUI_LANGUAGE "…"`，见 tauri-bundler 的模板）。
+          # 配置写了、模板却没渲染出来（模板或工具链变化）时，只有这里会红。
+          # 该目录在 `src-tauri/target/` 下，不在 `pack-artifacts.mjs` 扫描的 `bundle/` 之下，
+          # 因此在这条断言之前它从未被任何检查看过。
+          $nsi = "src-tauri/target/${{ matrix.target }}/release/nsis/x64/installer.nsi"
+          if (-not (Test-Path $nsi)) { Write-Error "找不到生成的 NSIS 脚本：$nsi"; exit 1 }
+          $text = Get-Content $nsi -Raw
+          foreach ($lang in @('English', 'SimpChinese', 'TradChinese')) {
+            if ($text -notmatch ('MUI_LANGUAGE "' + $lang + '"')) {
+              Write-Error "installer.nsi 里没有 MUI_LANGUAGE \"$lang\" —— 安装向导不会出现该语言"
+              exit 1
+            }
+          }
+          if ($text -notmatch 'DISPLAYLANGUAGESELECTOR "false"') {
+            Write-Error "installer.nsi 的 DISPLAYLANGUAGESELECTOR 不是 false（需求是跟随系统，不插选择对话框）"
+            exit 1
+          }
+          Write-Host "安装向导语言断言通过：English / SimpChinese / TradChinese，且无语言选择对话框"
 
       - name: Package smoke — Windows (portable zip)
         if: matrix.os == 'windows-latest'

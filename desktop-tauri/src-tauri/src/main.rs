@@ -129,7 +129,9 @@ fn main() {
                     .inner_size(1360.0, 900.0)
                     .min_inner_size(900.0, 600.0)
                     // 面板桥：window.irouterShell（shell 与 updater 各注入一份，靠 Object.assign 合并）
-                    .initialization_script(shell::shim_script())
+                    // 应用语言在这里就烘进脚本：dev 捷径下 `shell::init` 没跑、
+                    // `ShellState` 不存在，所以要读**即时判定**而非缓存。
+                    .initialization_script(shell::shim_script(shell::app_locale_now(&handle)))
                     .initialization_script(updater::shim_js())
                     // 下载处理器：不挂的话 WKWebView 会**静默取消**下载 —— 面板「导出配置」
                     // 会变成"界面提示成功、文件不存在"。详见 shell::window::download_handler。
@@ -217,7 +219,8 @@ fn start_gateway_and_window(handle: &tauri::AppHandle) -> Result<(), String> {
                 // 守卫令牌经 UA 覆盖该窗口的所有请求（导航、子资源、fetch）
                 .user_agent(&ua_for_window)
                 // 面板桥：与上面那条捷径**必须都挂**，漏一个「软件更新」整段就从 UI 消失
-                .initialization_script(shell::shim_script())
+                // 语言用**缓存值**（`shell::init` 已跑过，判定结果就在 ShellState 里）。
+                .initialization_script(shell::shim_script(shell::locale(handle)))
                 .initialization_script(updater::shim_js())
                 // 下载处理器：同上，两个窗口都要挂
                 .on_download(shell::download_handler())

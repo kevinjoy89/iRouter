@@ -36,6 +36,8 @@ pub async fn shell_set_settings(
     key: String,
     value: Value,
 ) -> Result<Value, String> {
+    // 先取出判据：`key` 在下面会被移进 patch，之后再比较就是借用已移动的值（E0382）。
+    let is_locale = key == "locale";
     if key == "launchAtLogin" {
         set_autostart(&app, value.as_bool() == Some(true))?;
     } else {
@@ -46,7 +48,14 @@ pub async fn shell_set_settings(
         crate::settings::write(&data_dir, Value::Object(patch));
     }
     // 对齐 main.js:692 的 `updateTrayMenu()`：设置变化后刷新托盘（幂等、便宜）。
-    super::tray::refresh(&app);
+    //
+    // `locale` 走另一条路：它要重算**应用语言**（显式选择 > 系统语言 > 英文），
+    // 再同时刷新托盘与（macOS 的）应用菜单——只刷托盘会让应用菜单停在旧语言。
+    if is_locale {
+        super::set_app_locale(&app);
+    } else {
+        super::tray::refresh(&app);
+    }
     settings_payload(&app)
 }
 
@@ -75,7 +84,10 @@ pub async fn shell_context_menu(
 // `__cmd__<name>`（`tauri-macros-2.7.1/src/command/handler.rs:163-171`），而伴生宏定义在本模块，
 // 用 `pub use` 转出后按路径引用会报 E0433——实测过。
 
-/// 设置载荷：文件里的 5 个已知键 + 系统登录项状态 + 应用版本。
+/// 设置载荷：文件里的 6 个已知键 + 系统登录项状态 + 应用版本。
+///
+/// `locale` 已在 `ShellSettings` 里（用户显式选择的语言，`null` = 未选择）；
+/// 面板读它来显示当前选项，无需单独注入。
 pub fn settings_payload(app: &AppHandle) -> Result<Value, String> {
     let data_dir = crate::gateway::resolve_data_dir(app)?;
     let settings = crate::settings::read(&data_dir);

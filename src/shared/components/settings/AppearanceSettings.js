@@ -26,20 +26,20 @@ const LOCALE_OPTIONS = [
 
 const LOCALE_PREF_EVENT = "irouter:locale-pref";
 
+// 显式选择的**权威**是壳层设置文件的 `locale` 字段（有壳层时）；浏览器形态下退回 cookie。
+// **不再读 localStorage**——它是 client-only 的第二份副本，与权威并存必然漂移（ADR 0008）。
+// 空串（或不受支持的值）表示「未选择」，交给优先级链回落。
 function readLocalePreference() {
-  if (typeof document === "undefined") return "system";
-  try {
-    const saved = localStorage.getItem("irouter_locale_preference");
-    if (saved) return saved;
-  } catch {
-    /* 隐私模式等 */
+  const api = typeof window !== "undefined" ? window.irouterShell : null;
+  if (api?.locale !== undefined) {
+    return normalizeLocale(api.locale) || "system";
   }
+  if (typeof document === "undefined") return "system";
   const cookie = document.cookie
     .split(";")
     .find((c) => c.trim().startsWith(`${LOCALE_COOKIE}=`));
-  return cookie
-    ? normalizeLocale(decodeURIComponent(cookie.split("=")[1]))
-    : "system";
+  if (!cookie) return "system";
+  return normalizeLocale(decodeURIComponent(cookie.split("=")[1])) || "system";
 }
 
 function resolveSystemLocale() {
@@ -73,23 +73,22 @@ export default function AppearanceSettings() {
   );
 
   const applyLocale = async (value) => {
-    try {
-      localStorage.setItem("irouter_locale_preference", value);
-    } catch {
-      /* 忽略 */
-    }
+    // 顺序要紧：先落**权威**（壳层设置文件），再写派生态（cookie）。
+    // 反过来的话壳层重启时会读到旧值——它才是原生菜单语言的来源。
     const target = value === "system" ? resolveSystemLocale() : value;
-    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(target)}; path=/; max-age=31536000`;
-    try {
-      await fetch("/api/locale", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locale: target }),
-      });
-    } catch {
-      /* 忽略 */
+    if (window.irouterShell?.setSetting) {
+      try {
+        // 空串 = 未选择，壳层据此回落到系统语言（而不是回落到英文）
+        await window.irouterShell.setSetting(
+          "locale",
+          value === "system" ? "" : value,
+        );
+      } catch {
+        /* 壳层不可用则跳过，cookie 仍生效 */
+      }
     }
-    // 就地重译整个 DOM，零整页刷新；壳层主进程监听 locale cookie 变化刷新原生菜单
+    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(target)}; path=/; max-age=31536000`;
+    // 就地重译整个 DOM，零整页刷新；壳层主进程收到 locale 设置后刷新原生菜单
     await reloadTranslations();
     window.dispatchEvent(new Event(LOCALE_PREF_EVENT));
   };

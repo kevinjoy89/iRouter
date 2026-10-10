@@ -14,20 +14,54 @@
 //
 // 与 `desktop/preload.js` 的对应：getSettings / setSetting / onOpenSettings / platform。
 // 更新相关的 5 个方法由 updater 的注入脚本负责（同一个对象，各自 assign）。
+//
+// 本脚本额外负责**把应用语言写进 cookie**：壳层先判定（它必须先于面板知道语言，
+// 因为要渲染原生菜单），再把结果注入给面板（ADR 0008）。
 
 (() => {
   "use strict";
 
   const PLATFORM = "__IROUTER_PLATFORM__";
+  // 壳层判定好的**应用语言**（显式选择 > 系统语言 > 英文），由 Rust 侧烘进脚本字符串。
+  // 为什么不用 invoke 异步取：init 脚本在 document-start 跑，而那时
+  // `__TAURI_INTERNALS__` 可能还没就绪（见约束 2），异步取值赶不上面板首帧。
+  const APP_LOCALE = "__IROUTER_APP_LOCALE__";
+  const LOCALE_COOKIE = "locale";
   const EVENT_OPEN_SETTINGS = "shell:open-settings";
   // 与 Rust 侧 `shell::window::EV_DOWNLOAD_SAVED` **逐字同名**（契约，改要两边一起改）
   const EVENT_DOWNLOAD_SAVED = "shell:download-saved";
+
+  // ---------------------------------------------------------------- 应用语言注入
+  // 把壳层的判定结果写进 cookie，供面板的 runtime i18n 读取。
+  //
+  // ⚠️ **必须先 guard origin**：init 脚本对**每次顶层导航**都跑，包括窗口建起时
+  // 先加载的本地兜底页（`tauri://localhost` / `http://tauri.localhost`）。
+  // 不 guard 的话第一份 cookie 会写进兜底页的 origin，面板那份仍为空 → 首启又回英文。
+  // 兜底页走 `tauri://`，面板是 `http://127.0.0.1:<port>`，按 host 即可区分。
+  function isPanelOrigin() {
+    const host = String(window.location.hostname || "");
+    return host === "127.0.0.1" || host === "localhost";
+  }
+  if (isPanelOrigin() && APP_LOCALE) {
+    try {
+      document.cookie =
+        LOCALE_COOKIE +
+        "=" +
+        encodeURIComponent(APP_LOCALE) +
+        "; path=/; max-age=31536000";
+    } catch (e) {
+      console.warn("[irouter-shell] 写入语言 cookie 失败", e);
+    }
+  }
 
   // 面板可能在本脚本之前/之后就绪：所有对外成员先挂上，内部等 IPC 好了再生效。
   const existing = window.irouterShell || {};
   const shell = Object.assign(existing, {
     // 对齐 preload.js 的 `process.platform`（面板目前不读它，留着是为了零成本对齐）。
     platform: existing.platform || PLATFORM,
+    // 壳层判定好的应用语言。面板的「语言」设置项读它来显示当前选项
+    // （显式选择存在壳层设置文件里，面板不自己判定——见 ADR 0008）。
+    locale: existing.locale || APP_LOCALE,
   });
   // 只有此前不存在桥时才挂上去（updater 的脚本可能已经建好对象，绝不能整体替换）。
   if (!window.irouterShell) {
