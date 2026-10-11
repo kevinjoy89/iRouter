@@ -147,7 +147,16 @@ jobs:
               fail("nsis.displayLanguageSelector 应为 false（需求是跟随系统语言，不插选择对话框）");
             }
 
-            console.log(`版本不变量通过：产品号 ${pkg}（tauri.conf 一致）｜config.js 回退值一致｜与上游基线 ${baseline} 已解耦｜向导语言 ${gotLangs.join("/")}`);
+            // ⑤ 安装器页脚字体钩子（installerHooks）。中文向导的 UI 字体是宋体 9pt，
+            //    页脚的 `©` 会糊成一团（用户实测）。缺配置/文件丢失时构建**不会报错**——
+            //    只是静默回到默认字体，**没有别的检查会红**。
+            const hooks = nsis.installerHooks;
+            if (!hooks) fail("nsis.installerHooks 未设置 —— 安装器页脚会回落成宋体 9pt，© 糊成一团");
+            if (!fs.existsSync("./desktop-tauri/src-tauri/" + hooks)) {
+              fail(`installerHooks 指向的文件不存在：desktop-tauri/src-tauri/${hooks}`);
+            }
+
+            console.log(`版本不变量通过：产品号 ${pkg}（tauri.conf 一致）｜config.js 回退值一致｜与上游基线 ${baseline} 已解耦｜向导语言 ${gotLangs.join("/")}｜页脚字体钩子 ${hooks}`);
           '
 
       # 发版时 tag 决定版本（release.yml 的 version job 已解析并校验过一次，这是第二道）。
@@ -420,6 +429,14 @@ jobs:
           }
           Write-Host "安装向导语言断言通过：English / SimpChinese / TradChinese，且无语言选择对话框"
           Write-Host "安装器底部文案断言通过：COPYRIGHT 含 iRouter / iRouter Team"
+
+          # 页脚字体钩子必须被渲染进生成脚本（Tauri 只在配置了 installerHooks 时才 include）。
+          # 这条防的是「配置被删/路径写错 → 构建照常、页脚静默回落宋体 9pt」——没有别的检查会红。
+          if ($text -notmatch 'installer-hooks\.nsh') {
+            Write-Error "installer.nsi 没 include installer-hooks.nsh —— 页脚字体会回落成宋体 9pt（© 糊成一团）"
+            exit 1
+          }
+          Write-Host "安装器页脚字体钩子断言通过：installer-hooks.nsh 已 include"
 
       - name: Package smoke — Windows (portable zip)
         if: matrix.os == 'windows-latest'
