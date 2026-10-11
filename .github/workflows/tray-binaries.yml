@@ -38,13 +38,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           # The Go module lives in a temp clone of the upstream repo, so there is
@@ -109,7 +109,7 @@ jobs:
       # Uploaded before the mismatch gate below, so a publish run that fails on a
       # checksum mismatch still leaves the bytes downloadable — that is exactly
       # the run where a maintainer needs them to verify the new sha256.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: tray_darwin_arm64
           path: |

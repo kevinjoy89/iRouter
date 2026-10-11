@@ -87,10 +87,10 @@ jobs:
             bundles: deb
             expect: "iRouter-*-linux-amd64.*"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -442,14 +442,14 @@ jobs:
       # 这些 .sha256 证据一起拖进发布目录。
       - name: Upload staging evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: staging-evidence-${{ matrix.slug }}
           path: desktop-tauri/src-tauri/binaries/*.sha256
           if-no-files-found: ignore
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: desktop-tauri-${{ matrix.slug }}
           path: desktop-tauri/artifacts/*
