@@ -42,10 +42,17 @@ jobs:
       # 放行这一步，交给下一步门禁裁决：失败集合里有没有不在基线内的新面孔。
       # 之前这里只读已提交的 __baseline__/current.json —— 那份快照不会随代码变化，
       # 于是「门禁」对任何改动都恒绿，等于没有测试保护。
+      #
+      # 为何还要显式 `|| true`：`continue-on-error` 只让 job 保持绿，**不阻止 runner
+      # 打注解**。实测（run 103）：job 与每个 step 的 conclusion 都是 success，界面却仍
+      # 挂一条红框的 "Process completed with exit code 1"，看起来像失败——误导排查。
+      # 让命令自己以 0 退出，注解就不出现；裁决权仍在下一步门禁。
+      # 门禁的安全性不受影响：vitest 若崩在写报告之前，test-results.json 不存在，
+      # 下一步会因读不到文件而红（不会静默放行）。
       - name: Run test suite
         working-directory: tests
         continue-on-error: true
-        run: npx vitest run --reporter=json --outputFile=../test-results.json
+        run: npx vitest run --reporter=json --outputFile=../test-results.json || true
 
       - name: Regression gate (no pass → fail outside known-fails)
         run: node tests/__baseline__/verify-no-regression.mjs test-results.json
