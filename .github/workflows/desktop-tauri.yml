@@ -405,7 +405,21 @@ jobs:
             Write-Error "installer.nsi 的 DISPLAYLANGUAGESELECTOR 不是 false（需求是跟随系统，不插选择对话框）"
             exit 1
           }
+
+          # 安装器底部那行（`BrandingText`）取自 `bundle.copyright`。**不设它时 NSIS 会
+          # 回落到默认的 "Nullsoft Install System vX.XX"**（用户实测看到的就是那一行）——
+          # 这正是本断言要钉死的行为。
+          # 文案来源是平台专属配置 `tauri.windows.conf.json`（按 JSON Merge Patch 只合并到
+          # Windows）：**不能写进主 `tauri.conf.json`**，因为 macOS 会把同一个值原样写进
+          # Info.plist 的 `NSHumanReadableCopyright`，那是给用户看的版权串、不是安装器文案。
+          # 只断言 ASCII 片段：`·` 与 `©` 在生成脚本里的最终形式由 tauri-bundler 决定，
+          # 钉死整串会因编码细节假红；这里要抓的是「文案丢失 → 回落默认值」这类回归。
+          if ($text -notmatch '!define COPYRIGHT "iRouter' -or $text -notmatch 'iRouter Team') {
+            Write-Error "installer.nsi 的 COPYRIGHT 不是 iRouter 文案（安装器底部会回落到默认的 Nullsoft 字样）"
+            exit 1
+          }
           Write-Host "安装向导语言断言通过：English / SimpChinese / TradChinese，且无语言选择对话框"
+          Write-Host "安装器底部文案断言通过：COPYRIGHT 含 iRouter / iRouter Team"
 
       - name: Package smoke — Windows (portable zip)
         if: matrix.os == 'windows-latest'
