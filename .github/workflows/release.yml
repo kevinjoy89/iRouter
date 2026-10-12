@@ -6,9 +6,16 @@ name: Release
 # 理由：两份矩阵必然漂移，而漂移只在发版时才暴露（那时用户已经在等更新了）。
 # 本文件只负责三件事：**定版本 → 调矩阵 → 合并产物并发布（含两道门禁）**。
 #
-# 手动触发（workflow_dispatch）有两种模式，都是**不创建 Release** 的 dry-run：
-#   · 填了 `version`：四平台构建 + 版本注入 + 合并 checksums + 门禁①②，产物作为 artifact 留下；
-#   · 留空：只构建四平台产物（release job 跳过）。
+# ⚠️ 本文件里**没有任何**"发版说明内容检查"，这是刻意的：正文的质量门禁是**人工审阅**
+# （中文定稿前全文交维护者审，英文由定稿中文翻译）——见 docs/release-notes/unreleased.zh-CN.md
+# 头部的发版流程。这里只保证「说明文件存在」这一条机械事实，内容不看。
+# 正文里也不再放尺寸与校验和表：那些以 checksums.txt 附件发布（下面 release job 生成并覆盖全产物）。
+#
+# 手动触发（workflow_dispatch）有三种模式，都不创建 Release：
+#   · 勾了「预检」：**只跑版本解析 + 发版说明存在性**（约 1 分钟，不跑四平台构建），产物不落地。
+#     这是打 tag 前唯一一次便宜的自检——tag 之后要等四平台构建完（约 14 分钟）才知道说明文件缺了。
+#   · 填了 `version`（未勾预检）：四平台构建 + 版本注入 + 合并 checksums + 门禁①②，产物作为 artifact 留下；
+#   · 留空（未勾预检）：只构建四平台产物（release job 跳过）。
 # 这是这次改写能被验证的前提：发版路径本来只能在真实 tag 上才跑得到。
 on:
   push:
@@ -21,6 +28,11 @@ on:
         type: string
         required: false
         default: ""
+      full_build:
+        description: "预检：只校验版本线 + 发版说明存在性，不构建（约 1 分钟）。打 tag 前建议先勾它跑一次。"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write # softprops/action-gh-release 需要写权限以创建 GitHub Release
@@ -29,12 +41,14 @@ jobs:
   # 版本解析 + 校验。放在最前面、独立成一个 job：调用方与被调用方（desktop-tauri.yml）
   # 都只认这一个版本值，避免"tag 一个版本、包体另一个版本"。
   version:
-    name: Resolve version
+    name: Resolve version + preconditions
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       is_tag: ${{ steps.resolve.outputs.is_tag }}
       run_release: ${{ steps.resolve.outputs.run_release }}
+      full_build: ${{ steps.resolve.outputs.full_build }}
+      notes_exists: ${{ steps.resolve.outputs.notes_exists }}
     steps:
       # 需要 checkout：版本线守卫要读 desktop-tauri/package.json 的现值，
       # 手动触发不带 version 时也用它兜底。
@@ -46,6 +60,9 @@ jobs:
         env:
           # 经 env 传入，**不**把 inputs 内联进 shell 源码
           INPUT_VERSION: ${{ inputs.version }}
+          # 预检开关同样是布尔输入，一律经 env 传，避免 `${{ inputs.x }}` 直接进 shell 源码。
+          # 非 workflow_dispatch 触发（tag push）时该 inputs 上下文为空 → 空串 → 走默认值 true。
+          FULL_BUILD_INPUT: ${{ inputs.full_build }}
         run: |
           set -euo pipefail
           REPO_VERSION=$(node -p 'require("./desktop-tauri/package.json").version')
@@ -85,19 +102,59 @@ jobs:
             RUN_RELEASE=true
           fi
 
+          # ★ 便宜预检（决策：打 tag 前要能自检，且不能为此付四平台构建的价钱）。
+          # 默认 true（tag push / 其它触发方式一律完整构建）；只有手动勾了 full_build=false 才跳过矩阵。
+          FULL_BUILD=true
+          if [ "${FULL_BUILD_INPUT}" = "false" ]; then
+            FULL_BUILD=false
+          fi
+
+          # ★ 发版说明存在性：**前置到这里**。同一份检查原先只存在于 release job，而那个 job
+          # 要等四平台矩阵跑完（约 14 分钟）才轮到——说明文件缺了也得干等。现在几十秒内就红。
+          # 只查 zh-CN：它是 CI 正文的来源（见 Publish job 的 body_path）；
+          # 英文版是语言切换锚点，缺失不会让发布失败（正文里的链接会 404），由人工审阅兜。
+          NOTES_ZH="docs/release-notes/v${V}.zh-CN.md"
+          NOTES_EN="docs/release-notes/v${V}.en.md"
+          NOTES_EXISTS=true
+          if [ ! -f "$NOTES_ZH" ]; then
+            echo "::error::缺少发版说明 ${NOTES_ZH} —— 打 tag 前先补（骨架见 docs/release-notes/TEMPLATE.md，起手用 npm run release:prepare ${V}）"
+            NOTES_EXISTS=false
+          fi
+
+          # ⚠️ 先落 outputs 再判定要不要失败：预检模式下要 `exit 1`，而 outputs 必须在退出前写好，
+          # 否则下游拿不到 `notes_exists`。副作用要记住——预检失败时 run_release 仍是 true，
+          # 所以 Publish job 的 `notes_exists == 'false'` 判断必须**先于** `run_release`，否则
+          # 「不填 version 的手动触发（run_release=false、说明必然缺失）」会从"跳过"变成"失败"（回归）。
           {
             echo "version=$V"
             echo "is_tag=$IS_TAG"
             echo "run_release=$RUN_RELEASE"
+            echo "full_build=$FULL_BUILD"
+            echo "notes_exists=$NOTES_EXISTS"
           } >> "$GITHUB_OUTPUT"
           # ⚠️ 变量一律写成 ${VAR}：紧跟中文/全角字符时，`$VAR（` 会被 bash 3.2（macOS runner 自带）
           # 当成变量名的一部分 → `unbound variable` 直接炸（本地实跑抓到过）。
-          echo "version=${V} / is_tag=${IS_TAG} / run_release=${RUN_RELEASE}（仓库现值 ${REPO_VERSION}）"
+          echo "version=${V} / is_tag=${IS_TAG} / run_release=${RUN_RELEASE} / full_build=${FULL_BUILD} / notes_exists=${NOTES_EXISTS}（仓库现值 ${REPO_VERSION}）"
+
+          if [ "$FULL_BUILD" = "false" ]; then
+            echo "== 预检模式：只校验版本线与发版说明，不构建（跳过四平台矩阵与发布）=="
+            if [ ! -f "$NOTES_EN" ]; then
+              echo "::warning::英文版 ${NOTES_EN} 尚不存在——正文里的 English Version 锚点会 404（人工审阅兜）"
+            fi
+          fi
+
+          # 预检模式下缺说明**立刻**红（预检的全部意义就是便宜地拿到一个红/绿结论）；
+          # 完整构建路径不在这里退——让矩阵跑完，再由 Publish job 按 needs 输出红。
+          if [ "$NOTES_EXISTS" != "true" ] && [ "$FULL_BUILD" = "false" ]; then
+            exit 1
+          fi
 
   # 四平台矩阵**只存在于 desktop-tauri.yml 一处**。这里传版本，别的什么都不管。
   tauri:
     name: Tauri bundles
     needs: version
+    # 预检模式（full_build=false）**跳过整个四平台矩阵**——预检的意义就是便宜，不能顺带跑 14 分钟构建。
+    if: needs.version.outputs.full_build == 'true'
     uses: ./.github/workflows/desktop-tauri.yml
     with:
       version: ${{ needs.version.outputs.version }}
@@ -106,7 +163,11 @@ jobs:
     name: Publish GitHub Release
     needs: [version, tauri]
     # tag → 真的发布；手动触发且给了 version → dry-run（跑完两道门禁后只留 artifact，不建 Release）。
-    if: needs.version.outputs.run_release == 'true'
+    # ⚠️ 顺序有意为之：`notes_exists == 'false'`（= 判定过"确实缺说明"）排在前面，**优先短路**。
+    # 不能只写 run_release：那样"不填 version 的手动触发"会因说明缺失而被判失败——而它本来就是
+    # "只构建产物"的路径，旧行为是跳过，不该回归成红。
+    # full_build=false（预检）时 tauri 被跳过、needs 不给该 output，故按字符串兜底比较。
+    if: needs.version.outputs.notes_exists == 'false' || (needs.version.outputs.run_release == 'true' && needs.version.outputs.full_build == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -119,13 +180,18 @@ jobs:
       # 只捞发布产物：staging 证据 artifact 名刻意不以 `desktop-tauri-` 开头（见 desktop-tauri.yml）。
       # 默认 merge-multiple=false，每个平台一个子目录——现有的 find/basename/sha256sum 全都按
       # 子目录写的，保持原样即可。
+      # ⚠️ `if` 是必需的：说明缺失（notes_exists=false）时矩阵可能压根没跑，没有产物可捞，
+      # 而 download-artifact 找不到任何 artifact 会直接失败——那条失败会把"缺发版说明"这条
+      # 真正的错误盖掉。判定放在下面的 Verify 步骤里。
       - uses: actions/download-artifact@v7
+        if: needs.version.outputs.full_build == 'true'
         with:
           pattern: desktop-tauri-*
           path: artifacts
 
       # 汇总四平台产物生成唯一的 checksums.txt，供用户下载校验
       - name: Generate consolidated checksums.txt
+        if: needs.version.outputs.full_build == 'true'
         run: |
           cd artifacts
           find . -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.deb" -o -name "*.tar.gz" -o -name "*.zip" \) -exec sha256sum {} + | while read -r hash path; do
@@ -141,6 +207,7 @@ jobs:
       # 于是"清单缺项"的后果是——那个平台的用户会在**无任何哈希校验**的情况下装上更新。
       # 客户端放宽 + 发版侧收紧，才是完整的处置。
       - name: Assert every release asset is covered by checksums.txt
+        if: needs.version.outputs.full_build == 'true'
         run: |
           cd artifacts
           # 单一来源的资产过滤表达式，避免两处 find 漂移。
@@ -169,14 +236,15 @@ jobs:
       # 标题是 tag 名、正文为空（v0.3.3 那次 4193 字的正文是事后手工补的）。
       # ⚠️ 路径用**解析出来的版本**而不是 $GITHUB_REF_NAME：dry-run 时后者是分支名，
       # 用它只会得到一条无意义的失败；用解析版本，dry-run 才真的能提前拦下"发版说明没写"。
+      # ⚠️ 存在性现在由 `version` job 判定并作为 needs 输出传进来（那次检查在几十秒内就红，
+      # 不必等四平台构建跑完）。这里只消费结论，不再重复读文件——否则两处判定必然漂移。
       - name: Verify release notes exist
         run: |
-          FILE="docs/release-notes/v${{ needs.version.outputs.version }}.zh-CN.md"
-          if [ ! -f "$FILE" ]; then
-            echo "::error::缺少发版说明 $FILE —— 打 tag 前先补 docs/release-notes/v${{ needs.version.outputs.version }}.zh-CN.md"
+          if [ "${{ needs.version.outputs.notes_exists }}" != "true" ]; then
+            echo "::error::缺少发版说明 docs/release-notes/v${{ needs.version.outputs.version }}.zh-CN.md"
             exit 1
           fi
-          echo "使用发版说明：$FILE"
+          echo "使用发版说明：docs/release-notes/v${{ needs.version.outputs.version }}.zh-CN.md"
 
       # ⚠️ 资产名一个字都不能改：老版本用户的自动更新按 `tools/asset.js` 的规则做**字符串全等**匹配，
       # 改名 = 切断所有存量用户的更新通道。这个 glob 与 §5.4 的发布名一一对应，不要"顺手整理"。
@@ -195,10 +263,14 @@ jobs:
             artifacts/checksums.txt
           draft: false
           generate_release_notes: false
+          # 显式声明：此前没写这一项，于是"最新版"标记只落在最后一次发布上（v0.4.2 是 Latest，
+          # v0.4.1 及更早全是 latest=false），看起来像手工点出来的。发版即最新，写死更好。
+          make_latest: true
 
       # dry-run 的出口：不建 Release，只把合并后的东西留下给人核对（资产名/清单/发版说明）。
+      # 同时要求 full_build：说明缺失时矩阵没跑、artifacts 目录不存在，`find` 会报错并盖掉真错因。
       - name: Dry-run summary (no Release created)
-        if: needs.version.outputs.is_tag != 'true'
+        if: needs.version.outputs.is_tag != 'true' && needs.version.outputs.full_build == 'true'
         run: |
           echo "== dry-run：未创建 Release（版本 ${{ needs.version.outputs.version }}）=="
           find artifacts -type f | sort
@@ -206,7 +278,7 @@ jobs:
           cat artifacts/checksums.txt
 
       - name: Upload dry-run bundle
-        if: needs.version.outputs.is_tag != 'true'
+        if: needs.version.outputs.is_tag != 'true' && needs.version.outputs.full_build == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: release-dry-run-v${{ needs.version.outputs.version }}

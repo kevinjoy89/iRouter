@@ -1,5 +1,12 @@
 # 版本号解耦：上游基线号与产品版本号各司其职
 
+> **修订记录（2026-10-12）**：本文写于 Electron 壳层时期，**其中的路径与版本号已过时**——产品版本
+> 真源现为 **`desktop-tauri/package.json`**（`desktop/` 已随 Tauri 换壳退役，见 [ADR 0007](0007-tauri-bun-shell.md)），
+> 基线号与产品号随每次发版推进，本文里出现的具体值一律按历史语境读。**决策本身仍然有效**：两个版本号
+> 解耦、产品号对外可见、基线号只用于与上游对齐。当前值以 `CONTEXT.md` 的「产品版本号 / 上游基线号」
+> 两条为准，一致性由 CI 强制（`.github/workflows/desktop-tauri.yml` 的「Assert version invariants」）；
+> bump 与发布的次序见 `CONTEXT.md` 的「发版」词条。
+
 根 `package.json` / `cli/package.json` 保持上游基线号（当前 `0.5.75`，随上游同步推进），`desktop/package.json` 是产品版本号（当前 `0.1.0`）的**唯一真源**；`desktop/scripts/build-server.mjs` 构建网关时读它并以 `NEXT_PUBLIC_APP_VERSION` 注入，`src/shared/constants/config.js` 取该变量（缺省 `"0.1.0"`），因此面板侧栏与 Profile 页显示的可见版本号恒为产品号，与壳层 CSS 覆盖值（`desktop/main.js` 用 `app.getVersion()` 改写侧栏品牌/版本）及冒烟断言（`main.js` 校验「面板版本号 === `app.getVersion()`」）天然一致。基线号不外露，仅用于源码内部与上游对齐的标识：`open-sse/shared/clineAuth.js` 的 `User-Agent: 9Router/<version>`、`open-sse/config/appConstants.js` 的 `X-Msh-Version`、`src/lib/db/version.js` 写入 `_meta.appVersion` 与备份文件名——这三处若被改成产品号，就会偏离上游指纹。
 
 Status: accepted

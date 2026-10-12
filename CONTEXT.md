@@ -16,8 +16,15 @@ _Avoid_: 锁版上游、零改动、submodule（均为旧结构用语）
 把上游新区间（标签或 HEAD）merge 进根目录源码、保留全部本地定制的动作；产出是 merge commit 血缘 + 重新快照的测试基线。可见版本号不随同步变化（那是产品版本号，见下条）。
 _Avoid_: 升级（歧义：易与产品发版混淆）、更新版本
 
+**发版（release）**:
+把仓库状态发布为对外可见版本的动作：产品版本号 bump、发版说明定稿、**一个 commit + 一个 tag**，
+CI 构建四平台安装包并创建 GitHub Release。说明正文里不放尺寸与校验和（那些以 `checksums.txt` 附件发布），
+也不放内部方案代号——中文正文在提交前**全文人工审阅**，英文由定稿中文翻译。
+**已发布的内容不回头修改**：错字也不改，宁可留给下个版本。因此不存在"发布后再回填/精简"这类事后动作。
+_Avoid_: 出包、打包（那是构建动作，不含版本与说明）
+
 **产品版本号（product version）**:
-iRouter 自身对外可见的版本号（当前 `0.4.2`），真源为 `desktop-tauri/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.99`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
+iRouter 自身对外可见的版本号（当前 `0.4.3`），真源为 `desktop-tauri/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.99`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
 _Avoid_: 网关版本（易与上游基线号混淆）、应用版本
 
 **壳层（shell layer）**:
