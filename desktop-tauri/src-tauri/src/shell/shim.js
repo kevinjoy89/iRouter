@@ -227,6 +227,84 @@
     };
   };
 
+  // ---------------------------------------------------------------- 外链接管
+  //
+  // 为什么需要这一层（**实测得出，不是推测**）：Rust 侧挂了 `on_new_window`
+  // （见 `shell::window::new_window_handler`），但**锚点点击根本到不了那里**。
+  // 在真实安装的外壳里逐项实测（CDP 连真实 WebView2）：
+  //
+  //   · `window.open('https://…')`                    → ✅ 触发处理器，日志出现
+  //   · `<a target="_blank">` 可信鼠标点击             → ❌ 不触发
+  //   · 同上，`--disable-popup-blocking` 下            → ❌ 不触发
+  //   · 同上，点击瞬间 `userActivation.isActive=true`  → ❌ 不触发（不是缺用户手势）
+  //   · 同上，去掉 `rel="noopener noreferrer"`         → ❌ 不触发（不是 rel 的锅）
+  //   · 页面里新注入的、面板代码完全没碰过的锚点        → ❌ 不触发
+  //
+  // 即：WebView2 对**锚点**发起的 `target="_blank"` 不会走 wry 的 `NewWindowRequested`
+  // 那条路（面板里所有站外链接恰好都是锚点，所以用户看到的就是「点了没反应」）。
+  // 而 `window.open` 会走 —— 于是这里把前者改写成后者。
+  //
+  // 安全边界与 Rust 侧一致：只接管 `http`/`https`、且**只接管站外**（同源交给面板自己，
+  // 面板没有任何同源 `window.open`；将来若要有，那是「应用内弹窗」语义，不该出系统浏览器）。
+  // 其余 scheme（`file:` / `javascript:` / 自定义 scheme）一律**不接管**，保持浏览器默认行为
+  // ——不交给系统，避免把「用任意 scheme 唤起本机程序」这条路打开。
+  function isExternalHttpLink(href) {
+    try {
+      const u = new URL(href, window.location.href);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+      return u.host !== window.location.host;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // 用**捕获阶段**（capture=true）抢在面板自身处理器之前改写，避免面板先 preventDefault
+  // 之后我们什么都不做。改写后调用 `window.open` → 命中 Rust 的 `on_new_window`。
+  function installExternalLinkHandler() {
+    try {
+      document.addEventListener(
+        "click",
+        (event) => {
+          // 只处理主键、无修饰键的普通左键点击；带修饰键的交给浏览器默认行为
+          // （Ctrl/Cmd+点击等语义是「用户想要别的」）。
+          if (event.defaultPrevented) return;
+          if (event.button !== 0) return;
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          const target = event.target;
+          const anchor = target && target.closest ? target.closest("a[href]") : null;
+          if (!anchor) return;
+          const href = anchor.href;
+          if (!isExternalHttpLink(href)) return;
+          // 中键/右键不接管；`download` 属性的锚点语义是下载，也不接管
+          if (anchor.hasAttribute("download")) return;
+
+          event.preventDefault();
+          // 用 window.open 走 wry 的 NewWindowRequested → Rust 侧交给系统浏览器。
+          // 传 noopener：目标页拿不到 window.opener（面板里原锚点也是这么标的）。
+          try {
+            window.open(href, "_blank", "noopener,noreferrer");
+          } catch (e) {
+            console.warn("[irouter-shell] 打开外链失败，回退为当前窗口导航", e);
+            // 兜底：至少别让点击完全没反应
+            window.location.href = href;
+          }
+        },
+        true
+      );
+    } catch (e) {
+      console.warn("[irouter-shell] 绑定外链处理器失败", e);
+    }
+  }
+
+  // 只在面板 origin 上装：兜底页（`tauri://localhost`）没有外链，装了也没意义。
+  //
+  // 刻意**不**经 `whenReady`：这条处理器只用 `window.open`，**不碰 IPC**，
+  // 所以没有任何理由等 `__TAURI_INTERNALS__`（那个等待最多 ~10s，且失败时永不执行）。
+  // init 脚本在 document-start 跑，那时 `document` 已存在，直接挂监听器即可。
+  if (isPanelOrigin()) {
+    installExternalLinkHandler();
+  }
+
   // ---------------------------------------------------------------- 右键菜单
   // Tauri v2 没有 context-menu 事件（API notes §5.2），触发链是：
   // DOM contextmenu → invoke shell_context_menu → Rust popup_menu_at。

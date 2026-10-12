@@ -462,4 +462,51 @@ mod tests {
         // main.rs 注册 autostart 插件时用的就是这个字面量，改一处必须改两处
         assert_eq!(AUTOSTART_ARG, "--from-autostart");
     }
+
+    /// ★ 外链接管必须留在注入脚本里 —— 少了它，「点外链没反应」会原样复发。
+    ///
+    /// 为什么不能只靠 Rust 侧的 `on_new_window`（实测结论，见 shim.js 里那段注释）：
+    /// 真实 WebView2 里 `window.open` 会触发它，而 `<a target="_blank">` 的点击
+    /// **不会**——可信鼠标点击、关弹窗拦截、去 rel、连新注入的锚点都不行。
+    /// 所以必须由本脚本把锚点点击改写成 `window.open`。
+    #[test]
+    fn shim_script_rewrites_external_anchor_clicks_to_window_open() {
+        let js = shim_script(i18n::Locale::ZhCn);
+        assert!(
+            js.contains("installExternalLinkHandler"),
+            "外链处理器必须存在（否则锚点点击到不了 Rust 的 on_new_window）"
+        );
+        assert!(
+            js.contains("closest(\"a[href]\")") || js.contains("closest('a[href]')"),
+            "必须按锚点定位被点的链接"
+        );
+        assert!(
+            js.contains("window.open("),
+            "必须改写成 window.open，才走 wry 的 NewWindowRequested"
+        );
+        // 捕获阶段：抢在面板自身处理器之前，否则可能被先 preventDefault 掉。
+        //
+        // ⚠️ 断言要**与换行符无关**：`shim.js` 在 Windows 检出上是 CRLF，写死 `\n`
+        // 会假红（这一条和上面那条都栽过同一个坑）。所以先归一化换行再比对。
+        let js_lf = js.replace("\r\n", "\n");
+        assert!(
+            js_lf.contains("\"click\",\n        (event) => {") && js_lf.contains("true\n      );"),
+            "外链监听器必须在捕获阶段注册（第三实参 true）"
+        );
+        // 安全边界：只接管 http/https
+        assert!(
+            js.contains("\"http:\"") && js.contains("\"https:\""),
+            "只应接管 http/https，其余 scheme 不交给系统"
+        );
+        // 同源不接管（应用内语义，不该出系统浏览器）
+        assert!(
+            js.contains("u.host !== window.location.host"),
+            "同源链接不应被接管"
+        );
+        // 必须在面板 origin 上才装（兜底页没有外链）。同样归一化换行后比对。
+        assert!(
+            js_lf.contains("if (isPanelOrigin()) {\n    installExternalLinkHandler();"),
+            "只应在面板 origin 上安装"
+        );
+    }
 }
