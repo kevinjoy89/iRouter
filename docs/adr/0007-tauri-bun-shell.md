@@ -58,6 +58,7 @@ Consequences:
 - **Linux 首次出现系统依赖**：deb / tar.gz 声明 `Depends: libwebkit2gtk-4.1-0`。这是「首次启动不需要额外下载任何运行时」这条硬线的**唯一显式例外**，理由是它与静默失败不同——缺依赖在安装期就可见、可自行解决。AppImage 仍依赖宿主 webkit，不自带
 - 网关负载仍需顺手裁剪，否则预算被吃掉：`@img/sharp-libvips-darwin-arm64` 18 MiB 是死重（`next.config.mjs:31` 设了 `images: { unoptimized: true }`，且 `src/` 与 `open-sse/` 中 sharp 零引用），排除后 76.6 → 59 MiB。它同时是个缺陷：负载只在本机（arm64）构建一次，`dist:mac` 却带 `--x64`，x64 包里装的是 arm64 的 libvips
 - 上游同步保持不变（网关源码一行未动），这是选 Bun sidecar 而非重写的主要理由
+- **「全功能点保留」不等于自动保留：不挂处理器 = 静默失效**。实机验收时用户报「提供商详情页的超链接点了都没反应」，根因就是移植时漏了一个处理器：Electron 的 `setWindowOpenHandler`（同源放行 / 异源 `shell.openExternal`）在 Tauri 里对应 `WebviewWindowBuilder::on_new_window`，**不注册时 wry 走 `args.SetHandled(true)` 却不给 `SetNewWindow`**（`wry-0.57.0/src/webview2/mod.rs:848-850`），表现是点击毫无反应且不落到系统浏览器。同类「不挂就是静默失败」的还有下载处理器（不挂则 WKWebView 静默取消下载）。**因此壳层的每个 `on_*` 处理器都要有对应单测或实机断言**——这类回归在 CI 全绿、控制台零报错的情况下就能活到用户手里。外链行为现由 `shell::window::new_window_handler` 承担，只放行 http/https（其余 scheme 不交给系统，避免用任意 scheme 唤起本机程序），且**不需要 opener 的 capability**（Rust 侧自由函数不做 scope 检查）
 - ADR 0001 被本 ADR 取代，且不只是「被更好的方案取代」：**它的理由段与代码实际行为不符**（见上「OAuth 三通道」一节）
 
 ## 关于 Rust 源码里的 `desktop/*.js` 引用

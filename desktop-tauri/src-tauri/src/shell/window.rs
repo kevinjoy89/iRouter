@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use tauri::webview::DownloadEvent;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 
 /// 下载完成后通知面板的事件名。
 ///
@@ -95,6 +95,77 @@ fn notify_panel(webview: &tauri::Webview<tauri::Wry>, path: &Path) {
 }
 
 use super::ShellState;
+
+/// 哪些新窗口请求该交给系统浏览器。**纯函数，便于单测**（`NewWindowFeatures` 在测试里
+/// 无法构造，所以判定必须与处理器闭包分开）。
+///
+/// 只放行 `http` / `https`：其余 scheme（`file:` / `javascript:` / `data:` / 自定义 scheme）
+/// 一律只拒绝、不交给系统。面板理论上不该发出这类新窗口请求；真出现了更可能是被注入的内容，
+/// 而交给系统等于把「用任意 scheme 唤起本机程序」这条路打开。
+pub fn is_external_openable(url: &tauri::Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+}
+
+/// 新窗口请求处理器：把 `target="_blank"` / `window.open` 的外链交给**系统默认浏览器**。
+///
+/// ## 为什么必须注册（不注册就是「点了没反应」）
+///
+/// 面板里所有站外链接都是 `<a target="_blank" rel="noopener noreferrer">`（提供商详情页的
+/// 「Get API Key」「Sign up / Learn more」、凭据弹窗里的官网与 `dash.cloudflare.com` 等）。
+/// 用户实测这些链接**全部点击无效**，根因在 wry 的默认分支：
+///
+/// wry 0.57.0 **无条件**注册 WebView2 的 `NewWindowRequested`，而**没有**用户处理器时走：
+/// ```text
+/// } else {
+///   args.SetHandled(true)?;      // wry-0.57.0/src/webview2/mod.rs:848-850
+/// }
+/// ```
+/// `SetHandled(true)` 却不给 `SetNewWindow`，按微软文档的语义是「弹出一个不加载、立刻关闭的
+/// 占位窗口」——**表现就是点击毫无反应**，且**不会**落到系统浏览器。Linux/WebKitGTK 同理
+/// （wry 只在有处理器时才连 `create` 信号，没有就维持 WebKit 默认 = 不建窗口）。
+///
+/// ## 为什么返回 `Deny`
+///
+/// - `Allow` 会让 WebView2 走它自己的默认实现 → 弹出一个**应用内的裸 WebView2 窗口**，
+///   既不是系统浏览器、又不受壳层管控（无守卫 UA、无下载处理器、无右键菜单）。
+/// - `Create` 需要 `with_environment`（Windows）/ `with_related_view`（Linux）等一堆
+///   与父 webview 同环境的约束（`tauri-2.12.1/src/webview/mod.rs:248-252` 的平台说明），
+///   对「打开一个外部网页」这件事是纯粹的复杂度。
+/// - `Deny` 只拒绝 WebView2 自建窗口；**我们已经先把 URL 交给系统浏览器了**，
+///   所以用户看到的是「点链接 → 浏览器打开」，且应用窗口自身不跳转
+///   —— 正是 `openspec/changes/irouter-desktop-shell/specs/app-shell/spec.md:72-84` 那条
+///   「站外链接走系统浏览器 / 应用窗口不跳转」的要求。
+///
+/// ## 为什么不用 `on_navigation`
+///
+/// 两者是**不同的 WebView2 事件**：`target="_blank"` 走 `NewWindowRequested`，
+/// 而 `on_navigation` 对应 `NavigationStarting`（只覆盖**本 webview 的同窗导航**）。
+/// 只挂 `on_navigation` 拦不到这类点击。
+///
+/// ## 权限
+///
+/// **不需要改 capability**：`capabilities/README.md` 那条「不要加 `opener:*`」针对的是
+/// **webview → IPC** 的命令面；这里调的是 Rust 侧自由函数，插件文档明说自由函数
+/// **不做 scope 检查**（`tauri-plugin-opener-2.7.0/src/lib.rs:7-10`）。
+/// 因此 `capabilities/default.json` 一行不动，攻击面也不扩大。
+pub fn new_window_handler()
+-> impl Fn(tauri::Url, tauri::webview::NewWindowFeatures) -> tauri::webview::NewWindowResponse<Wry>
+       + Send
+       + 'static {
+    |url, _features| {
+        if is_external_openable(&url) {
+            match tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
+                Ok(()) => log::info!("[new-window] 交给系统浏览器：{url}"),
+                // 失败必须留痕：否则又是一次「点了没反应」，且这次连日志都没有
+                Err(e) => log::error!("[new-window] 打开外链失败 {url}：{e}"),
+            }
+        } else {
+            log::warn!("[new-window] 拒绝非 http(s) 的新窗口请求：{url}");
+        }
+        // 无论成功与否都不让 webview 自己建窗（理由见上）
+        tauri::webview::NewWindowResponse::Deny
+    }
+}
 
 /// 主窗口 label（`main.rs` 建窗时用的就是 "main"）。
 pub const MAIN_WINDOW: &str = "main";
@@ -192,4 +263,58 @@ pub const AUTOSTART_ARG: &str = "--from-autostart";
 /// 因为轮询只会在用户主动从托盘唤出窗口时把它again 隐藏掉）。
 pub fn opened_at_login() -> bool {
     std::env::args().any(|a| a == AUTOSTART_ARG)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 面板里那些 `target="_blank"` 外链必须被判为「可交给系统浏览器」。
+    /// 取自真实源码里的 href（提供商详情页与凭据弹窗），不是编的。
+    #[test]
+    fn external_http_links_are_openable() {
+        for u in [
+            "https://dash.cloudflare.com",
+            "https://opencode.ai/workspace/wrk_abc/go",
+            "http://example.com/plain",
+        ] {
+            let url = tauri::Url::parse(u).expect("test url");
+            assert!(is_external_openable(&url), "{u} 应交给系统浏览器");
+        }
+    }
+
+    /// ★ 安全边界：非 http(s) 一律不交给系统。
+    ///
+    /// 交给系统 = 让系统按 scheme 唤起对应程序。`file:` 能打开本地路径、
+    /// 自定义 scheme 能唤起已注册的任意本机应用；`javascript:` / `data:` 更不该出网。
+    /// 面板理论不该发出这类请求，真出现了更可能是被注入的内容。
+    #[test]
+    fn non_http_schemes_are_not_openable() {
+        for u in [
+            "file:///C:/Windows/System32/calc.exe",
+            "javascript:alert(1)",
+            "data:text/html,<h1>x</h1>",
+            "mailto:a@b.com",
+            "ms-settings:privacy",
+            "vscode://file/C:/x",
+        ] {
+            let url = tauri::Url::parse(u).unwrap_or_else(|_| panic!("test url {u} 应可解析"));
+            assert!(!is_external_openable(&url), "{u} 绝不能交给系统程序");
+        }
+    }
+
+    /// 面板自身的地址也会被判为「可打开」——这是**刻意**的。
+    ///
+    /// 面板里没有任何 `window.open` 指向同源 URL（OAuth 已改成服务端 /callback 收口），
+    /// 所以这条路径当前不可达。若日后重新引入「同源弹窗在应用内打开」，
+    /// 必须在这里按 host/port 加分支 —— 那时的失败形态是「弹到系统浏览器里」，
+    /// 可见且可诊断，而不是这次这种「点了没反应」的静默失败。
+    #[test]
+    fn panel_origin_is_treated_as_external_today() {
+        let url = tauri::Url::parse("http://127.0.0.1:20128/dashboard").expect("test url");
+        assert!(
+            is_external_openable(&url),
+            "当前实现不区分同源；重新引入同源弹窗时要在此加 host/port 判断"
+        );
+    }
 }

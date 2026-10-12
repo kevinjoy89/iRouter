@@ -136,6 +136,9 @@ fn main() {
                     // 下载处理器：不挂的话 WKWebView 会**静默取消**下载 —— 面板「导出配置」
                     // 会变成"界面提示成功、文件不存在"。详见 shell::window::download_handler。
                     .on_download(shell::download_handler())
+                    // 新窗口处理器：不挂的话 `target="_blank"` 外链**点击毫无反应**
+                    // （wry 默认 SetHandled(true) 却不建窗）。详见 shell::window::new_window_handler。
+                    .on_new_window(shell::new_window_handler())
                     .build().map_err(|e| e.to_string())?;
                 return Ok(());
             }
@@ -224,6 +227,8 @@ fn start_gateway_and_window(handle: &tauri::AppHandle) -> Result<(), String> {
                 .initialization_script(updater::shim_js())
                 // 下载处理器：同上，两个窗口都要挂
                 .on_download(shell::download_handler())
+                // 新窗口处理器：同上，两个窗口都要挂（漏一个，dev 捷径下外链就又是「点了没反应」）
+                .on_new_window(shell::new_window_handler())
                 .build()
                 .map_err(|e| e.to_string())?;
 
