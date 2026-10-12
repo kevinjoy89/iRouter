@@ -209,6 +209,35 @@ export default function Sidebar({ onClose }) {
           </div>
         </nav>
 
+        {/* 设置入口（系统区底部）。
+            为何在侧边栏底部而不是顶栏：顶栏是「当前页」的语境（标题、面包屑、页面级搜索），
+            设置是全局的模态框、不是一条路由——放顶栏既抢占页面语境的注意力，又只是个裸图标。
+            底部这块以分隔线与导航列表分开，正好表达「它不属于内容导航」，且能带上文字标签
+            （可发现性：这个入口当初存在的唯一理由就是 Windows/Linux 用户找不到设置）。
+            空间也更宽裕：品牌行实测只剩 80px 余量，这里可占满整个侧边栏宽度。
+            为何只发 window 事件、不直接调壳层：`ShellSettingsHost` 挂在 root layout 上监听
+            `irouter:open-settings`，浏览器形态下同样生效（只有「软件更新」等壳层专有分段不呈现）。
+            因此这里**不需要**判断 `window.irouterShell` 是否存在——判了反而会让浏览器形态丢入口。
+            侧边栏在桌面与移动抽屉复用同一组件，故这一处改动三平台与窄屏一并生效。 */}
+        <div className="shrink-0 border-t border-border-subtle px-4 py-2">
+          <button
+            type="button"
+            onClick={() => {
+              // 窄屏抽屉形态下先收起抽屉：否则关掉模态框后用户面对的是一个仍开着的抽屉。
+              // 模态框 z-50 且挂在 root layout（DOM 在抽屉之后），开抽屉时也能正常盖住它。
+              if (onClose) onClose();
+              window.dispatchEvent(new Event("irouter:open-settings"));
+            }}
+            // title 会被 runtime i18n 翻译（它监听 title 属性变化）；可见文字标签走文本节点匹配
+            title="Settings"
+            className="w-full flex items-center gap-3 px-3 py-1 rounded-lg transition-all group text-text-muted hover:bg-surface-2 hover:text-text-main"
+          >
+            <span className="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">
+              settings
+            </span>
+            <span className="text-[13px] font-medium">Settings</span>
+          </button>
+        </div>
       </aside>
     </>
   );
