@@ -317,4 +317,31 @@ mod tests {
             "当前实现不区分同源；重新引入同源弹窗时要在此加 host/port 判断"
         );
     }
+
+    /// ★ 接线守卫：`on_new_window` 必须在**两个**建窗处都挂上。
+    ///
+    /// 这条守卫针对的正是本 bug 的形态：**逻辑写对了但没接上 = 等于没修**，而且表现是
+    /// 「点击毫无反应、零报错、CI 全绿」。`main.rs` 有两条建窗路径（dev 捷径
+    /// `IROUTER_PANEL_URL` 与正常启动），漏掉任一条就会在那条路径上复现。
+    /// 下载处理器（`on_download`）有过同样的要求，这里把两者一起钉住。
+    #[test]
+    fn both_window_builders_attach_the_new_window_handler() {
+        // 本文件在 src/shell/，main.rs 在 src/ —— 相对本文件是 ../../src/main.rs
+        let main_rs = include_str!("../../src/main.rs");
+        let attach = main_rs.matches("on_new_window").count();
+        let downloads = main_rs.matches("on_download").count();
+        assert_eq!(
+            attach, 2,
+            "on_new_window 应恰好挂 2 处（dev 捷径 + 正常启动），实际 {attach} 处"
+        );
+        assert_eq!(
+            downloads, 2,
+            "on_download 应恰好挂 2 处，实际 {downloads} 处（新增建窗路径时两者都要挂）"
+        );
+        // 挂的必须是本模块的实现，而不是空壳
+        assert!(
+            main_rs.contains("shell::new_window_handler()"),
+            "两处都应挂 shell::new_window_handler()"
+        );
+    }
 }
