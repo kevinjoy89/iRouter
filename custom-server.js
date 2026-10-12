@@ -253,9 +253,110 @@ http.createServer = (...args) => {
   return server;
 };
 
-module.exports = { isBlockedPanelRequest, isStrayActionPost, rewriteToAppPath, routeRegExp };
+// ---------------------------------------------------------------- 响应缓存失效
+//
+// Next 16 的 `.next/server/route-cache` 是一份**不会随构建失效**的持久化响应缓存，
+// 必须由我们自己按构建身份清一次，否则「覆盖安装」会让面板整段回退成上一版界面。
+//
+// 失效机制缺失的证据（next@16.4.0 源码）：
+//   · key 只由 (kind, sha256(页面模块名), 路径) 组成（`server/lib/route-cache-key.js:61-75`），
+//     BUILD_ID 既不在 key 里、也不在条目里——对 `server/lib/incremental-cache/**`
+//     搜 `buildId|BUILD_ID|deploymentId` 零命中；
+//   · 条目首次请求时从「种子」（`.next/server/app/<route>.html`）**提升**而来
+//     （`incremental-cache/file-system-cache.js:126-147`、`:330-390`），之后只认这份提升副本：
+//     种子存在性检查在 `:128`，一旦副本已存在就整个跳过，**新种子再也不会被读到**；
+//   · 唯一的校验（`:137-140`）只比对 `meta.routeCache.key` 与 owner 命名空间，是**身份**校验
+//     而非**新鲜度**校验，检测不到重新构建；
+//   · `/dashboard` 的 `initialRevalidateSeconds` 是 `false`（prerender-manifest），
+//     所以它连「过期」都不会——旧外壳会被无限期返回。
+//
+// 为什么必须在这里兜住（而不是只在打包脚本里清）：产物本身是干净的
+// （`tools/build-server.mjs` 先 `rmSync(OUT)` 再复制），脏的是**安装目录**——
+// 把新负载覆盖到旧安装目录时，上一版运行时写下的 route-cache 原样留着，于是：
+// 旧 HTML 外壳被一直返回，而它引用的是**上一版的 chunk 文件名**。
+// 实测那台机器 `.next/static/chunks/` 已积累三代 chunk（10-09 / 10-10 / 10-11），
+// 旧 chunk 仍在盘上，浏览器**照旧把上一版界面渲染出来**：新加的顶栏设置齿轮压根没进
+// DOM，而控制台与网关日志**一条报错都没有**——这正是用户报的「入口没生效」。
+// （若某次安装顺手清掉旧 chunk，同一份旧外壳就变成白屏/报错；两种形态同一根因。）
+// 装机路径不止一条（NSIS 覆盖安装、Tauri updater、手工拷贝、开发期直跑），
+// 唯一都被经过的一层是网关自己的入口，故判定放在这里。
+//
+// 判据用 BUILD_ID：它是每次构建都变的构建身份，而「构建变了」正是缓存变错的**充要条件**。
+// 戳记写在**缓存目录内部**（`route-cache/.build-id`），让戳记与它描述的那份缓存同生共死——
+// 两者不可能被分开刷新，因此不存在「戳记是新的、缓存是旧的」这种漏判形态：
+//   · 覆盖安装只替换已知文件 → 戳记仍是旧 BUILD_ID → 不符 → 清缓存（正确）；
+//   · 整个 `.next/` 被换掉 → 戳记随旧缓存一起消失 → 视为首次 → 建目录写戳记（正确）。
+// 反过来的风险是「产物里自带一份戳记恰好等于自带 BUILD_ID」（即构建机上先跑过一次服务
+// 再打包）——那条路由 `tools/build-server.mjs` 的产物守卫堵住：负载里不允许存在 route-cache。
+const BUILD_ID_REL = path.join(".next", "BUILD_ID");
+const ROUTE_CACHE_REL = path.join(".next", "server", "route-cache");
+const ROUTE_CACHE_STAMP_NAME = ".build-id";
+
+/**
+ * 构建身份变了就丢弃上一版的响应缓存，让 Next 从当前种子重新提升。
+ *
+ * 幂等：同一构建下重复调用只读戳记（不清、不写、不记日志），因此不损失重启后的缓存收益。
+ * Fail-open：清不掉最多是界面回退到旧版，**绝不能让网关起不来**——所有异常都吞在这里。
+ *
+ * @param {string} [gatewayDir] 网关负载根目录（含 `.next/`）；默认本文件所在目录
+ * @returns {{purged: boolean, reason: string}} 便于测试与排障的结论
+ */
+function purgeStaleRouteCache(gatewayDir = __dirname) {
+  const buildIdFile = path.join(gatewayDir, BUILD_ID_REL);
+  const routeCacheDir = path.join(gatewayDir, ROUTE_CACHE_REL);
+  const stampFile = path.join(routeCacheDir, ROUTE_CACHE_STAMP_NAME);
+
+  let buildId = "";
+  try {
+    // 未构建（裸 `next dev` / 清单缺失）：没有构建身份可比，交给 Next 自己报错
+    if (!fs.existsSync(buildIdFile)) return { purged: false, reason: "no-build-id" };
+    buildId = fs.readFileSync(buildIdFile, "utf8").trim();
+    if (!buildId) return { purged: false, reason: "empty-build-id" };
+  } catch (e) {
+    return { purged: false, reason: `build-id-unreadable: ${e && e.message ? e.message : e}` };
+  }
+
+  try {
+    // 戳记缺失有两种可能，处理相同：首启（还没有缓存）或缓存来自没有戳记的旧版本
+    // （正是本次要修的存量安装）。两种情况下清掉都只会重建，不会丢有效数据。
+    const stamped = fs.existsSync(stampFile)
+      ? fs.readFileSync(stampFile, "utf8").trim()
+      : "";
+    if (stamped === buildId) return { purged: false, reason: "same-build" };
+
+    // 目录存在 ≠ 有缓存内容：上一轮写下的戳记就在这个目录里，所以判据必须是
+    // 「除戳记外还有没有条目」——否则每次重启都会谎报一次清理，日志失去指示性。
+    const hadEntries =
+      fs.existsSync(routeCacheDir) &&
+      fs.readdirSync(routeCacheDir).some((name) => name !== ROUTE_CACHE_STAMP_NAME);
+
+    if (hadEntries) fs.rmSync(routeCacheDir, { recursive: true, force: true });
+    fs.mkdirSync(routeCacheDir, { recursive: true });
+    fs.writeFileSync(stampFile, buildId);
+    if (hadEntries) {
+      console.warn(
+        `[edge] 构建身份变化（${stamped || "无戳记"} → ${buildId}），已丢弃上一版 route-cache` +
+          "（留着它会让面板一直吐上一版 HTML 外壳，新界面元素静默不出现）",
+      );
+    }
+    return { purged: hadEntries, reason: hadEntries ? "purged" : "initialized" };
+  } catch (e) {
+    // 删/建失败不阻断启动：最坏结果是界面回退到旧版，而不是网关起不来
+    return { purged: false, reason: `purge-failed: ${e && e.message ? e.message : e}` };
+  }
+}
+
+module.exports = {
+  isBlockedPanelRequest,
+  isStrayActionPost,
+  rewriteToAppPath,
+  routeRegExp,
+  purgeStaleRouteCache,
+};
 
 if (require.main === module) {
+  // 必须在 require(standalone) **之前**：Next 一启动就会读 route-cache，晚了这版缓存已经生效。
+  purgeStaleRouteCache();
   const standalone = path.join(__dirname, "server.js");
   if (fs.existsSync(standalone)) {
     require(standalone);

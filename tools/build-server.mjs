@@ -122,6 +122,27 @@ rmSync(OUT, { recursive: true, force: true });
 mkdirSync(dirname(OUT), { recursive: true });
 cpSync(STANDALONE, OUT, { recursive: true });
 
+// 3b. 剔除响应缓存（route-cache）——**产物里绝不允许存在它**。
+//
+// 来由是一次真实事故：面板顶栏新增的设置齿轮「装了却没生效」。根因不在面板，而在
+// `.next/server/route-cache`：Next 16 的持久化响应缓存没有跨构建失效机制（key 里不含
+// BUILD_ID，条目一旦从种子提升就再也不看新种子），而**覆盖安装不会删掉它**——于是旧 HTML
+// 外壳被一直返回，它引用的是**上一版的 chunk 文件名**；实测那台机器上旧 chunk 仍在盘上
+// （`.next/static/chunks/` 积累了三代），浏览器照旧渲染上一版界面：新入口压根没进 DOM，
+// 且零报错。失败模式是「新界面元素静默消失」，与下面第 8 步那条 CSS 守卫同类。
+// 运行时兜底见 `custom-server.js` 的 `purgeStaleRouteCache`（按 BUILD_ID 戳记清一次）。
+//
+// 这里清的是**构建侧**：Next 的 build 会把 `distDir/server/route-cache` 复制进 standalone
+//（`next/dist/build/index.js:352-357`），所以只要开发机上跑过一次服务，这份缓存就会随包发出去。
+// 它即便内容恰好与本次构建一致，也只是「碰巧对」；一旦不一致就是上面那个静默事故。
+// 更硬的理由：运行时的戳记写在缓存目录**内部**，产物若自带一份戳记，就可能在
+// 「戳记=本次 BUILD_ID、条目却是旧的」这种形态下让运行时判定失效。源头不留它，这条路径就不存在。
+const routeCacheOut = join(OUT, ".next", "server", "route-cache");
+if (existsSync(routeCacheOut)) {
+  rmSync(routeCacheOut, { recursive: true, force: true });
+  log("已移除 .next/server/route-cache（响应缓存不得随包分发，运行时按 BUILD_ID 自建）");
+}
+
 // 4. 复制 DLP 规则文件：`open-sse/dlp/dlp_rules.yaml` 是运行时用 fs 读的数据文件，
 //    Next 的 tracing 只看 import 图，不会把它带进 standalone——缺了它的后果是
 //    loadPolicy 抛 ENOENT → 引擎 fail-open → 面板显示已开启而实际从不脱敏
@@ -177,6 +198,17 @@ for (const [p, what] of [
 }
 if (existsSync(nativeSqlite)) {
   console.error("[build-server] better-sqlite3 未被移除");
+  process.exit(1);
+}
+// route-cache 回归守卫：见第 3b 步。产物里带上它就是「覆盖安装后界面回退成上一版」
+// 的直接成因，且全程零报错；同时它可能让运行时的 BUILD_ID 戳记判定失效。
+if (existsSync(routeCacheOut)) {
+  console.error(
+    "[build-server] 产物里仍有 .next/server/route-cache\n" +
+      "  它是 Next 16 的持久化响应缓存，不随构建失效：覆盖安装后旧 HTML 外壳会引用\n" +
+      "  上一版已不存在的 chunk，表现为「新界面元素静默消失、零报错」。\n" +
+      "  修复：rm -rf .next，再重跑 npm run build-server（见第 3b 步）",
+  );
   process.exit(1);
 }
 // .env 回归守卫：@next/env 会自动读取服务端同目录的 .env，混入即重新引入公开密钥
