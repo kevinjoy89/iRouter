@@ -84,7 +84,6 @@ export class DefaultExecutor extends BaseExecutor {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
   }
 
-<<<<<<< HEAD
   /**
    * 判断当前执行器是否为自定义兼容提供商（openai-compatible-* 或 anthropic-compatible-*）
    *
