@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { PROVIDERS, PROVIDER_OAUTH } from "../config/providers.js";
 import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE, selectAnthropicBeta, mergeAnthropicBeta } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
-import { OAUTH_ENDPOINTS, buildKimiHeaders } from "../config/appConstants.js";
+import { OAUTH_ENDPOINTS, buildKimiHeaders, NOUS_ATTRIBUTION } from "../config/appConstants.js";
 import { buildClineHeaders } from "../shared/clineAuth.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
@@ -84,6 +84,7 @@ export class DefaultExecutor extends BaseExecutor {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
   }
 
+<<<<<<< HEAD
   /**
    * 判断当前执行器是否为自定义兼容提供商（openai-compatible-* 或 anthropic-compatible-*）
    *
@@ -163,7 +164,7 @@ export class DefaultExecutor extends BaseExecutor {
 
   /**
    * @Override
-   * 转换请求体，为自定义兼容渠道注入 prompt_cache_key 或 metadata.user_id
+   * 转换请求体，为自定义兼容渠道注入 prompt_cache_key 或 metadata.user_id，并应用 Nous 归属标签
    *
    * @param {string} model 模型名称
    * @param {Record<string, unknown>} body 待发送的请求体
@@ -172,7 +173,7 @@ export class DefaultExecutor extends BaseExecutor {
    * @return {Record<string, unknown>} 转换后的请求体
    */
   transformRequest(model, body, stream = true, credentials = null) {
-    const transformed = this.applyJsonSchemaFallback(body);
+    const transformed = this.applyJsonSchemaFallback(this.applyNousAttribution(model, body, stream, credentials));
 
     if (transformed && typeof transformed === "object") {
       // quirk: some openai-compatible providers reject Anthropic's client_metadata field
@@ -204,6 +205,29 @@ export class DefaultExecutor extends BaseExecutor {
     }
 
     return out;
+  }
+
+  applyNousAttribution(model, body, stream, credentials) {
+    if (!this.provider?.startsWith?.("openai-compatible-") || !credentials?.apiKey
+      || !body || typeof body !== "object" || Array.isArray(body)
+      || (body.tags != null && !Array.isArray(body.tags))) return body;
+
+    try {
+      const url = new URL(this.buildUrl(model, stream, 0, credentials));
+      if (url.protocol !== "https:" || url.hostname !== NOUS_ATTRIBUTION.hostname
+        || url.pathname !== NOUS_ATTRIBUTION.chatCompletionsPath) return body;
+    } catch {
+      return body;
+    }
+
+    let tags = Array.isArray(body.tags) ? [...body.tags] : [];
+    for (const fallback of NOUS_ATTRIBUTION.tags) {
+      const prefix = fallback.slice(0, fallback.indexOf("=") + 1);
+      // Empty attribution values do not satisfy the upstream requirement.
+      tags = tags.filter((tag) => typeof tag !== "string" || !tag.startsWith(prefix) || tag.slice(prefix.length).trim());
+      if (!tags.some((tag) => typeof tag === "string" && tag.startsWith(prefix))) tags.push(fallback);
+    }
+    return { ...body, tags: [...new Set(tags)] };
   }
 
   // Fallback json_schema → json_object for openai-compatible providers without native Structured Output.
