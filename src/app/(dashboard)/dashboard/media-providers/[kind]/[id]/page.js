@@ -13,6 +13,7 @@ import { EmbeddingExampleCard } from "./components/EmbeddingExampleCard";
 import { TtsExampleCard } from "./components/TtsExampleCard";
 import { GenericExampleCard } from "./components/GenericExampleCard";
 import { SttExampleCard } from "./components/SttExampleCard";
+import { translate } from "@/i18n/runtime";
 
 // MediaProviderDetailPage
 export default function MediaProviderDetailPage() {
@@ -108,12 +109,20 @@ export default function MediaProviderDetailPage() {
               )}
             </div>
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-              {isCustom && <Badge variant="default" size="sm">Custom · {customNode?.prefix}</Badge>}
-              {kinds.map((k) => (
-                <Badge key={k} variant={k === kind ? "primary" : "default"} size="sm">
-                  {k.toUpperCase()}
+              {isCustom && (
+                <Badge variant="default" size="sm">
+                  {translate(`Custom · ${customNode?.prefix}`)}
                 </Badge>
-              ))}
+              )}
+              {kinds.map((k) => {
+                const targetKind = MEDIA_PROVIDER_KINDS.find((item) => item.id === k);
+                const rawLabel = targetKind?.label || (k === "llm" ? "LLM" : k.toUpperCase());
+                return (
+                  <Badge key={k} variant={k === kind ? "primary" : "default"} size="sm">
+                    {translate(rawLabel)}
+                  </Badge>
+                );
+              })}
             </div>
           </div>
           {isCustom && (

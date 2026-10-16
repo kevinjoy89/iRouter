@@ -519,6 +519,51 @@ export function translateDynamicPatterns(text, locale) {
     return isTw ? "組合" : "组合";
   }
 
+  // 30. 服务类型全大写标签
+  const upperKindMap = {
+    "WEBSEARCH": isTw ? "網頁搜尋" : "网页搜索",
+    "WEBFETCH": isTw ? "網頁抓取" : "网页抓取",
+    "EMBEDDING": "嵌入",
+    "TTS": isTw ? "文字轉語音" : "文本转语音",
+    "STT": isTw ? "語音轉文字" : "语音转文本",
+    "SYSTEMONE": "System One",
+    "IMAGETOTEXT": isTw ? "影像轉文字" : "图像转文本",
+    "IMAGE": isTw ? "影像" : "图像",
+    "VIDEO": isTw ? "影片" : "视频",
+    "MUSIC": isTw ? "音樂" : "音乐",
+  };
+  const upperTrimmed = text.toUpperCase();
+  if (upperKindMap[upperTrimmed]) {
+    return upperKindMap[upperTrimmed];
+  }
+
+  // 31. 自定义节点标签 "Custom · <prefix>"
+  const customPrefixMatch = text.match(/^Custom\s*·\s*(.+)$/i);
+  if (customPrefixMatch) {
+    return isTw ? `自訂 · ${customPrefixMatch[1]}` : `自定义 · ${customPrefixMatch[1]}`;
+  }
+
+  // 32. 模型卡片标题 "Models — <kind>"
+  const modelsKindMatch = text.match(/^Models\s*(?:—|-)\s*(.+)$/i);
+  if (modelsKindMatch) {
+    const rawKind = modelsKindMatch[1].trim();
+    const mappedKind = upperKindMap[rawKind.toUpperCase()] || rawKind;
+    return isTw ? `模型 — ${mappedKind}` : `模型 — ${mappedKind}`;
+  }
+
+  // 33. Google Search Grounding 与 AI Studio 免费层提示
+  if (text.includes("Google Search grounding through an Antigravity OAuth account")) {
+    return isTw
+      ? "免費 —— 透過 Antigravity OAuth 帳戶使用 Google Search Grounding。"
+      : "免费 —— 通过 Antigravity OAuth 账户使用 Google Search Grounding。";
+  }
+  const freeTierTokensMatch = text.match(/^Free\s+tier:\s*(\d+)\s+RPM,\s*([0-9a-zA-Z.]+)\s+tokens\/day\s+on\s+(.+?)\s+via\s+AI\s+Studio\.$/i);
+  if (freeTierTokensMatch) {
+    return isTw
+      ? `免費層：透過 AI Studio 使用 ${freeTierTokensMatch[3]} 每分鐘 ${freeTierTokensMatch[1]} 次請求，每天 ${freeTierTokensMatch[2]} Token。`
+      : `免费层：通过 AI Studio 使用 ${freeTierTokensMatch[3]} 每分钟 ${freeTierTokensMatch[1]} 次请求，每天 ${freeTierTokensMatch[2]} Token。`;
+  }
+
   return text;
 }
 

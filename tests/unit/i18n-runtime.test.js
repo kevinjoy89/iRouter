@@ -348,5 +348,33 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
     expect(translateDynamicPatterns("Combo", "zh-TW")).toBe("組合");
     expect(translateDynamicPatterns("Manage your Web Fetch & Search providers", "zh-CN")).toBe("管理您的 Web 抓取与搜索 供应商");
     expect(translateDynamicPatterns("Manage your Web Fetch & Search providers", "zh-TW")).toBe("管理您的 Web 擷取與搜尋 供應商");
+    expect(translateDynamicPatterns("WEBSEARCH", "zh-CN")).toBe("网页搜索");
+    expect(translateDynamicPatterns("WEBSEARCH", "zh-TW")).toBe("網頁搜尋");
+    expect(translateDynamicPatterns("WEBFETCH", "zh-CN")).toBe("网页抓取");
+    expect(translateDynamicPatterns("WEBFETCH", "zh-TW")).toBe("網頁抓取");
+    expect(translateDynamicPatterns("EMBEDDING", "zh-CN")).toBe("嵌入");
+    expect(translateDynamicPatterns("SYSTEMONE", "zh-CN")).toBe("System One");
+    expect(translateDynamicPatterns("Custom · my-prefix", "zh-CN")).toBe("自定义 · my-prefix");
+    expect(translateDynamicPatterns("Custom · my-prefix", "zh-TW")).toBe("自訂 · my-prefix");
+    expect(translateDynamicPatterns("Models — WEBSEARCH", "zh-CN")).toBe("模型 — 网页搜索");
+    expect(translateDynamicPatterns("Models — WEBSEARCH", "zh-TW")).toBe("模型 — 網頁搜尋");
+    expect(
+      translateDynamicPatterns(
+        "Free — Google Search grounding through an Antigravity OAuth account.",
+        "zh-CN",
+      ),
+    ).toBe("免费 —— 通过 Antigravity OAuth 账户使用 Google Search Grounding。");
+    expect(
+      translateDynamicPatterns(
+        "Free — Google Search grounding through an Antigravity OAuth account.",
+        "zh-TW",
+      ),
+    ).toBe("免費 —— 透過 Antigravity OAuth 帳戶使用 Google Search Grounding。");
+    expect(
+      translateDynamicPatterns(
+        "Free tier: 15 RPM, 1M tokens/day on gemini-2.5-flash via AI Studio.",
+        "zh-CN",
+      ),
+    ).toBe("免费层：通过 AI Studio 使用 gemini-2.5-flash 每分钟 15 次请求，每天 1M Token。");
   });
 });

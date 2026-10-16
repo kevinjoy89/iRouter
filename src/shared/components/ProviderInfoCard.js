@@ -1,6 +1,7 @@
 "use client";
 
 import Card from "./Card";
+import { translate } from "@/i18n/runtime";
 
 // Only show fields user actually cares about
 const FIELD_SCHEMA = {
@@ -37,7 +38,7 @@ export default function ProviderInfoCard({ config, provider, title = "Provider I
   return (
     <Card>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 className="text-lg font-semibold">{translate(title)}</h2>
         {signupUrl && (
           <a
             href={signupUrl}
@@ -46,14 +47,14 @@ export default function ProviderInfoCard({ config, provider, title = "Provider I
             className="text-xs text-primary hover:underline inline-flex items-center gap-1"
           >
             <span className="material-symbols-outlined text-sm">open_in_new</span>
-            Get API Key
+            {translate("Get API Key")}
           </a>
         )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
         {rows.map((r) => (
           <div key={r.key} className="flex items-center gap-3 min-w-0">
-            <span className="text-xs text-text-muted w-28 shrink-0">{r.label}</span>
+            <span className="text-xs text-text-muted w-28 shrink-0">{translate(r.label)}</span>
             {r.isLink ? (
               <a
                 href={r.raw}
@@ -61,19 +62,19 @@ export default function ProviderInfoCard({ config, provider, title = "Provider I
                 rel="noopener noreferrer"
                 className={`text-sm text-primary hover:underline truncate ${r.mono ? "font-mono" : ""}`}
               >
-                {r.value}
+                {translate(r.value)}
               </a>
             ) : (
               <span className={`text-sm text-text-main truncate ${r.mono ? "font-mono" : ""}`}>
-                {r.value}
+                {r.mono ? r.value : translate(r.value)}
               </span>
             )}
           </div>
         ))}
         {noticeText && (
           <div className="flex items-start gap-3 min-w-0 sm:col-span-2">
-            <span className="text-xs text-text-muted w-28 shrink-0 mt-0.5">Notice</span>
-            <span className="text-sm text-text-main leading-relaxed">{noticeText}</span>
+            <span className="text-xs text-text-muted w-28 shrink-0 mt-0.5">{translate("Notice")}</span>
+            <span className="text-sm text-text-main leading-relaxed">{translate(noticeText)}</span>
           </div>
         )}
       </div>
