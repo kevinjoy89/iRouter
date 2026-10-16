@@ -342,5 +342,11 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
     expect(translateDynamicPatterns("Header Authorization cannot be overridden", "zh-CN")).toBe("请求头 Authorization 无法被覆盖");
     expect(translateDynamicPatterns("Duplicate header name: Host", "zh-TW")).toBe("重複的請求頭名稱：Host");
     expect(translateDynamicPatterns("Updated with 3 failed request(s).", "zh-CN")).toBe("更新完成，其中 3 个请求失败。");
+    expect(translateDynamicPatterns("combo", "zh-CN")).toBe("组合");
+    expect(translateDynamicPatterns("combo", "zh-TW")).toBe("組合");
+    expect(translateDynamicPatterns("Combo", "zh-CN")).toBe("组合");
+    expect(translateDynamicPatterns("Combo", "zh-TW")).toBe("組合");
+    expect(translateDynamicPatterns("Manage your Web Fetch & Search providers", "zh-CN")).toBe("管理您的 Web 抓取与搜索 供应商");
+    expect(translateDynamicPatterns("Manage your Web Fetch & Search providers", "zh-TW")).toBe("管理您的 Web 擷取與搜尋 供應商");
   });
 });

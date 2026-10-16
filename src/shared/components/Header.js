@@ -14,6 +14,31 @@ import { translate } from "@/i18n/runtime";
 const getPageInfo = (pathname) => {
   if (!pathname) return { title: "", description: "", breadcrumbs: [] };
 
+  // Combined web providers: /dashboard/media-providers/web
+  if (pathname === "/dashboard/media-providers/web") {
+    return {
+      title: "Web Fetch & Search",
+      description: "Manage your Web Fetch & Search providers",
+      icon: "travel_explore",
+      breadcrumbs: [],
+    };
+  }
+
+  // Media provider combo detail: /dashboard/media-providers/combo/[id]
+  const mediaComboMatch = pathname.match(/\/media-providers\/combo\/([^/]+)$/);
+  if (mediaComboMatch) {
+    const comboId = mediaComboMatch[1];
+    return {
+      title: "Combo",
+      description: "",
+      breadcrumbs: [
+        { label: "Media Providers", href: "/dashboard/combos" },
+        { label: "Combo", href: "/dashboard/combos" },
+        { label: comboId },
+      ],
+    };
+  }
+
   // Media provider detail: /dashboard/media-providers/[kind]/[id]
   const mediaDetailMatch = pathname.match(/\/media-providers\/([^/]+)\/([^/]+)$/);
   if (mediaDetailMatch) {
@@ -238,7 +263,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
                     href={crumb.href}
                     className="text-text-muted hover:text-primary transition-colors truncate"
                   >
-                    {crumb.label}
+                    {translate(crumb.label)}
                   </Link>
                 ) : (
                   <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">

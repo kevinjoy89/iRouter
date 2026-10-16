@@ -388,6 +388,8 @@ export function translateDynamicPatterns(text, locale) {
       "Video": isTw ? "影片" : "视频",
       "Music": isTw ? "音樂" : "音乐",
       "System One": "System One",
+      "Web Fetch & Search": isTw ? "Web 擷取與搜尋" : "Web 抓取与搜索",
+      "web": isTw ? "Web" : "Web",
       "AI provider": isTw ? "AI 提供商" : "AI 提供商",
     };
     const translatedKind = kindMap[rawKind] || rawKind;
@@ -510,6 +512,11 @@ export function translateDynamicPatterns(text, locale) {
     return isTw
       ? `更新完成，其中 ${updatedFailedReqsMatch[1]} 個請求失敗。`
       : `更新完成，其中 ${updatedFailedReqsMatch[1]} 个请求失败。`;
+  }
+
+  // 29. 独立单词 combo / Combo
+  if (text.toLowerCase() === "combo") {
+    return isTw ? "組合" : "组合";
   }
 
   return text;
