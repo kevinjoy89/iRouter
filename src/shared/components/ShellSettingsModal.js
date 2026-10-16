@@ -13,7 +13,7 @@
 //
 // 壳层专属项（关窗行为 / 开机自启 / 软件更新）经 preload 暴露的 window.irouterShell
 // 读写；浏览器打开时该对象不存在，这些段整段不进导航，也不渲染。
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Modal from "@/shared/components/Modal";
 import Button from "@/shared/components/Button";
 import SettingsNav from "@/shared/components/settings/SettingsNav";
@@ -72,6 +72,15 @@ export default function ShellSettingsModal({ isOpen, onClose, initialSection }) 
   const [active, setActive] = useState(
     SECTIONS.some((s) => s.key === resolvedInitial) ? resolvedInitial : "general",
   );
+  // 右侧内容面板滚动容器引用
+  const contentPanelRef = useRef(null);
+
+  // 切换配置子菜单时自动复位滚动条至顶部
+  useEffect(() => {
+    if (contentPanelRef.current) {
+      contentPanelRef.current.scrollTop = 0;
+    }
+  }, [active]);
   // 更新状态提到这里：左栏「软件更新」要能在不滚到底的情况下点出一个小圆点
   const update = useSoftwareUpdate();
 
@@ -216,16 +225,16 @@ export default function ShellSettingsModal({ isOpen, onClose, initialSection }) 
         </>
       }
     >
-      <div className="flex max-h-[min(560px,72vh)] min-h-[380px]">
+      <div className="flex h-[560px] max-h-[80vh]">
         <SettingsNav
           items={items}
           active={active}
           onSelect={setActive}
           updateAvailable={update.updateAvailable}
         />
-        {/* 高度随内容、上限 560px：最长的网络段 489px、存储 465px，最短的
-            「更多网关设置」178px。固定高度会在短段留下半屏空白。 */}
+        {/* 统一固定高度 560px（小视口下以 80vh 弹性兜底），切换子菜单时弹窗高度保持绝对静止 */}
         <div
+          ref={contentPanelRef}
           id="shell-settings-panel"
           role="tabpanel"
           className="custom-scrollbar flex-1 overflow-y-auto bg-bg"

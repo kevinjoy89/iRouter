@@ -235,7 +235,7 @@ const CSS_MARKERS = [
   "bg-bg-alt/60", // 左栏底色
   "text-text-subtle", // 次级文字
   "rounded-[12px]", // 任意值：卡片圆角
-  "min-h-[380px]", // 任意值：右栏高度下限
+  "h-[560px]", // 任意值：设置面板统一固定高度
 ];
 const cssDir = join(OUT, ".next", "static", "css");
 assertDir(cssDir, "产物 CSS 目录");
