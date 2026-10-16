@@ -305,6 +305,12 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
     ).toBe("管理您的 語音轉文字 供應商");
     expect(translateDynamicPatterns("Add Model", "zh-CN")).toBe("添加模型");
     expect(translateDynamicPatterns("Add Model to Combo", "zh-CN")).toBe("添加模型到组合");
+    expect(translateDynamicPatterns("System One Config", "zh-CN")).toBe("System One 配置");
+    expect(translateDynamicPatterns("System One Config", "zh-TW")).toBe("System One 設定");
+    expect(translateDynamicPatterns("Web Search Config", "zh-CN")).toBe("Web 搜索配置");
+    expect(translateDynamicPatterns("Config path: Linux/macOS ~/.qwen/settings.json", "zh-CN")).toBe(
+      "配置路径：Linux/macOS ~/.qwen/settings.json",
+    );
   });
 
   it("批量操作反馈与动态删除确认弹窗正确翻译", () => {
@@ -327,5 +333,14 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
     expect(translateDynamicPatterns("Disabled 4 dead proxies", "zh-CN")).toBe("已禁用 4 个失效代理");
     expect(translateDynamicPatterns('Delete combo "my-combo"?', "zh-CN")).toBe('删除组合 "my-combo"？');
     expect(translateDynamicPatterns('Delete combo "my-combo"?', "zh-TW")).toBe('刪除組合 "my-combo"？');
+    expect(translateDynamicPatterns("No Vision models available to generate.", "zh-CN")).toBe("没有可用于生成的 Vision 模型。");
+    expect(translateDynamicPatterns("No Vision models available to generate.", "zh-TW")).toBe("沒有可用於產生的 Vision 模型。");
+    expect(translateDynamicPatterns("All 3 Text combos already exist. Nothing to create.", "zh-CN")).toBe("全部 3 个 Text 组合已存在。无需创建。");
+    expect(translateDynamicPatterns("Failed to generate Chat", "zh-CN")).toBe("生成 Chat 失败");
+    expect(translateDynamicPatterns("Failed to preview Chat", "zh-TW")).toBe("預覽 Chat 失敗");
+    expect(translateDynamicPatterns("Invalid header name: X-Foo", "zh-CN")).toBe("无效的请求头名称：X-Foo");
+    expect(translateDynamicPatterns("Header Authorization cannot be overridden", "zh-CN")).toBe("请求头 Authorization 无法被覆盖");
+    expect(translateDynamicPatterns("Duplicate header name: Host", "zh-TW")).toBe("重複的請求頭名稱：Host");
+    expect(translateDynamicPatterns("Updated with 3 failed request(s).", "zh-CN")).toBe("更新完成，其中 3 个请求失败。");
   });
 });

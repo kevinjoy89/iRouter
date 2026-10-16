@@ -346,6 +346,33 @@ export function translateDynamicPatterns(text, locale) {
     return isTw ? `${toolConfigMatch[1]} 設定` : `${toolConfigMatch[1]} 配置`;
   }
 
+  // 21.2 提供商配置卡片标题 "<kind> Config"
+  const kindConfigMatch = text.match(/^(.+?)\s+Config$/i);
+  if (kindConfigMatch) {
+    const rawKind = kindConfigMatch[1].trim();
+    const kindMap = {
+      "System One": "System One",
+      "Web Search": isTw ? "Web 搜尋" : "Web 搜索",
+      "Web Fetch": isTw ? "Web 擷取" : "Web 抓取",
+      "Embedding": isTw ? "嵌入" : "嵌入",
+      "Speech To Text": isTw ? "語音轉文字" : "语音转文本",
+      "Text To Speech": isTw ? "文字轉語音" : "文本转语音",
+      "Text to Image": isTw ? "文字轉影像" : "文本转图像",
+      "Image to Text": isTw ? "影像轉文字" : "图像转文本",
+      "Image": isTw ? "影像" : "图像",
+      "Video": isTw ? "影片" : "视频",
+      "Music": isTw ? "音樂" : "音乐",
+    };
+    const translatedKind = kindMap[rawKind] || rawKind;
+    return isTw ? `${translatedKind} 設定` : `${translatedKind} 配置`;
+  }
+
+  // 21.3 CLI 工具配置路径提示 "Config path: Linux/macOS ... • Windows ..."
+  const configPathMatch = text.match(/^Config\s+path:\s*(.+)$/i);
+  if (configPathMatch) {
+    return isTw ? `設定路徑：${configPathMatch[1]}` : `配置路径：${configPathMatch[1]}`;
+  }
+
   // 22. 媒体提供商头部页面描述 "Manage your <kind> providers"
   const manageProvidersMatch = text.match(/^Manage\s+your\s+(.+?)\s+providers$/i);
   if (manageProvidersMatch) {
@@ -439,6 +466,50 @@ export function translateDynamicPatterns(text, locale) {
   const deleteComboMatch = text.match(/^Delete\s+combo\s+"(.+?)"\?$/i);
   if (deleteComboMatch) {
     return isTw ? `刪除組合 "${deleteComboMatch[1]}"？` : `删除组合 "${deleteComboMatch[1]}"？`;
+  }
+
+  // 26. 组合生成与预览动态提示
+  const noModelsToGenMatch = text.match(/^No\s+(.+?)\s+models\s+available\s+to\s+generate\.$/i);
+  if (noModelsToGenMatch) {
+    return isTw
+      ? `沒有可用於產生的 ${noModelsToGenMatch[1]} 模型。`
+      : `没有可用于生成的 ${noModelsToGenMatch[1]} 模型。`;
+  }
+  const allCombosExistMatch = text.match(/^All\s+(\d+)\s+(.+?)\s+combos\s+already\s+exist\.\s+Nothing\s+to\s+create\.$/i);
+  if (allCombosExistMatch) {
+    return isTw
+      ? `全部 ${allCombosExistMatch[1]} 個 ${allCombosExistMatch[2]} 組合已存在。無需建立。`
+      : `全部 ${allCombosExistMatch[1]} 个 ${allCombosExistMatch[2]} 组合已存在。无需创建。`;
+  }
+  const failedToGenMatch = text.match(/^Failed\s+to\s+generate\s+(.+)$/i);
+  if (failedToGenMatch) {
+    return isTw ? `產生 ${failedToGenMatch[1]} 失敗` : `生成 ${failedToGenMatch[1]} 失败`;
+  }
+  const failedToPreviewMatch = text.match(/^Failed\s+to\s+preview\s+(.+)$/i);
+  if (failedToPreviewMatch) {
+    return isTw ? `預覽 ${failedToPreviewMatch[1]} 失敗` : `预览 ${failedToPreviewMatch[1]} 失败`;
+  }
+
+  // 27. 自定义请求头校验动态提示
+  const invalidHeaderMatch = text.match(/^Invalid\s+header\s+name:\s*(.+)$/i);
+  if (invalidHeaderMatch) {
+    return isTw ? `無效的請求頭名稱：${invalidHeaderMatch[1]}` : `无效的请求头名称：${invalidHeaderMatch[1]}`;
+  }
+  const headerNoOverrideMatch = text.match(/^Header\s+(.+?)\s+cannot\s+be\s+overridden$/i);
+  if (headerNoOverrideMatch) {
+    return isTw ? `請求頭 ${headerNoOverrideMatch[1]} 無法被覆寫` : `请求头 ${headerNoOverrideMatch[1]} 无法被覆盖`;
+  }
+  const dupHeaderMatch = text.match(/^Duplicate\s+header\s+name:\s*(.+)$/i);
+  if (dupHeaderMatch) {
+    return isTw ? `重複的請求頭名稱：${dupHeaderMatch[1]}` : `重复的请求头名称：${dupHeaderMatch[1]}`;
+  }
+
+  // 28. 连接更新失败动态提示
+  const updatedFailedReqsMatch = text.match(/^Updated\s+with\s+(\d+)\s+failed\s+request\(s\)\.$/i);
+  if (updatedFailedReqsMatch) {
+    return isTw
+      ? `更新完成，其中 ${updatedFailedReqsMatch[1]} 個請求失敗。`
+      : `更新完成，其中 ${updatedFailedReqsMatch[1]} 个请求失败。`;
   }
 
   return text;
