@@ -1,6 +1,7 @@
-// 定价入口的演进：曾经挂在「用量 → Est. Cost → 编辑定价」，后统一收进设置面板。
-// 现已调整为对齐 models.dev 权威实时定价源，彻底移除手工编辑弹窗 PricingModal。
-// 网关设置面板中的 Pricing 卡片负责展示 models.dev 对齐状态，并提供「立即同步」按钮。
+// 定价与模型同步入口的演进：
+// 1. 早期挂在「用量 → Est. Cost → 编辑定价」
+// 2. 统一收进设置面板（曾混在网关设置）
+// 3. 现已正式解耦提升为顶级「外部集成（Integrations）」分段（对齐 models.dev 权威实时定价，彻底移除手工编辑弹窗）
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
@@ -8,25 +9,30 @@ import { describe, it, expect } from "vitest";
 const ROOT = path.resolve(__dirname, "../..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 
-describe("pricing entry point (settings panel → gateway → Pricing, aligned with models.dev)", () => {
-  const profile = read("src/app/(dashboard)/dashboard/profile/page.js");
+describe("pricing & models entry point (settings panel → integrations → models.dev)", () => {
+  it("ShellSettingsModal 提供独立的 Integrations 分段，位于 gateway 之后、updates 之前", () => {
+    const shell = read("src/shared/components/ShellSettingsModal.js");
+    expect(shell).toMatch(/import IntegrationsSettings from "@\/shared\/components\/settings\/IntegrationsSettings"/);
+    expect(shell).toMatch(/key:\s*"integrations",\s*icon:\s*"extension",\s*label:\s*"Integrations"/);
+    expect(shell).toMatch(/case "integrations":[\s\S]*?<IntegrationsSettings \/>/);
+  });
 
-  it("Pricing 卡片对齐 models.dev 并提供 Sync Now 按钮，不再引用 PricingModal", () => {
-    expect(profile).not.toMatch(/import PricingModal/);
-    expect(profile).not.toMatch(/<PricingModal/);
-    expect(profile).not.toMatch(/Edit Pricing/);
-    expect(profile).toMatch(/models\.dev/);
-    expect(profile).toMatch(/Sync Now/);
+  it("IntegrationsSettings 呈现 models.dev 官方生态卡片与 Sync Now 按钮", () => {
+    const integrations = read("src/shared/components/settings/IntegrationsSettings.js");
+    expect(integrations).toMatch(/models\.dev/);
+    expect(integrations).toMatch(/Sync Now/);
+    expect(integrations).toMatch(/Auto-syncs every 24 hours/);
     expect(
       fs.existsSync(path.join(ROOT, "src/shared/components/PricingModal.js")),
     ).toBe(false);
   });
 
-  it("该卡片属于「网关设置」分段（面板里必须能到达）", () => {
+  it("网关设置分段已彻底剥离 pricing，聚焦核心路由/重试/脱敏策略", () => {
     const gateway = read(
       "src/shared/components/settings/GatewaySettingsSection.js",
     );
-    expect(gateway).toMatch(/groups=\{\["routing", "retry", "redaction", "pricing"\]\}/);
+    expect(gateway).toMatch(/groups=\{\["routing", "retry", "redaction"\]\}/);
+    expect(gateway).not.toMatch(/"pricing"/);
   });
 
   it("用量页不再重复提供定价入口（单一入口，由 models.dev 统一标准维护）", () => {
@@ -45,9 +51,9 @@ describe("pricing entry point (settings panel → gateway → Pricing, aligned w
     ).toBe(false);
   });
 
-  it("Sync Now 与 models.dev 定价对齐有多语言条目", () => {
+  it("Integrations 与 Sync Now 等相关文案有多语言条目", () => {
     const zh = JSON.parse(read("public/i18n/literals/zh-CN.json"));
+    expect(zh["Integrations"]).toBe("外部集成");
     expect(zh["Sync Now"]).toBeTruthy();
-    expect(zh["Token rates aligned with models.dev for usage cost estimates."]).toBeTruthy();
   });
 });

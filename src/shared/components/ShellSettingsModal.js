@@ -24,6 +24,7 @@ import UpdateSettings, {
 import NetworkSettings from "@/shared/components/settings/NetworkSettings";
 import DataLogsSettings from "@/shared/components/settings/DataLogsSettings";
 import GatewaySettingsSection from "@/shared/components/settings/GatewaySettingsSection";
+import IntegrationsSettings from "@/shared/components/settings/IntegrationsSettings";
 import SecuritySettings from "@/shared/components/settings/SecuritySettings";
 import { APP_CONFIG } from "@/shared/constants/config";
 
@@ -33,13 +34,15 @@ import { APP_CONFIG } from "@/shared/constants/config";
 //   3. Data & Logs：数据与日志（整合可观测性日志开关与数据库指标/清理/配置备份）
 //   4. Security：安全与 SSO
 //   5. Gateway Settings：网关设置（嵌入 profile 页）
-//   6. Software Update：软件更新（按用户要求移至最后一项，shellOnly 仅在桌面壳呈现）
+//   6. Integrations：外部生态集成（models.dev 定价与模型目录同步）
+//   7. Software Update：软件更新（按用户要求移至最后一项，shellOnly 仅在桌面壳呈现）
 const SECTIONS = [
   { key: "general", icon: "settings", label: "General" },
   { key: "network", icon: "lan", label: "Network" },
   { key: "datalogs", icon: "database", label: "Data & Logs" },
   { key: "security", icon: "shield", label: "Security" },
   { key: "gateway", icon: "tune", label: "Gateway Settings" },
+  { key: "integrations", icon: "extension", label: "Integrations" },
   {
     key: "updates",
     icon: "system_update_alt",
@@ -66,6 +69,8 @@ export default function ShellSettingsModal({ isOpen, onClose, initialSection }) 
     if (key === "appearance" || key === "window") return "general";
     if (key === "observability" || key === "storage" || key === "data-logs")
       return "datalogs";
+    if (key === "pricing" || key === "integration" || key === "integrations")
+      return "integrations";
     return key;
   };
   const resolvedInitial = normalizeSectionKey(initialSection);
@@ -153,6 +158,9 @@ export default function ShellSettingsModal({ isOpen, onClose, initialSection }) 
         return <SecuritySettings />;
       case "gateway":
         return <GatewaySettingsSection />;
+      case "integrations":
+      case "pricing":
+        return <IntegrationsSettings />;
       case "updates":
         return (
           <UpdateSettings

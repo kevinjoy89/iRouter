@@ -18,16 +18,9 @@ import { translate } from "@/i18n/runtime";
  */
 export default function ProfilePage({
   showAppInfo = true,
-  groups = ["security", "routing", "retry", "redaction", "pricing"],
+  groups = ["security", "routing", "retry", "redaction"],
 }) {
   const { copied, copy } = useCopyToClipboard();
-  const [pricingMeta, setPricingMeta] = useState({
-    source: "models.dev",
-    lastUpdated: null,
-    modelCount: 0,
-  });
-  const [pricingSyncing, setPricingSyncing] = useState(false);
-  const [pricingSyncStatus, setPricingSyncStatus] = useState(null);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
@@ -126,46 +119,7 @@ export default function ProfilePage({
         console.error("Failed to fetch settings:", err);
         setLoading(false);
       });
-
-    fetch("/api/pricing")
-      .then((res) => res.json())
-      .then((data) => {
-        setPricingMeta({
-          source: data?.source || "models.dev",
-          lastUpdated: data?.lastUpdated || null,
-          modelCount: data?.modelCount || 0,
-        });
-      })
-      .catch((err) => {
-        console.error("Failed to fetch pricing metadata:", err);
-      });
   }, []);
-
-  const handleSyncPricing = async () => {
-    if (pricingSyncing) return;
-    setPricingSyncing(true);
-    setPricingSyncStatus(null);
-    try {
-      const res = await fetch("/api/pricing", { method: "POST" });
-      const result = await res.json();
-      if (result.success !== false) {
-        setPricingMeta({
-          source: "models.dev",
-          lastUpdated: result.lastUpdated || new Date().toISOString(),
-          modelCount: result.modelCount || pricingMeta.modelCount,
-        });
-        setPricingSyncStatus({ type: "success", message: "Pricing synchronized with models.dev" });
-      } else {
-        setPricingSyncStatus({ type: "error", message: result.error || "Sync failed" });
-      }
-    } catch (e) {
-      console.error("Failed to sync pricing:", e);
-      setPricingSyncStatus({ type: "error", message: "Network error during sync" });
-    } finally {
-      setPricingSyncing(false);
-      setTimeout(() => setPricingSyncStatus(null), 4000);
-    }
-  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -1447,70 +1401,6 @@ export default function ProfilePage({
             </div>
           </div>
           </Card>
-        ) : null}
-
-        {/* Pricing rates (aligned with models.dev for usage cost estimates) */}
-        {shows("pricing") ? (
-          <Card>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">payments</span>
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[14px] font-semibold text-text-main">Pricing</h3>
-                  <a
-                    href="https://models.dev"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:underline"
-                  >
-                    <span>models.dev</span>
-                    <span className="material-symbols-outlined text-[13px]">open_in_new</span>
-                  </a>
-                </div>
-                <p className="text-[12px] leading-[1.5] text-text-muted mt-0.5">
-                  Token rates aligned with models.dev for usage cost estimates.
-                  {pricingMeta.modelCount > 0 ? (
-                    <span className="ml-1 text-text-main font-medium">
-                      ({pricingMeta.modelCount} models tracked)
-                    </span>
-                  ) : null}
-                  {pricingMeta.lastUpdated ? (
-                    <span className="ml-1.5 opacity-80">
-                      • Updated {new Date(pricingMeta.lastUpdated).toLocaleDateString()}
-                    </span>
-                  ) : null}
-                </p>
-                {pricingSyncStatus ? (
-                  <p className={cn("text-[11px] mt-1 font-medium", pricingSyncStatus.type === "error" ? "text-red-500" : "text-emerald-500")}>
-                    {pricingSyncStatus.message}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSyncPricing}
-              disabled={pricingSyncing}
-              className="shrink-0"
-            >
-              {pricingSyncing ? (
-                <span className="flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>
-                  <span>Syncing...</span>
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[14px]">sync</span>
-                  <span>Sync Now</span>
-                </span>
-              )}
-            </Button>
-          </div>
-        </Card>
         ) : null}
 
         {/* App Info（嵌入壳层设置面板时隐藏，见 showAppInfo） */}

@@ -42,10 +42,11 @@ export default function GatewaySettingsSection() {
         description="Providers, routing, security and the rest of the gateway options, embedded from the dashboard"
       />
       <SectionBody>
-        {/* groups：安全/单点登录已拆到平级的「安全设置」分段，这里只渲染其余三组；
-            showAppInfo=false：页尾那两行（应用名+版本 / 本地或远程模式）由面板页脚承担 */}
+        {/* groups：安全/单点登录已拆到「安全设置」，定价与模型同步已独立为「外部集成」，
+            这里只渲染核心网关策略（路由、重试、脱敏）；
+            showAppInfo=false：页尾那两行由面板页脚承担 */}
         <GatewaySettingsPanel
-          groups={["routing", "retry", "redaction", "pricing"]}
+          groups={["routing", "retry", "redaction"]}
           showAppInfo={false}
         />
       </SectionBody>
