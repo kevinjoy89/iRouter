@@ -412,6 +412,164 @@ export function matchPattern(pattern, model) {
  *   3. MODEL_PRICING[model]
  *   4. PATTERN_PRICING (glob match)
  *
+/**
+ * models.dev 官方开放 API 地址
+ */
+export const MODELS_DEV_URL = "https://models.dev/api.json";
+
+/**
+ * 官方直营或首要维护的提供商标识集合，在通用模型名称发生冲突时享有优先覆盖权
+ */
+const PRIMARY_PROVIDERS = new Set([
+  "openai",
+  "anthropic",
+  "google",
+  "deepseek",
+  "zhipuai",
+  "minimax",
+  "moonshotai",
+  "mistral",
+  "meta",
+  "alibaba",
+  "qwen",
+]);
+
+/**
+ * 内存中持有的 models.dev 定价运行时缓存
+ */
+let runtimeModelsDevCache = null;
+
+/**
+ * 设置 models.dev 定价的运行时缓存对象
+ *
+ * @param {object} cache 提纯后的定价缓存数据
+ */
+export function setRuntimePricingCache(cache) {
+  runtimeModelsDevCache = cache;
+}
+
+/**
+ * 获取当前持有的 models.dev 定价运行时缓存对象
+ *
+ * @returns {object|null} 运行时缓存对象
+ */
+export function getRuntimePricingCache() {
+  return runtimeModelsDevCache;
+}
+
+/**
+ * 将 models.dev 的原始全量 JSON 数据解析并提纯为极轻量的定价缓存结构
+ * 仅保留计算费用所需的输入、输出与缓存费率，去除描述、日期等庞大冗余信息
+ *
+ * @param {object} rawData 从 models.dev 获取的原始 JSON 对象
+ * @returns {object} 提纯后的定价缓存，包含 byProvider、byModel、modelCount 和 lastUpdated
+ */
+export function parseModelsDevData(rawData) {
+  if (!rawData || typeof rawData !== "object") {
+    return {
+      byProvider: {},
+      byModel: {},
+      modelCount: 0,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+
+  const byProvider = {};
+  const byModel = {};
+  const uniqueModels = new Set();
+
+  for (const [providerRawKey, providerVal] of Object.entries(rawData)) {
+    if (!providerVal || typeof providerVal !== "object" || !providerVal.models) {
+      continue;
+    }
+
+    const providerKey = String(providerRawKey).toLowerCase();
+    if (!byProvider[providerKey]) {
+      byProvider[providerKey] = {};
+    }
+
+    const isPrimary = PRIMARY_PROVIDERS.has(providerKey);
+
+    for (const [modelRawKey, modelVal] of Object.entries(providerVal.models)) {
+      if (!modelVal || typeof modelVal !== "object") continue;
+
+      const cost = modelVal.cost;
+      if (!cost || typeof cost !== "object") continue;
+
+      const input = typeof cost.input === "number" ? cost.input : 0;
+      const output = typeof cost.output === "number" ? cost.output : 0;
+      const cached = typeof cost.cache_read === "number"
+        ? cost.cache_read
+        : (typeof cost.cached === "number" ? cost.cached : input);
+      const cacheCreation = typeof cost.cache_write === "number"
+        ? cost.cache_write
+        : (typeof cost.cache_creation === "number" ? cost.cache_creation : input);
+      const reasoning = typeof cost.reasoning === "number" ? cost.reasoning : output;
+
+      const pricingObj = {
+        input,
+        output,
+        cached,
+        reasoning,
+        cache_creation: cacheCreation,
+      };
+
+      const modelId = String(modelRawKey);
+      const modelIdLower = modelId.toLowerCase();
+      const baseModel = modelId.includes("/") ? modelId.split("/").pop() : modelId;
+      const baseModelLower = baseModel.toLowerCase();
+
+      // 记录到当前 provider
+      byProvider[providerKey][modelId] = pricingObj;
+      byProvider[providerKey][modelIdLower] = pricingObj;
+      byProvider[providerKey][baseModel] = pricingObj;
+      byProvider[providerKey][baseModelLower] = pricingObj;
+
+      uniqueModels.add(modelIdLower);
+
+      // 记录到全局规范模型映射
+      const canonicalId = modelVal.canonical_model_id ? String(modelVal.canonical_model_id) : null;
+      if (canonicalId) {
+        const canonicalLower = canonicalId.toLowerCase();
+        const canonicalBase = canonicalId.includes("/") ? canonicalId.split("/").pop() : canonicalId;
+        const canonicalBaseLower = canonicalBase.toLowerCase();
+
+        byModel[canonicalId] = pricingObj;
+        byModel[canonicalLower] = pricingObj;
+        if (!byModel[canonicalBase] || isPrimary) {
+          byModel[canonicalBase] = pricingObj;
+          byModel[canonicalBaseLower] = pricingObj;
+        }
+      }
+
+      // 按基础模型名称归一（若冲突，官方直营提供商享有优先覆盖权）
+      if (!byModel[modelId] || isPrimary) {
+        byModel[modelId] = pricingObj;
+        byModel[modelIdLower] = pricingObj;
+      }
+      if (!byModel[baseModel] || isPrimary) {
+        byModel[baseModel] = pricingObj;
+        byModel[baseModelLower] = pricingObj;
+      }
+    }
+  }
+
+  return {
+    byProvider,
+    byModel,
+    modelCount: uniqueModels.size,
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
+/**
+ * Resolve pricing for a model using the 5-step fallback chain:
+ *   1. free namespace (upstream bills $0)
+ *   2. PROVIDER_PRICING[provider][model] (models.dev cache first, then static)
+ *   3. MODEL_PRICING[model] (models.dev cache first, then static)
+ *   4. PATTERN_PRICING (glob match)
+ *   5. null
+ *
  * @param {string} provider
  * @param {string} model
  * @returns {object|null}
@@ -419,16 +577,30 @@ export function matchPattern(pattern, model) {
 export function getPricingForModel(provider, model) {
   if (!model) return null;
 
-  // 1. Provider-specific override
+  // 1. Free namespaces bill $0 regardless of the model name behind them.
+  if (isFreeModel(model)) return ZERO_PRICING;
+
+  const baseModel = model.includes("/") ? model.split("/").pop() : model;
+  const modelLower = String(model).toLowerCase();
+  const baseModelLower = String(baseModel).toLowerCase();
+  const providerLower = provider ? String(provider).toLowerCase() : null;
+
+  // 2. Provider-specific override (models.dev 运行时缓存优先，随后回退至静态 PROVIDER_PRICING)
+  if (providerLower && runtimeModelsDevCache?.byProvider?.[providerLower]) {
+    const provCache = runtimeModelsDevCache.byProvider[providerLower];
+    const match = provCache[model] || provCache[modelLower] || provCache[baseModel] || provCache[baseModelLower];
+    if (match) return match;
+  }
   if (provider && PROVIDER_PRICING[provider]?.[model]) {
     return PROVIDER_PRICING[provider][model];
   }
 
-  // 2. Free namespaces bill $0 regardless of the model name behind them.
-  if (isFreeModel(model)) return ZERO_PRICING;
-
-  // 3. Canonical model pricing (strip vendor prefix if needed: "deepseek/deepseek-chat" → "deepseek-chat")
-  const baseModel = model.includes("/") ? model.split("/").pop() : model;
+  // 3. Canonical model pricing (models.dev 运行时缓存优先，随后回退至静态 MODEL_PRICING)
+  if (runtimeModelsDevCache?.byModel) {
+    const modCache = runtimeModelsDevCache.byModel;
+    const match = modCache[baseModel] || modCache[baseModelLower] || modCache[model] || modCache[modelLower];
+    if (match) return match;
+  }
   if (MODEL_PRICING[baseModel]) return MODEL_PRICING[baseModel];
   if (MODEL_PRICING[model]) return MODEL_PRICING[model];
 

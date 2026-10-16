@@ -1,7 +1,6 @@
-// 定价编辑入口的落点变迁：曾经挂在「用量 → Est. Cost → 编辑定价」（+ 一个脱离面板
-// 布局、无入口的 /dashboard/settings/pricing 孤立页）。6e7b5e50 把入口统一收进设置：
-// 用量组件不再内嵌定价弹窗，孤立页删除，改由「设置面板 → 网关设置 → Pricing」卡片
-// 复用同一个 PricingModal。本文件守的是**新**契约——别再照旧结构写断言。
+// 定价入口的演进：曾经挂在「用量 → Est. Cost → 编辑定价」，后统一收进设置面板。
+// 现已调整为对齐 models.dev 权威实时定价源，彻底移除手工编辑弹窗 PricingModal。
+// 网关设置面板中的 Pricing 卡片负责展示 models.dev 对齐状态，并提供「立即同步」按钮。
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
@@ -9,16 +8,18 @@ import { describe, it, expect } from "vitest";
 const ROOT = path.resolve(__dirname, "../..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 
-describe("pricing editor entry point (settings panel → gateway → Pricing)", () => {
+describe("pricing entry point (settings panel → gateway → Pricing, aligned with models.dev)", () => {
   const profile = read("src/app/(dashboard)/dashboard/profile/page.js");
 
-  it("Pricing 卡片提供 Edit Pricing 按钮，点击打开 PricingModal", () => {
-    expect(profile).toMatch(
-      /import PricingModal from "@\/shared\/components\/PricingModal"/,
-    );
-    expect(profile).toMatch(/Edit Pricing/);
-    expect(profile).toMatch(/onClick=\{\(\) => setPricingOpen\(true\)\}/);
-    expect(profile).toMatch(/<PricingModal isOpen=\{pricingOpen\}/);
+  it("Pricing 卡片对齐 models.dev 并提供 Sync Now 按钮，不再引用 PricingModal", () => {
+    expect(profile).not.toMatch(/import PricingModal/);
+    expect(profile).not.toMatch(/<PricingModal/);
+    expect(profile).not.toMatch(/Edit Pricing/);
+    expect(profile).toMatch(/models\.dev/);
+    expect(profile).toMatch(/Sync Now/);
+    expect(
+      fs.existsSync(path.join(ROOT, "src/shared/components/PricingModal.js")),
+    ).toBe(false);
   });
 
   it("该卡片属于「网关设置」分段（面板里必须能到达）", () => {
@@ -28,7 +29,7 @@ describe("pricing editor entry point (settings panel → gateway → Pricing)", 
     expect(gateway).toMatch(/groups=\{\["routing", "retry", "redaction", "pricing"\]\}/);
   });
 
-  it("用量页不再重复提供定价入口（单一入口，避免两处编辑同一份费率）", () => {
+  it("用量页不再重复提供定价入口（单一入口，由 models.dev 统一标准维护）", () => {
     const usage = read("src/shared/components/UsageStats.js");
     expect(usage).not.toMatch(/PricingModal/);
     expect(usage).not.toMatch(/onEditPricing/);
@@ -44,9 +45,9 @@ describe("pricing editor entry point (settings panel → gateway → Pricing)", 
     ).toBe(false);
   });
 
-  it("Edit Pricing 仍有多语言条目", () => {
+  it("Sync Now 与 models.dev 定价对齐有多语言条目", () => {
     const zh = JSON.parse(read("public/i18n/literals/zh-CN.json"));
-    expect(zh["Edit Pricing"]).toBeTruthy();
-    expect(zh["Pricing Configuration"]).toBeTruthy();
+    expect(zh["Sync Now"]).toBeTruthy();
+    expect(zh["Token rates aligned with models.dev for usage cost estimates."]).toBeTruthy();
   });
 });

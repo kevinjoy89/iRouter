@@ -50,6 +50,7 @@ export {
 // Pricing
 export {
   getPricing, getPricingForModel, updatePricing, resetPricing, resetAllPricing,
+  getModelsDevPricingMeta, syncModelsDevPricing, checkAndAutoSyncPricing,
 } from "./repos/pricingRepo.js";
 
 // Disabled models
