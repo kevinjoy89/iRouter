@@ -37,6 +37,9 @@ fn main() {
                 "shell_get_settings",
                 "shell_set_settings",
                 "shell_context_menu",
+                // 测速引擎（speedtest 模块）
+                "speedtest_run",
+                "speedtest_abort",
             ]),
         ),
     );

@@ -20,6 +20,7 @@ mod gateway;
 mod guard;
 mod settings;
 mod shell;
+mod speedtest;
 mod updater;
 
 use tauri::ipc::CapabilityBuilder;
@@ -57,7 +58,10 @@ fn add_remote_panel_capability(app: &tauri::AppHandle, port: u16) -> tauri::Resu
             // shell 3 条
             .permission("allow-shell-get-settings")
             .permission("allow-shell-set-settings")
-            .permission("allow-shell-context-menu"),
+            .permission("allow-shell-context-menu")
+            // speedtest 2 条
+            .permission("allow-speedtest-run")
+            .permission("allow-speedtest-abort"),
     )
 }
 
@@ -110,6 +114,8 @@ fn main() {
             updater::commands::shell_cancel_download,
             updater::commands::shell_install_update,
             updater::commands::shell_ignore_version,
+            speedtest::commands::speedtest_run,
+            speedtest::commands::speedtest_abort,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

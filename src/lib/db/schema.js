@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const PRAGMA_SQL = `
 -- 必须排在 journal_mode 之前：库里已有内容或已切到 WAL 后，auto_vacuum 的设置会被忽略
@@ -159,6 +159,38 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_rd_provider ON requestDetails(provider)",
       "CREATE INDEX IF NOT EXISTS idx_rd_model ON requestDetails(model)",
       "CREATE INDEX IF NOT EXISTS idx_rd_conn ON requestDetails(connectionId)",
+    ],
+  },
+  speedtestResults: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      batchId: "TEXT NOT NULL",
+      model: "TEXT NOT NULL",
+      provider: "TEXT",
+      gatewayUrl: "TEXT NOT NULL",
+      protocol: "TEXT NOT NULL",
+      promptTemplate: "TEXT",
+      rounds: "INTEGER DEFAULT 1",
+      ttftMs: "REAL NOT NULL",
+      totalDurationMs: "REAL NOT NULL",
+      generationDurationMs: "REAL NOT NULL",
+      steadySpeed: "REAL NOT NULL",
+      avgSpeed: "REAL NOT NULL",
+      outputTokens: "INTEGER NOT NULL",
+      tokensEstimated: "INTEGER DEFAULT 0",
+      chunkP50Ms: "REAL NOT NULL",
+      chunkP95Ms: "REAL NOT NULL",
+      chunkP99Ms: "REAL NOT NULL",
+      jitterRatio: "REAL",
+      curvePointsJson: "TEXT",
+      rawMetricsJson: "TEXT",
+      keyFingerprint: "TEXT",
+      createdAt: "TEXT NOT NULL",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_sr_batch ON speedtestResults(batchId)",
+      "CREATE INDEX IF NOT EXISTS idx_sr_model ON speedtestResults(model)",
+      "CREATE INDEX IF NOT EXISTS idx_sr_created ON speedtestResults(createdAt DESC)",
     ],
   },
 };

@@ -53,6 +53,10 @@ const nextConfig = {
     optimizePackageImports: ["@xyflow/react", "@dnd-kit/core", "@dnd-kit/sortable", "material-symbols", "marked"],
   },
   webpack: (config, { isServer }) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "open-sse": join(projectRoot, "open-sse"),
+    };
     // Ignore fs/path modules in browser bundle
     if (!isServer) {
       config.resolve.fallback = {

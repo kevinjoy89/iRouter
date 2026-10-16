@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import PropTypes from "prop-types";
+import Link from "next/link";
 import { Card, Button, Modal } from "@/shared/components";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { getProviderAlias } from "@/shared/constants/providers";
@@ -40,6 +41,17 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
           </button>
           <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
             {copied === `model-${model.id}` ? "Copied!" : "Copy"}
+          </span>
+        </div>
+        <div className="relative group/btn">
+          <Link
+            href={`/dashboard/speedtest?model=${encodeURIComponent(model.id)}&provider=${encodeURIComponent(fullModel.split("/")[0] || "")}`}
+            className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-opacity opacity-0 group-hover:opacity-100 flex items-center"
+          >
+            <span className="material-symbols-outlined text-sm">speed</span>
+          </Link>
+          <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
+            Speedtest
           </span>
         </div>
         {isFree && <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">FREE</span>}

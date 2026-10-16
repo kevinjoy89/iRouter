@@ -105,6 +105,13 @@ const getPageInfo = (pathname) => {
       icon: "layers",
       breadcrumbs: [],
     };
+  if (pathname.includes("/speedtest"))
+    return {
+      title: "Speedtest",
+      description: "Native microsecond physical clock LLM benchmark",
+      icon: "speed",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/usage"))
     return {
       title: "Usage & Analytics",

@@ -181,3 +181,12 @@ export async function importDb(payload) {
 export async function initDb() {
   await getAdapter();
 }
+
+// Speedtest results
+export {
+  saveSpeedtestResult,
+  getSpeedtestHistory,
+  getSpeedtestStats,
+  exportSpeedtestHistoryJsonl,
+  clearSpeedtestHistory,
+} from "./repos/speedtestRepo.js";

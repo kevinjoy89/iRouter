@@ -8,7 +8,7 @@ import {
   isValidApiKey,
 } from "../services/auth.js";
 import { handleAntigravityQuotaError, clearAntigravityStrikes } from "../services/antigravityQuota.js";
-import { getSettings } from "@/lib/localDb";
+import { getSettings, getProviderConnectionById } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
@@ -328,7 +328,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
   }
 
-  const { provider, model } = modelInfo;
+  let { provider, model } = modelInfo;
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 
@@ -341,8 +341,23 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastStatus = null;
   let lastHeaders = null;
 
+  let preferredConnectionId = request?.headers?.get("x-connection-id") || null;
+  if (preferredConnectionId) {
+    try {
+      const preferredConn = await getProviderConnectionById(preferredConnectionId);
+      if (preferredConn?.provider) {
+        provider = preferredConn.provider;
+      }
+    } catch {
+      // 忽略连接查找异常并按既定流程重试
+    }
+  }
+
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, {
+      preferredConnectionId,
+      requestedModel: requestedModel || model,
+    });
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
