@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/shared/utils/cn";
+import { translate } from "@/i18n/runtime";
 import { formatResetTime } from "./utils";
 
 // Calculate color based on remaining percentage
@@ -48,8 +49,8 @@ const formatResetTimeDisplay = (resetTime) => {
       hour12: true,
     });
     
-    if (isToday) return `Today, ${timeStr}`;
-    if (isTomorrow) return `Tomorrow, ${timeStr}`;
+    if (isToday) return `${translate("Today")}, ${timeStr}`;
+    if (isTomorrow) return `${translate("Tomorrow")}, ${timeStr}`;
     
     return resetDate.toLocaleString(undefined, {
       month: "short",
@@ -78,7 +79,7 @@ export default function QuotaProgressBar({
 
   // recurring defaults true. One-shot packs (e.g. CodeBuddy CN bonus packs)
   // set recurring:false: resetTime is a hard expiry, so word it as "expires".
-  const resetWord = recurring ? "Reset" : "Expires";
+  const resetWord = recurring ? translate("Reset") : translate("Expires");
 
   // percentage is already remaining percentage (from ProviderLimitCard)
   const remaining = percentage;
@@ -88,7 +89,7 @@ export default function QuotaProgressBar({
       {/* Label and percentage */}
       <div className="flex items-center justify-between text-sm">
         <span className="font-semibold text-text-main">
-          {label}
+          {translate(label)}
         </span>
         <div className="flex items-center gap-1.5">
           <span className="text-xs">{colors.emoji}</span>
@@ -111,7 +112,7 @@ export default function QuotaProgressBar({
       {/* Usage details and countdown */}
       <div className="flex items-center justify-between text-xs text-text-muted">
         <span>
-          {used.toLocaleString()} / {total.toLocaleString()} requests
+          {used.toLocaleString()} / {total.toLocaleString()} {translate("requests")}
         </span>
         {countdown !== "-" && (
           <div className="flex items-center gap-1">

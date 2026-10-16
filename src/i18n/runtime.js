@@ -564,6 +564,54 @@ export function translateDynamicPatterns(text, locale) {
       : `免费层：通过 AI Studio 使用 ${freeTierTokensMatch[3]} 每分钟 ${freeTierTokensMatch[1]} 次请求，每天 ${freeTierTokensMatch[2]} Token。`;
   }
 
+  // 34. 配额周期名称（Rolling / Weekly / Monthly / Daily / Session）
+  const quotaPeriodMap = {
+    rolling: isTw ? "滾動配額" : "滚动配额",
+    weekly: isTw ? "週度配額" : "周度配额",
+    monthly: isTw ? "月度配額" : "月度配额",
+    daily: isTw ? "每日配額" : "每日配额",
+    session: isTw ? "工作階段配額" : "会话配额",
+  };
+  const lowerText = text.toLowerCase();
+  if (quotaPeriodMap[lowerText]) {
+    return quotaPeriodMap[lowerText];
+  }
+
+  // 35. 扩展组件动态文案（Uninstall/Install/Remove）
+  const uninstallExtraMatch = text.match(/^Uninstall\s+\[(.+?)\]$/i);
+  if (uninstallExtraMatch) {
+    return isTw ? `解除安裝 [${uninstallExtraMatch[1]}]` : `卸载 [${uninstallExtraMatch[1]}]`;
+  }
+  const removeExtraMatch = text.match(/^Remove\s+\[(.+?)\]$/i);
+  if (removeExtraMatch) {
+    return isTw ? `移除 [${removeExtraMatch[1]}]` : `移除 [${removeExtraMatch[1]}]`;
+  }
+  const removeExtraPkgMatch = text.match(/^Remove\s+\[(.+?)\]\s+and\s+its\s+packages\?$/i);
+  if (removeExtraPkgMatch) {
+    return isTw ? `移除 [${removeExtraPkgMatch[1]}] 及其相關相依套件？` : `移除 [${removeExtraPkgMatch[1]}] 及其相关依赖包？`;
+  }
+  const installExtraMatch = text.match(/^Install\s+\[(.+?)\]$/i);
+  if (installExtraMatch) {
+    return isTw ? `安裝 [${installExtraMatch[1]}]` : `安装 [${installExtraMatch[1]}]`;
+  }
+
+  // 36. 压缩说明文本切片与整句兜底匹配
+  if (text.includes("enables AST compression (Python/JS/TS/Go/Rust/Java/C/C++/Perl)")) {
+    return isTw
+      ? "可啟用 AST 程式碼壓縮 (Python/JS/TS/Go/Rust/Java/C/C++/Perl)。新增 "
+      : "可启用 AST 代码压缩 (Python/JS/TS/Go/Rust/Java/C/C++/Perl)。添加 ";
+  }
+  if (text.includes("enables the Kompress-v2 HF model for prose/agentic traces")) {
+    return isTw
+      ? "可啟用針對散文/代理軌跡的 Kompress-v2 HF 模型（需額外下載約 1 GB 相依套件：torch + huggingface-hub）。"
+      : "可启用针对散文/智能体轨迹的 Kompress-v2 HF 模型（需额外下载约 1 GB 依赖：torch + huggingface-hub）。";
+  }
+  if (text.includes("Installing adds the package; use on/off to activate it")) {
+    return isTw
+      ? "安裝僅下載相依套件；使用 on/off 啟用它（將重啟代理）。預設安裝僅包含 [proxy]（僅針對 JSON 的 SmartCrusher）。新增 [code] 可啟用 AST 程式碼壓縮 (Python/JS/TS/Go/Rust/Java/C/C++/Perl)。新增 [ml] 可啟用針對散文/代理軌跡的 Kompress-v2 HF 模型（需額外下載約 1 GB 相依套件：torch + huggingface-hub）。"
+      : "安装仅下载依赖包；使用 on/off 激活它（将重启代理）。默认安装仅包含 [proxy]（仅针对 JSON 的 SmartCrusher）。添加 [code] 可启用 AST 代码压缩 (Python/JS/TS/Go/Rust/Java/C/C++/Perl)。添加 [ml] 可启用针对散文/智能体执行轨迹的 Kompress-v2 HF 模型（需额外下载约 1 GB 依赖：torch + huggingface-hub）。";
+  }
+
   return text;
 }
 

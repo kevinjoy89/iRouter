@@ -376,5 +376,36 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
         "zh-CN",
       ),
     ).toBe("免费层：通过 AI Studio 使用 gemini-2.5-flash 每分钟 15 次请求，每天 1M Token。");
+    // 34. 配额周期名称
+    expect(translateDynamicPatterns("Rolling", "zh-CN")).toBe("滚动配额");
+    expect(translateDynamicPatterns("Rolling", "zh-TW")).toBe("滾動配額");
+    expect(translateDynamicPatterns("Weekly", "zh-CN")).toBe("周度配额");
+    expect(translateDynamicPatterns("Weekly", "zh-TW")).toBe("週度配額");
+    expect(translateDynamicPatterns("Monthly", "zh-CN")).toBe("月度配额");
+    expect(translateDynamicPatterns("Daily", "zh-CN")).toBe("每日配额");
+    expect(translateDynamicPatterns("Session", "zh-TW")).toBe("工作階段配額");
+
+    // 35. 扩展组件操作
+    expect(translateDynamicPatterns("Uninstall [code]", "zh-CN")).toBe("卸载 [code]");
+    expect(translateDynamicPatterns("Uninstall [code]", "zh-TW")).toBe("解除安裝 [code]");
+    expect(translateDynamicPatterns("Remove [ml]", "zh-CN")).toBe("移除 [ml]");
+    expect(translateDynamicPatterns("Remove [ml] and its packages?", "zh-CN")).toBe("移除 [ml] 及其相关依赖包？");
+    expect(translateDynamicPatterns("Remove [ml] and its packages?", "zh-TW")).toBe("移除 [ml] 及其相關相依套件？");
+    expect(translateDynamicPatterns("Install [proxy,code]", "zh-CN")).toBe("安装 [proxy,code]");
+    expect(translateDynamicPatterns("Install [proxy,code]", "zh-TW")).toBe("安裝 [proxy,code]");
+
+    // 36. 压缩说明文本切片与整句
+    expect(
+      translateDynamicPatterns(
+        "enables AST compression (Python/JS/TS/Go/Rust/Java/C/C++/Perl). Adding",
+        "zh-CN",
+      ),
+    ).toBe("可启用 AST 代码压缩 (Python/JS/TS/Go/Rust/Java/C/C++/Perl)。添加 ");
+    expect(
+      translateDynamicPatterns(
+        "enables the Kompress-v2 HF model for prose/agentic traces but adds ~1 GB (torch + huggingface-hub).",
+        "zh-CN",
+      ),
+    ).toBe("可启用针对散文/智能体轨迹的 Kompress-v2 HF 模型（需额外下载约 1 GB 依赖：torch + huggingface-hub）。");
   });
 });

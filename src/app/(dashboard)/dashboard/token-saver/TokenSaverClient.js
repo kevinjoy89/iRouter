@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, Button, Input, Modal, Toggle, ConfirmModal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
-import { getCurrentLocale, onLocaleChange } from "@/i18n/runtime";
+import { translate, getCurrentLocale, onLocaleChange } from "@/i18n/runtime";
 import {
   WENYAN_LOCALES,
   CAVEMAN_LEVELS,
@@ -296,9 +296,9 @@ export default function TokenSaverClient() {
     // Warn about the heavy ~1GB torch download before installing [ml].
     if (pendingExtras.includes("ml")) {
       setExtrasConfirm({
-        title: "Install [ml]",
-        message: "[ml] downloads ~1 GB (torch + huggingface-hub). Continue?",
-        confirmText: "Install",
+        title: translate("Install [ml]"),
+        message: translate("[ml] downloads ~1 GB (torch + huggingface-hub). Continue?"),
+        confirmText: translate("Install"),
         variant: "primary",
         onConfirm: installExtrasConfirmed,
       });
@@ -309,9 +309,9 @@ export default function TokenSaverClient() {
 
   const handleRemoveExtra = useCallback((extra) => {
     setExtrasConfirm({
-      title: `Remove [${extra}]`,
-      message: `Remove [${extra}] and its packages?`,
-      confirmText: "Remove",
+      title: translate(`Remove [${extra}]`),
+      message: translate(`Remove [${extra}] and its packages?`),
+      confirmText: translate("Remove"),
       variant: "danger",
       onConfirm: () => removeExtraConfirmed(extra),
     });
@@ -443,14 +443,14 @@ export default function TokenSaverClient() {
 
   const headroomRunning = !!headroomStatus.running;
   const headroomStatusLabel = headroomStatus.loading
-    ? "Checking…"
+    ? translate("Checking…")
     : headroomRunning
-      ? "Running"
+      ? translate("Running")
       : headroomStatus.localUrl !== false && !headroomStatus.installed
-        ? "Not installed"
+        ? translate("Not installed")
         : headroomStatus.localUrl !== false
-          ? "Stopped"
-          : "External";
+          ? translate("Stopped")
+          : translate("External");
   const headroomLocalUrl = headroomStatus.localUrl !== false;
   const headroomCanStart = !!headroomStatus.canStart;
   const headroomManaged =
@@ -458,16 +458,16 @@ export default function TokenSaverClient() {
 
   const pxpipeHealthy = pxpipeHealth?.healthy === true;
   const pxpipeStatusLabel = pxpipeStatus.loading
-    ? "Checking…"
+    ? translate("Checking…")
     : pxpipeStatus.installing
-      ? "Installing…"
+      ? translate("Installing…")
       : !pxpipeStatus.installed
-        ? "Not installed"
+        ? translate("Not installed")
         : pxpipeHealthy
-          ? "Healthy"
+          ? translate("Healthy")
           : pxpipeStatus.running
-            ? "Running"
-            : "Stopped";
+            ? translate("Running")
+            : translate("Stopped");
   const pxpipeChipClass =
     pxpipeHealthy || pxpipeStatus.running
       ? "bg-success/15 text-success"
@@ -530,11 +530,11 @@ export default function TokenSaverClient() {
                 onClick={() => setShowHeadroomInstallModal(true)}
                 className="text-xs text-primary underline hover:opacity-80"
               >
-                {headroomRunning ? "Manage" : "Setup"}
+                {translate(headroomRunning ? "Manage" : "Setup")}
               </button>
             </div>
             <p className="text-sm text-text-muted mt-1">
-              Compress prompts via /v1/compress before routing to the model
+              {translate("Compress prompts via /v1/compress before routing to the model")}
             </p>
           </div>
           <Toggle
@@ -546,7 +546,7 @@ export default function TokenSaverClient() {
           <div className="mb-3 ml-1 pl-3 pb-4 border-l-2 border-border">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-text-muted">
-                Compression extras
+                {translate("Compression extras")}
                 {headroomExtras.version ? ` · v${headroomExtras.version}` : ""}:
               </span>
               {headroomExtras.available.map((extra) => {
@@ -554,8 +554,8 @@ export default function TokenSaverClient() {
                 const pending = pendingExtras.includes(extra);
                 const extraTitle =
                   extra === "code"
-                    ? "tree-sitter AST compression for code responses"
-                    : "Kompress-v2 HF model for prose/agentic traces (~+1GB)";
+                    ? translate("tree-sitter AST compression for code responses")
+                    : translate("Kompress-v2 HF model for prose/agentic traces (~+1GB)");
 
                 if (installed) {
                   const active = extra === "code" ? codeAware : kompress;
@@ -577,9 +577,9 @@ export default function TokenSaverClient() {
                         onClick={() => handleRemoveExtra(extra)}
                         disabled={removingExtra === extra}
                         className="ml-1 text-danger underline hover:opacity-80 disabled:opacity-50"
-                        title={`Uninstall [${extra}]`}
+                        title={translate(`Uninstall [${extra}]`)}
                       >
-                        {removingExtra === extra ? "Uninstalling…" : "Uninstall"}
+                        {removingExtra === extra ? translate("Uninstalling…") : translate("Uninstall")}
                       </button>
                     </div>
                   );
@@ -602,7 +602,7 @@ export default function TokenSaverClient() {
                       onChange={() => togglePendingExtra(extra)}
                     />
                     <span className="font-medium">[{extra}]</span>
-                    <span className="opacity-70">not installed</span>
+                    <span className="opacity-70">{translate("not installed")}</span>
                   </label>
                 );
               })}
@@ -613,16 +613,16 @@ export default function TokenSaverClient() {
                   className="text-xs px-2.5 py-1 rounded bg-primary text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {extrasActionLoading
-                    ? "Installing…"
-                    : `Install [proxy,${pendingExtras.join(",")}]`}
+                    ? translate("Installing…")
+                    : translate(`Install [proxy,${pendingExtras.join(",")}]`)}
                 </button>
               )}
             </div>
             {extrasActionError && (
-              <p className="text-xs text-danger mt-1">{extrasActionError}</p>
+              <p className="text-xs text-danger mt-1">{translate(extrasActionError)}</p>
             )}
             {restartingProxy && (
-              <p className="text-xs text-text-muted mt-1">Restarting proxy…</p>
+              <p className="text-xs text-text-muted mt-1">{translate("Restarting proxy…")}</p>
             )}
             {(extrasActionLoading || removingExtra) && installLog && (
               <pre className="mt-2 max-h-32 overflow-auto rounded bg-surface-2 p-2 text-[10px] leading-tight text-text-muted whitespace-pre-wrap">
@@ -630,20 +630,16 @@ export default function TokenSaverClient() {
               </pre>
             )}
             <p className="text-xs text-text-muted mt-1">
-              Installing adds the package; use <code>on</code>/<code>off</code>{" "}
-              to activate it (restarts the proxy). Default install is{" "}
-              <code>[proxy]</code> only (SmartCrusher for JSON). Adding{" "}
-              <code>[code]</code> enables AST compression
-              (Python/JS/TS/Go/Rust/Java/C/C++/Perl). Adding <code>[ml]</code>{" "}
-              enables the Kompress-v2 HF model for prose/agentic traces but
-              adds ~1 GB (torch + huggingface-hub).
+              {translate(
+                "Installing adds the package; use on/off to activate it (restarts the proxy). Default install is [proxy] only (SmartCrusher for JSON). Adding [code] enables AST compression (Python/JS/TS/Go/Rust/Java/C/C++/Perl). Adding [ml] enables the Kompress-v2 HF model for prose/agentic traces but adds ~1 GB (torch + huggingface-hub)."
+              )}
             </p>
           </div>
         )}
         <div className="flex items-center justify-between pt-4 border-t border-border gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
             <p className="font-medium">
-              Compress LLM output{" "}
+              {translate("Compress LLM output")}{" "}
               <a
                 href="https://github.com/JuliusBrussee/caveman"
                 target="_blank"
@@ -654,7 +650,7 @@ export default function TokenSaverClient() {
               </a>
             </p>
             <p className="text-sm text-text-muted">
-              Terse-style system prompt → ~65% fewer output tokens (up to 87%)
+              {translate("Terse-style system prompt → ~65% fewer output tokens (up to 87%)")}
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -670,17 +666,17 @@ export default function TokenSaverClient() {
                           ? "bg-primary text-white border-primary"
                           : "bg-transparent border-border text-text-muted hover:bg-surface-2"
                       }`}
-                      title={lvl.desc}
+                      title={translate(lvl.desc)}
                     >
-                      {lvl.label}
+                      {translate(lvl.label)}
                     </button>
                   ))}
                 </div>
                 <p className="text-xs text-primary">
-                  {
+                  {translate(
                     CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel)
                       ?.desc
-                  }
+                  )}
                 </p>
               </div>
             )}
@@ -693,7 +689,7 @@ export default function TokenSaverClient() {
         <div className="flex items-center justify-between pt-4 mt-4 border-t border-border gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
             <p className="font-medium">
-              Lazy senior dev{" "}
+              {translate("Lazy senior dev")}{" "}
               <a
                 href="https://github.com/DietrichGebert/ponytail"
                 target="_blank"
@@ -704,8 +700,7 @@ export default function TokenSaverClient() {
               </a>
             </p>
             <p className="text-sm text-text-muted">
-              Bias the model toward minimal code: YAGNI, reuse stdlib,
-              deletion over addition
+              {translate("Bias the model toward minimal code: YAGNI, reuse stdlib, deletion over addition")}
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -721,17 +716,17 @@ export default function TokenSaverClient() {
                           ? "bg-primary text-white border-primary"
                           : "bg-transparent border-border text-text-muted hover:bg-surface-2"
                       }`}
-                      title={lvl.desc}
+                      title={translate(lvl.desc)}
                     >
-                      {lvl.label}
+                      {translate(lvl.label)}
                     </button>
                   ))}
                 </div>
                 <p className="text-xs text-primary">
-                  {
+                  {translate(
                     PONYTAIL_LEVELS.find((lvl) => lvl.id === ponytailLevel)
                       ?.desc
-                  }
+                  )}
                 </p>
               </div>
             )}
@@ -791,12 +786,12 @@ export default function TokenSaverClient() {
 
       <Modal
         isOpen={showHeadroomInstallModal}
-        title={headroomRunning ? "Headroom" : "Setup Headroom"}
+        title={translate(headroomRunning ? "Headroom" : "Setup Headroom")}
         onClose={() => setShowHeadroomInstallModal(false)}
       >
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between text-sm">
-            <span>Status</span>
+            <span>{translate("Status")}</span>
             <span
               className={headroomRunning ? "text-success" : "text-warning"}
             >
@@ -810,11 +805,11 @@ export default function TokenSaverClient() {
               rel="noreferrer"
               className="w-full rounded border border-border px-4 py-2 text-center text-sm hover:bg-surface-2"
             >
-              Open Headroom Dashboard
+              {translate("Open Headroom Dashboard")}
             </a>
           )}
           <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium">Proxy URL</p>
+            <p className="text-sm font-medium">{translate("Proxy URL")}</p>
             <Input
               value={headroomUrl}
               onChange={(e) => setHeadroomUrl(e.target.value)}
@@ -823,12 +818,11 @@ export default function TokenSaverClient() {
               className="font-mono text-sm"
             />
             <p className="text-xs text-text-muted">
-              Use a local proxy for Start/Stop, or an external Docker sidecar
-              like http://headroom:8787.
+              {translate("Use a local proxy for Start/Stop, or an external Docker sidecar like http://headroom:8787.")}
             </p>
           </div>
           <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium">Timeout (ms)</p>
+            <p className="text-sm font-medium">{translate("Timeout (ms)")}</p>
             <Input
               value={String(headroomTimeoutMs)}
               onChange={(e) => setHeadroomTimeoutMs(e.target.value)}
@@ -837,7 +831,7 @@ export default function TokenSaverClient() {
               className="font-mono text-sm"
             />
             <p className="text-xs text-text-muted">
-              Request timeout in milliseconds. Defaults to 3000 ms.
+              {translate("Request timeout in milliseconds. Defaults to 3000 ms.")}
             </p>
           </div>
           {headroomManaged ? (
@@ -847,11 +841,11 @@ export default function TokenSaverClient() {
               fullWidth
               disabled={headroomActionLoading}
             >
-              {headroomActionLoading ? "Stopping…" : "Stop Headroom"}
+              {headroomActionLoading ? translate("Stopping…") : translate("Stop Headroom")}
             </Button>
           ) : headroomRunning ? (
             <p className="text-sm text-success">
-              Headroom proxy is reachable. You can enable the token saver.
+              {translate("Headroom proxy is reachable. You can enable the token saver.")}
             </p>
           ) : headroomCanStart ? (
             <Button
@@ -859,20 +853,19 @@ export default function TokenSaverClient() {
               fullWidth
               disabled={headroomActionLoading}
             >
-              {headroomActionLoading ? "Starting…" : "Start Headroom"}
+              {headroomActionLoading ? translate("Starting…") : translate("Start Headroom")}
             </Button>
           ) : !headroomLocalUrl ? (
             <p className="text-sm text-warning">
-              Start Headroom separately at the configured URL, then recheck.
+              {translate("Start Headroom separately at the configured URL, then recheck.")}
             </p>
           ) : !headroomStatus.python ? (
             <p className="text-sm text-warning">
-              Python ≥ 3.10 required for local managed mode. Install Python
-              first, or use an external proxy URL.
+              {translate("Python ≥ 3.10 required for local managed mode. Install Python first, or use an external proxy URL.")}
             </p>
           ) : (
             <div className="flex flex-col gap-1">
-              <p className="text-sm font-medium">Install then click Start:</p>
+              <p className="text-sm font-medium">{translate("Install then click Start:")}</p>
               <div className="flex items-center gap-2">
                 <pre className="flex-1 rounded bg-black/5 dark:bg-white/5 p-2 text-xs font-mono overflow-x-auto">
                   {`pip install "headroom-ai[proxy]"`}
@@ -884,13 +877,13 @@ export default function TokenSaverClient() {
                     copy(`pip install "headroom-ai[proxy]"`)
                   }
                 >
-                  {copied ? "Copied" : "Copy"}
+                  {copied ? translate("Copied") : translate("Copy")}
                 </Button>
               </div>
             </div>
           )}
           {headroomActionError && (
-            <p className="text-sm text-warning">{headroomActionError}</p>
+            <p className="text-sm text-warning">{translate(headroomActionError)}</p>
           )}
           <div className="flex gap-2">
             <Button
@@ -898,13 +891,13 @@ export default function TokenSaverClient() {
               variant="ghost"
               fullWidth
             >
-              Recheck
+              {translate("Recheck")}
             </Button>
             <Button
               onClick={() => setShowHeadroomInstallModal(false)}
               fullWidth
             >
-              Done
+              {translate("Done")}
             </Button>
           </div>
         </div>

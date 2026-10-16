@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { translate } from "@/i18n/runtime";
 import { formatResetTime, getRemainingPercentage } from "./utils";
 
 const PAGE_SIZE = 10;
@@ -20,9 +21,9 @@ function formatResetTimeDisplay(resetTime) {
 
     let dayStr = "";
     if (date >= today && date < tomorrow) {
-      dayStr = "Today";
+      dayStr = translate("Today");
     } else if (date >= tomorrow && date < new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000)) {
-      dayStr = "Tomorrow";
+      dayStr = translate("Tomorrow");
     } else {
       dayStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
@@ -143,7 +144,7 @@ export default function QuotaTable({
         </div>
         {showSortLabel && (
           <div className="rounded-md border border-black/10 bg-black/[0.02] px-2 py-1 text-[10px] text-text-muted dark:border-white/10 dark:bg-white/[0.03]">
-            {sortLabel}
+            {translate(sortLabel)}
           </div>
         )}
       </div>
@@ -164,9 +165,9 @@ export default function QuotaTable({
           // (Qoder add-on grants) get a pointer to it instead of a bare "N/A".
           const seeDetails = !quota.neverExpires && !quota.resetAt && Boolean(quota.detailUrl);
           const resetDisplay = quota.neverExpires
-            ? "Never expires"
+            ? translate("Never expires")
             : seeDetails
-              ? "See details"
+              ? translate("See details")
               : formatResetTimeDisplay(quota.resetAt);
           const resetSecondaryText = seeDetails && quota.detailUrl ? quota.detailUrl : resetDisplay;
           // recurring defaults true: a missing flag means the quota
@@ -203,7 +204,7 @@ export default function QuotaTable({
               <div className="flex w-36 min-w-0 items-center gap-1.5">
                 <span className="text-[10px] shrink-0">{colors.emoji}</span>
                 <span className={`${nameText} font-medium text-text-main truncate`}>
-                  {quota.name}
+                  {translate(quota.name)}
                 </span>
               </div>
 
@@ -280,8 +281,8 @@ export default function QuotaTable({
                   type="button"
                   onClick={() => onHideQuota(quota)}
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-black/5 hover:text-text-main dark:hover:bg-white/5"
-                  title="Hide this quota row"
-                  aria-label={`Hide quota ${quota.name}`}
+                  title={translate("Hide this quota row")}
+                  aria-label={translate("Hide this quota row")}
                 >
                   <span className="material-symbols-outlined text-[15px]">
                     visibility_off
@@ -310,7 +311,7 @@ export default function QuotaTable({
               disabled={page === 1}
               className="flex h-6 items-center rounded-md border border-black/10 px-2 text-[10px] text-text-main transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
             >
-              Prev
+              {translate("Prev")}
             </button>
             <button
               type="button"
@@ -318,7 +319,7 @@ export default function QuotaTable({
               disabled={page === totalPages}
               className="flex h-6 items-center rounded-md border border-black/10 px-2 text-[10px] text-text-main transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
             >
-              Next
+              {translate("Next")}
             </button>
           </div>
         </div>
