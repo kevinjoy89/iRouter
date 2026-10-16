@@ -221,24 +221,30 @@ export default function UsageStats({
   const [tableView, setTableView] = useState("model");
   const [viewMode, setViewMode] = useState("costs");
   const [providers, setProviders] = useState([]);
+  const [providerNodes, setProviderNodes] = useState([]);
   const [periodLocal, setPeriodLocal] = useState("today");
   const isInitialLoad = useRef(true);
   const hasLoadedStats = useRef(false);
   const period = periodProp ?? periodLocal;
   const setPeriod = setPeriodProp ?? setPeriodLocal;
 
-  // Fetch connected providers once, deduplicate by provider type
-  // Always include noAuth free providers (e.g. opencode) regardless of connections
+  // 仅拉取已连接的提供商与免鉴权提供商供拓扑图与图表使用
+  // 保持 providers 列表纯净，避免自定义节点混入导致拓扑图几何坐标计算冲突塌陷
   useEffect(() => {
     Promise.all([
       fetch("/api/providers").then((r) => r.ok ? r.json() : null),
       fetch("/api/provider-nodes").then((r) => r.ok ? r.json() : null),
     ])
       .then(([d, nodesData]) => {
-        // Build node name lookup for custom providers
+        const rawNodes = nodesData?.nodes || [];
+        setProviderNodes(rawNodes);
+
+        // 收集自定义节点名称映射
         const nodeNameMap = {};
-        for (const node of (nodesData?.nodes || [])) {
-          nodeNameMap[node.id] = node.name;
+        for (const node of rawNodes) {
+          if (node.id && node.name) {
+            nodeNameMap[node.id] = node.name;
+          }
         }
         const seen = new Set();
         const unique = (d?.connections || []).filter((c) => {
@@ -515,7 +521,11 @@ export default function UsageStats({
       {/* Provider and model breakdown charts */}
       {!loading && (stats.byProvider || stats.byModel) && (
         <div className="grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-2">
-          <ProviderBarChart byProvider={stats.byProvider} />
+          <ProviderBarChart
+            byProvider={stats.byProvider}
+            providers={providers}
+            providerNodes={providerNodes}
+          />
           <TopModelsChart byModel={stats.byModel} />
         </div>
       )}

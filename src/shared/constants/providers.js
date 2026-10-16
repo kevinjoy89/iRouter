@@ -173,3 +173,54 @@ export const USAGE_SUPPORTED_PROVIDERS = REGISTRY
 export const USAGE_APIKEY_PROVIDERS = REGISTRY
   .filter(r => r.features?.usageApikey)
   .map(r => r.id);
+
+/**
+ * 根据提供商 ID 或别名解析友好显示名称
+ *
+ * @param {string} providerId 提供商标识
+ * @param {Array<Object>} [connectedProviders=[]] 当前已连接的提供商列表
+ * @param {Array<Object>} [providerNodes=[]] 当前已配置的自定义节点列表
+ * @return {string} 友好显示名称
+ */
+export function getProviderDisplayName(providerId, connectedProviders = [], providerNodes = []) {
+  if (!providerId || typeof providerId !== "string") return providerId || "";
+
+  // 1. 优先从自定义节点配置列表中精准匹配
+  if (Array.isArray(providerNodes) && providerNodes.length > 0) {
+    const matchedNode = providerNodes.find(
+      (n) => n.id === providerId || n.nodeId === providerId || n.provider === providerId
+    );
+    if (matchedNode?.name) return matchedNode.name;
+    if (matchedNode?.nodeName) return matchedNode.nodeName;
+  }
+
+  // 2. 从连接列表中查找自定义名称或节点名称
+  if (Array.isArray(connectedProviders) && connectedProviders.length > 0) {
+    const matched = connectedProviders.find(
+      (p) => p.provider === providerId || p.id === providerId || p.nodeId === providerId
+    );
+    if (matched) {
+      if (matched.nodeName) return matched.nodeName;
+      if (matched.name) return matched.name;
+    }
+  }
+
+  // 3. 从内置 AI_PROVIDERS 常量查找
+  const std = AI_PROVIDERS[providerId] || getProviderByAlias(providerId);
+  if (std?.name) return std.name;
+
+  // 4. 针对兼容提供商 ID 规范化显示
+  if (providerId.startsWith(OPENAI_COMPATIBLE_PREFIX) || providerId === "openai-compatible") {
+    return "OpenAI Compatible";
+  }
+  if (providerId.startsWith(ANTHROPIC_COMPATIBLE_PREFIX) || providerId === "anthropic-compatible") {
+    return "Anthropic Compatible";
+  }
+  if (providerId.startsWith(CUSTOM_EMBEDDING_PREFIX) || providerId === "custom-embedding") {
+    return "Custom Embedding";
+  }
+
+  // 5. 去除破折号格式化友好回退
+  const clean = providerId.replace(/-/g, " ");
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
