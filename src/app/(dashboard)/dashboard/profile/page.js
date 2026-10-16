@@ -585,13 +585,13 @@ export default function ProfilePage({
             <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
               <span className="material-symbols-outlined text-[20px]">shield</span>
             </div>
-            <h3 className="text-base sm:text-lg font-semibold">Security</h3>
+            <h3 className="text-[14px] font-semibold text-text-main">Security</h3>
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex items-start sm:items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Require login</p>
-                <p className="text-xs sm:text-sm text-text-muted">
+                <p className="text-[13px] leading-5 font-medium text-text-main">Require login</p>
+                <p className="text-[12px] leading-[1.5] text-text-muted">
                   When ON, dashboard requires password. When OFF, access without login.
                 </p>
               </div>
@@ -605,7 +605,7 @@ export default function ProfilePage({
               <form onSubmit={handlePasswordChange} className="flex flex-col gap-4 pt-4 border-t border-border/50">
                 {settings.hasPassword && (
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs sm:text-sm font-medium">Current Password</label>
+                    <label className="text-[13px] leading-5 font-medium text-text-main">Current Password</label>
                     <Input
                       type="password"
                       placeholder="Enter current password"
@@ -624,7 +624,7 @@ export default function ProfilePage({
                 )} */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs sm:text-sm font-medium">New Password</label>
+                    <label className="text-[13px] leading-5 font-medium text-text-main">New Password</label>
                     <Input
                       type="password"
                       placeholder="Enter new password"
@@ -634,7 +634,7 @@ export default function ProfilePage({
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs sm:text-sm font-medium">Confirm New Password</label>
+                    <label className="text-[13px] leading-5 font-medium text-text-main">Confirm New Password</label>
                     <Input
                       type="password"
                       placeholder="Confirm new password"
@@ -646,13 +646,13 @@ export default function ProfilePage({
                 </div>
 
                 {passStatus.message && (
-                  <p className={`text-xs sm:text-sm ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                  <p className={`text-[12px] ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                     {passStatus.message}
                   </p>
                 )}
 
                 <div className="pt-2">
-                  <Button type="submit" variant="primary" loading={passLoading} className="w-full sm:w-auto">
+                  <Button type="submit" variant="primary" size="sm" loading={passLoading} className="w-full sm:w-auto">
                     {settings.hasPassword ? "Update Password" : "Set Password"}
                   </Button>
                 </div>
@@ -672,11 +672,11 @@ export default function ProfilePage({
               <span className="material-symbols-outlined text-[20px]">lock_open</span>
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-base sm:text-lg font-semibold">Single Sign-On (SSO)</h3>
+              <h3 className="text-[14px] font-semibold text-text-main">Single Sign-On (SSO)</h3>
               {/* Full sentences, not interpolated fragments: the dictionaries key
                   on whole strings, and a bare "active" key would collide with the
                   existing Active/Inactive status badge wording. */}
-              <p className="text-xs text-text-muted">
+              <p className="text-[12px] text-text-muted">
                 {settings.authMode === "sso" || settings.authMode === "oidc" || settings.authMode === "saml"
                   ? settings.ssoType === "saml"
                     ? "SAML 2.0 SSO active"
@@ -694,19 +694,19 @@ export default function ProfilePage({
           </button>
           {oidcExpanded && (
             <div className="flex flex-col gap-4 mt-4">
-              <p className="text-xs sm:text-sm text-text-muted">
+              <p className="text-[12px] leading-[1.5] text-text-muted">
                 Configure enterprise Single Sign-On (SSO) for dashboard access using SAML 2.0 or OIDC.
               </p>
 
               {/* SSO Protocol Switcher Tabs */}
               <div className="flex flex-col gap-2">
-                <label className="font-medium text-sm sm:text-base">SSO Protocol</label>
+                <label className="text-[13px] leading-5 font-medium text-text-main">SSO Protocol</label>
                 <div className="flex p-1 rounded-lg bg-black/5 dark:bg-white/5 border border-border">
                   <button
                     type="button"
                     onClick={() => setSsoTypeTab("saml")}
                     className={cn(
-                      "flex-1 py-1.5 px-3 rounded-md font-medium text-xs sm:text-sm transition-all text-center",
+                      "flex-1 py-1.5 px-3 rounded-md font-medium text-[12px] transition-all text-center",
                       ssoTypeTab === "saml"
                         ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
                         : "text-text-muted hover:text-text-main"
@@ -718,7 +718,7 @@ export default function ProfilePage({
                     type="button"
                     onClick={() => setSsoTypeTab("oidc")}
                     className={cn(
-                      "flex-1 py-1.5 px-3 rounded-md font-medium text-xs sm:text-sm transition-all text-center",
+                      "flex-1 py-1.5 px-3 rounded-md font-medium text-[12px] transition-all text-center",
                       ssoTypeTab === "oidc"
                         ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
                         : "text-text-muted hover:text-text-main"
@@ -731,7 +731,7 @@ export default function ProfilePage({
 
               {/* Auth Mode selection */}
               <div className="flex flex-col gap-2">
-                <label className="font-medium text-sm sm:text-base">Auth Mode</label>
+                <label className="text-[13px] leading-5 font-medium text-text-main">Auth Mode</label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {[
                     {
@@ -770,8 +770,8 @@ export default function ProfilePage({
                         )}
                         disabled={loading || oidcLoading || samlLoading}
                       >
-                        <p className="font-medium text-sm sm:text-base">{option.title}</p>
-                        <p className="text-xs sm:text-sm text-text-muted mt-1">{option.desc}</p>
+                        <p className="text-[13px] font-medium text-text-main">{option.title}</p>
+                        <p className="text-[12px] text-text-muted mt-0.5">{option.desc}</p>
                       </button>
                     );
                   })}
@@ -791,7 +791,7 @@ export default function ProfilePage({
                       <div className="flex items-center gap-2">
                         <span className="material-symbols-outlined text-primary text-lg">menu_book</span>
                         <div>
-                          <p className="font-semibold text-xs sm:text-sm text-text-main">
+                          <p className="font-semibold text-[13px] text-text-main">
                             IdP Setup Guidelines & Provider Configuration Instructions
                           </p>
                           <p className="text-[11px] text-text-muted">
@@ -808,8 +808,8 @@ export default function ProfilePage({
                     </button>
 
                     {showSamlGuide && (
-                      <div className="p-4 border-t border-border bg-surface/30 text-xs text-text-main flex flex-col gap-3">
-                        <div className="p-2.5 rounded border border-primary/20 bg-primary/5 text-primary text-xs">
+                      <div className="p-4 border-t border-border bg-surface/30 text-[12px] text-text-main flex flex-col gap-3">
+                        <div className="p-2.5 rounded border border-primary/20 bg-primary/5 text-primary text-[12px]">
                           <p className="font-semibold mb-1">🔑 Required Service Provider (SP) Values for your IdP Setup:</p>
                           <ul className="list-disc pl-4 space-y-1 font-mono text-[11px]">
                             <li>
@@ -829,7 +829,7 @@ export default function ProfilePage({
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                           <div className="p-3 rounded border border-border bg-bg/50 flex flex-col gap-1.5">
-                            <p className="font-semibold text-text-main flex items-center gap-1.5">
+                            <p className="font-semibold text-[13px] text-text-main flex items-center gap-1.5">
                               <span>☁️</span> AWS IAM Identity Center
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
@@ -842,7 +842,7 @@ export default function ProfilePage({
                           </div>
 
                           <div className="p-3 rounded border border-border bg-bg/50 flex flex-col gap-1.5">
-                            <p className="font-semibold text-text-main flex items-center gap-1.5">
+                            <p className="font-semibold text-[13px] text-text-main flex items-center gap-1.5">
                               <span>🔷</span> Microsoft Entra ID (Azure AD)
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
@@ -855,7 +855,7 @@ export default function ProfilePage({
                           </div>
 
                           <div className="p-3 rounded border border-border bg-bg/50 flex flex-col gap-1.5">
-                            <p className="font-semibold text-text-main flex items-center gap-1.5">
+                            <p className="font-semibold text-[13px] text-text-main flex items-center gap-1.5">
                               <span>🟢</span> Okta / Auth0
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
@@ -868,7 +868,7 @@ export default function ProfilePage({
                           </div>
 
                           <div className="p-3 rounded border border-border bg-bg/50 flex flex-col gap-1.5">
-                            <p className="font-semibold text-text-main flex items-center gap-1.5">
+                            <p className="font-semibold text-[13px] text-text-main flex items-center gap-1.5">
                               <span>🛡️</span> Keycloak / Authentik
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
@@ -886,8 +886,8 @@ export default function ProfilePage({
                   {/* Quick Import Card */}
                   <div className="p-3 rounded-lg border border-dashed border-primary/40 bg-primary/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <p className="font-medium text-sm text-text-main">1-Click IdP Metadata XML Import</p>
-                      <p className="text-xs text-text-muted">Auto-fill SSO URL, Issuer & Cert from XML metadata</p>
+                      <p className="font-medium text-[13px] text-text-main">1-Click IdP Metadata XML Import</p>
+                      <p className="text-[12px] text-text-muted">Auto-fill SSO URL, Issuer & Cert from XML metadata</p>
                     </div>
                     <Button
                       type="button"
@@ -909,7 +909,7 @@ export default function ProfilePage({
 
                   <div className="grid grid-cols-1 gap-4">
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Single Sign-On Service URL (samlEntryPoint)</label>
+                      <label className="text-[13px] leading-5 font-medium text-text-main">Single Sign-On Service URL (samlEntryPoint)</label>
                       <Input
                         placeholder="https://idp.example.com/app/saml/sso/..."
                         value={samlForm.samlEntryPoint}
@@ -919,7 +919,7 @@ export default function ProfilePage({
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">SP Entity ID / Audience (samlIssuer)</label>
+                      <label className="text-[13px] leading-5 font-medium text-text-main">SP Entity ID / Audience (samlIssuer)</label>
                       <Input
                         placeholder="urn:9router:sp"
                         value={samlForm.samlIssuer}
@@ -930,7 +930,7 @@ export default function ProfilePage({
 
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center justify-between">
-                        <label className="font-medium text-sm sm:text-base">IdP X.509 Certificate (samlCert)</label>
+                        <label className="text-[13px] leading-5 font-medium text-text-main">IdP X.509 Certificate (samlCert)</label>
                         <Button
                           type="button"
                           variant="outline"
@@ -953,15 +953,15 @@ export default function ProfilePage({
                         placeholder="-----BEGIN CERTIFICATE-----&#10;MIIC...&#10;-----END CERTIFICATE-----"
                         value={samlForm.samlCert}
                         onChange={(e) => updateSamlForm("samlCert", e.target.value)}
-                        className="w-full p-2.5 rounded-lg border border-border bg-bg text-xs font-mono text-text-main focus:outline-none focus:border-primary"
+                        className="w-full p-2.5 rounded-lg border border-border bg-bg text-[12px] font-mono text-text-main focus:outline-none focus:border-primary"
                         disabled={loading || samlLoading}
                       />
-                      <p className="text-xs text-text-muted">Paste raw Base64 certificate or PEM block.</p>
+                      <p className="text-[12px] text-text-muted">Paste raw Base64 certificate or PEM block.</p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="flex flex-col gap-2">
-                        <label className="font-medium text-sm sm:text-base">Login Button Label</label>
+                        <label className="text-[13px] leading-5 font-medium text-text-main">Login Button Label</label>
                         <Input
                           placeholder="Sign in with SAML SSO"
                           value={samlForm.samlLoginLabel}
@@ -971,7 +971,7 @@ export default function ProfilePage({
                       </div>
 
                       <div className="flex flex-col gap-2">
-                        <label className="font-medium text-sm sm:text-base">Email Claim Attribute</label>
+                        <label className="text-[13px] leading-5 font-medium text-text-main">Email Claim Attribute</label>
                         <Input
                           placeholder="email"
                           value={samlForm.samlAttributeEmail}
@@ -981,7 +981,7 @@ export default function ProfilePage({
                       </div>
 
                       <div className="flex flex-col gap-2">
-                        <label className="font-medium text-sm sm:text-base">Display Name Claim</label>
+                        <label className="text-[13px] leading-5 font-medium text-text-main">Display Name Claim</label>
                         <Input
                           placeholder="name"
                           value={samlForm.samlAttributeName}
@@ -992,11 +992,11 @@ export default function ProfilePage({
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 p-3 rounded-lg border border-border bg-bg text-xs sm:text-sm text-text-muted">
+                  <div className="flex flex-col gap-2 p-3 rounded-lg border border-border bg-bg text-[12px] text-text-muted">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="font-medium text-text-main">ACS Callback URL</p>
-                        <code className="block break-all font-mono text-xs">{samlAcsUrl}</code>
+                        <p className="text-[13px] font-medium text-text-main">ACS Callback URL</p>
+                        <code className="block break-all font-mono text-[11px]">{samlAcsUrl}</code>
                       </div>
                       <Button
                         type="button"
@@ -1013,15 +1013,15 @@ export default function ProfilePage({
                     </div>
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
                       <div>
-                        <p className="font-medium text-text-main">SP XML Metadata</p>
-                        <code className="block break-all font-mono text-xs">{samlMetadataUrl}</code>
+                        <p className="text-[13px] font-medium text-text-main">SP XML Metadata</p>
+                        <code className="block break-all font-mono text-[11px]">{samlMetadataUrl}</code>
                       </div>
                       <a
                         href={samlMetadataUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         download="irouter-sp-metadata.xml"
-                        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                        className="inline-flex items-center gap-1 text-[12px] font-medium text-primary hover:underline"
                       >
                         <span className="material-symbols-outlined text-[16px]">download</span>
                         Download XML
@@ -1033,6 +1033,7 @@ export default function ProfilePage({
                     <Button
                       type="button"
                       variant="primary"
+                      size="sm"
                       loading={samlLoading}
                       onClick={() => saveSamlSettings(oidcForm.authMode)}
                       className="w-full sm:w-auto"
@@ -1042,6 +1043,7 @@ export default function ProfilePage({
                     <Button
                       type="button"
                       variant="outline"
+                      size="sm"
                       loading={samlTestLoading}
                       onClick={testSamlConnection}
                       className="w-full sm:w-auto"
@@ -1051,13 +1053,13 @@ export default function ProfilePage({
                   </div>
 
                   {samlTestStatus.message && (
-                    <p className={`text-xs sm:text-sm ${samlTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    <p className={`text-[12px] ${samlTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                       {samlTestStatus.message}
                     </p>
                   )}
 
                   {samlStatus.message && (
-                    <p className={`text-xs sm:text-sm ${samlStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    <p className={`text-[12px] ${samlStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                       {samlStatus.message}
                     </p>
                   )}
@@ -1067,7 +1069,7 @@ export default function ProfilePage({
                 <div className="flex flex-col gap-4 pt-2 border-t border-border/50">
                   <div className="grid grid-cols-1 gap-4">
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Issuer URL</label>
+                      <label className="text-[13px] leading-5 font-medium text-text-main">Issuer URL</label>
                       <Input
                         placeholder="https://auth.example.com/application/o/9router/"
                         value={oidcForm.oidcIssuerUrl}
@@ -1077,7 +1079,7 @@ export default function ProfilePage({
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Client ID</label>
+                      <label className="text-[13px] leading-5 font-medium text-text-main">Client ID</label>
                       <Input
                         placeholder="irouter-dashboard"
                         value={oidcForm.oidcClientId}
@@ -1087,7 +1089,7 @@ export default function ProfilePage({
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Client Secret</label>
+                      <label className="text-[13px] leading-5 font-medium text-text-main">Client Secret</label>
                       <Input
                         type="password"
                         placeholder="Leave blank to keep existing secret"
@@ -1095,11 +1097,11 @@ export default function ProfilePage({
                         onChange={(e) => setOidcClientSecret(e.target.value)}
                         disabled={loading || oidcLoading}
                       />
-                      <p className="text-xs sm:text-sm text-text-muted">This value is write-only after saving.</p>
+                      <p className="text-[12px] text-text-muted">This value is write-only after saving.</p>
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Scopes</label>
+                      <label className="text-[13px] leading-5 font-medium text-text-main">Scopes</label>
                       <Input
                         placeholder="openid profile email"
                         value={oidcForm.oidcScopes}
@@ -1109,7 +1111,7 @@ export default function ProfilePage({
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Login Button Label</label>
+                      <label className="text-[13px] leading-5 font-medium text-text-main">Login Button Label</label>
                       <Input
                         placeholder="Sign in with OIDC"
                         value={oidcForm.oidcLoginLabel}
@@ -1119,28 +1121,28 @@ export default function ProfilePage({
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-border bg-bg p-3 text-xs sm:text-sm text-text-muted">
-                    <p className="font-medium text-text-main mb-1">Redirect URI</p>
-                    <code className="block break-all font-mono">{oidcRedirectUri}</code>
+                  <div className="rounded-lg border border-border bg-bg p-3 text-[12px] text-text-muted">
+                    <p className="text-[13px] font-medium text-text-main mb-1">Redirect URI</p>
+                    <code className="block break-all font-mono text-[11px]">{oidcRedirectUri}</code>
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border/50">
-                    <Button type="button" variant="primary" loading={oidcLoading} onClick={() => saveOidcSettings()} className="w-full sm:w-auto">
+                    <Button type="button" variant="primary" size="sm" loading={oidcLoading} onClick={() => saveOidcSettings()} className="w-full sm:w-auto">
                       Save OIDC settings
                     </Button>
-                    <Button type="button" variant="outline" loading={oidcTestLoading} onClick={testOidcConnection} className="w-full sm:w-auto">
+                    <Button type="button" variant="outline" size="sm" loading={oidcTestLoading} onClick={testOidcConnection} className="w-full sm:w-auto">
                       Test connection
                     </Button>
                   </div>
 
                   {oidcTestStatus.message && (
-                    <p className={`text-xs sm:text-sm ${oidcTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    <p className={`text-[12px] ${oidcTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                       {oidcTestStatus.message}
                     </p>
                   )}
 
                   {oidcStatus.message && (
-                    <p className={`text-xs sm:text-sm ${oidcStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    <p className={`text-[12px] ${oidcStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                       {oidcStatus.message}
                     </p>
                   )}
@@ -1148,13 +1150,13 @@ export default function ProfilePage({
               )}
 
               {settings.authMode === "oidc" || settings.authMode === "saml" || settings.authMode === "sso" ? (
-                <p className="text-xs sm:text-sm text-amber-600 dark:text-amber-400">
+                <p className="text-[12px] text-amber-600 dark:text-amber-400">
                   SSO login ({settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"}) is currently active. Password login is disabled until you switch back.
                 </p>
               ) : null}
 
               {settings.authMode === "both" && (
-                <p className="text-xs sm:text-sm text-amber-600 dark:text-amber-400">
+                <p className="text-[12px] text-amber-600 dark:text-amber-400">
                   Password and SSO login ({settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"}) are both active.
                 </p>
               )}
@@ -1172,13 +1174,13 @@ export default function ProfilePage({
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 shrink-0">
               <span className="material-symbols-outlined text-[20px]">route</span>
             </div>
-            <h3 className="text-base sm:text-lg font-semibold">Routing Strategy</h3>
+            <h3 className="text-[14px] font-semibold text-text-main">Routing Strategy</h3>
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex items-start sm:items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Round Robin</p>
-                <p className="text-xs sm:text-sm text-text-muted">
+                <p className="text-[13px] leading-5 font-medium text-text-main">Round Robin</p>
+                <p className="text-[12px] leading-[1.5] text-text-muted">
                   Cycle through accounts to distribute load
                 </p>
               </div>
@@ -1193,8 +1195,8 @@ export default function ProfilePage({
             {settings.fallbackStrategy === "round-robin" && (
               <div className="flex items-start sm:items-center justify-between gap-4 pt-2 border-t border-border/50">
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm sm:text-base">Sticky Limit</p>
-                  <p className="text-xs sm:text-sm text-text-muted">
+                  <p className="text-[13px] leading-5 font-medium text-text-main">Sticky Limit</p>
+                  <p className="text-[12px] leading-[1.5] text-text-muted">
                     Calls per account before switching
                   </p>
                 </div>
@@ -1205,7 +1207,7 @@ export default function ProfilePage({
                   value={settings.stickyRoundRobinLimit || 3}
                   onChange={(e) => updateStickyLimit(e.target.value)}
                   disabled={loading}
-                  className="w-16 sm:w-20 text-center shrink-0"
+                  className="w-16 sm:w-20 text-center shrink-0 text-[13px]"
                 />
               </div>
             )}
@@ -1213,8 +1215,8 @@ export default function ProfilePage({
             {/* Combo Round Robin */}
             <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Combo Round Robin</p>
-                <p className="text-xs sm:text-sm text-text-muted">
+                <p className="text-[13px] leading-5 font-medium text-text-main">Combo Round Robin</p>
+                <p className="text-[12px] leading-[1.5] text-text-muted">
                   Cycle through providers in combos instead of always starting with first
                 </p>
               </div>
@@ -1228,8 +1230,8 @@ export default function ProfilePage({
             {/* Effort-aware routing（自维护特性，ADR 0003） */}
             <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Effort-aware Routing</p>
-                <p className="text-xs sm:text-sm text-text-muted">
+                <p className="text-[13px] leading-5 font-medium text-text-main">Effort-aware Routing</p>
+                <p className="text-[12px] leading-[1.5] text-text-muted">
                   Prefer combo members whose declared effort cap supports the requested reasoning effort
                 </p>
               </div>
@@ -1244,8 +1246,8 @@ export default function ProfilePage({
             {settings.comboStrategy === "round-robin" && (
               <div className="flex items-center justify-between pt-2 border-t border-border/50">
                 <div>
-                  <p className="font-medium">Combo Sticky Limit</p>
-                  <p className="text-sm text-text-muted">
+                  <p className="text-[13px] leading-5 font-medium text-text-main">Combo Sticky Limit</p>
+                  <p className="text-[12px] leading-[1.5] text-text-muted">
                     Calls per combo model before switching
                   </p>
                 </div>
@@ -1256,7 +1258,7 @@ export default function ProfilePage({
                   value={settings.comboStickyRoundRobinLimit || 1}
                   onChange={(e) => updateComboStickyLimit(e.target.value)}
                   disabled={loading}
-                  className="w-20 text-center"
+                  className="w-20 text-center text-[13px]"
                 />
               </div>
             )}
@@ -1267,7 +1269,7 @@ export default function ProfilePage({
                 and neither sentence matches a dictionary key (this block used to
                 stay English in every locale). The count is its own element, same
                 shape as Pagination, keeping the surrounding text static. */}
-            <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
+            <p className="text-[12px] text-text-muted italic pt-2 border-t border-border/50">
               {settings.fallbackStrategy === "round-robin" ? (
                 <span>
                   Currently distributing requests across all available accounts with{" "}
@@ -1305,8 +1307,8 @@ export default function ProfilePage({
               <span className="material-symbols-outlined text-[20px]">policy</span>
             </div>
             <div className="min-w-0">
-              <h3 className="text-base sm:text-lg font-semibold">Redaction Policy</h3>
-              <p className="text-xs sm:text-sm text-text-muted">
+              <h3 className="text-[14px] font-semibold text-text-main">Redaction Policy</h3>
+              <p className="text-[12px] leading-[1.5] text-text-muted">
                 Detect secrets (API keys, private keys, ID/bank cards) in the request body before
                 forwarding upstream. Outbound only — request details stored locally are still kept
                 in plain text.
@@ -1334,8 +1336,8 @@ export default function ProfilePage({
 
             <div className="flex items-start sm:items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Match stored credentials</p>
-                <p className="text-xs sm:text-sm text-text-muted">
+                <p className="text-[13px] leading-5 font-medium text-text-main">Match stored credentials</p>
+                <p className="text-[12px] leading-[1.5] text-text-muted">
                   Exact-match against the API keys and tokens already stored in this app. Zero false
                   positives. Only the rule name is logged, never the value.
                 </p>
@@ -1349,11 +1351,11 @@ export default function ProfilePage({
 
             <div className="flex items-start sm:items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Allow exemption markers</p>
+                <p className="text-[13px] leading-5 font-medium text-text-main">Allow exemption markers</p>
                 {/* 标记字面量必须留在 <code> 内：code 在 runtime i18n 的 skipTags 内不参与翻译，
                     也不会把描述句切成多个文本节点（那会导致整句匹配不上字典）。
                     此前为过 i18n 检查删掉过它们，结果只剩一个开关、用户无从得知写什么——勿再删。 */}
-                <p className="text-xs sm:text-sm text-text-muted">
+                <p className="text-[12px] leading-[1.5] text-text-muted">
                   Everything between the two markers skips inspection and reaches the provider
                   unchanged. Use it to send something a rule keeps flagging by mistake.
                 </p>
@@ -1412,13 +1414,13 @@ export default function ProfilePage({
                 <span className="material-symbols-outlined text-[20px]">payments</span>
               </div>
               <div className="min-w-0">
-                <h3 className="text-base sm:text-lg font-semibold">Pricing</h3>
-                <p className="text-xs sm:text-sm text-text-muted">
+                <h3 className="text-[14px] font-semibold text-text-main">Pricing</h3>
+                <p className="text-[12px] leading-[1.5] text-text-muted">
                   Token rates behind the estimated cost in usage statistics
                 </p>
               </div>
             </div>
-            <Button variant="outline" onClick={() => setPricingOpen(true)}>
+            <Button variant="outline" size="sm" onClick={() => setPricingOpen(true)}>
               Edit Pricing
             </Button>
           </div>
@@ -1427,7 +1429,7 @@ export default function ProfilePage({
 
         {/* App Info（嵌入壳层设置面板时隐藏，见 showAppInfo） */}
         {showAppInfo ? (
-          <div className="text-center text-xs sm:text-sm text-text-muted py-4">
+          <div className="text-center text-[12px] text-text-muted py-4">
             <p>{APP_CONFIG.name} v{APP_CONFIG.version}</p>
             <p className="mt-1">{isRemoteHost ? "Remote Mode" : "Local Mode - All data stored on your machine"}</p>
           </div>
@@ -1461,8 +1463,8 @@ function RetryStrategyCard({ settings, onChange, loading }) {
   const num = (label, desc, key, { min = 0, max = 99999 } = {}) => (
     <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
       <div className="min-w-0">
-        <p className="font-medium text-sm sm:text-base">{label}</p>
-        <p className="text-xs sm:text-sm text-text-muted">{desc}</p>
+        <p className="text-[13px] leading-5 font-medium text-text-main">{label}</p>
+        <p className="text-[12px] leading-[1.5] text-text-muted">{desc}</p>
       </div>
       <Input
         type="number"
@@ -1474,7 +1476,7 @@ function RetryStrategyCard({ settings, onChange, loading }) {
           if (Number.isInteger(v) && v >= min && v <= max) onChange({ [key]: v });
         }}
         disabled={loading}
-        className="w-20 text-center"
+        className="w-20 text-center text-[13px]"
       />
     </div>
   );
@@ -1485,14 +1487,14 @@ function RetryStrategyCard({ settings, onChange, loading }) {
         <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 shrink-0">
           <span className="material-symbols-outlined text-[20px]">autorenew</span>
         </div>
-        <h3 className="text-base sm:text-lg font-semibold">Retry Strategy</h3>
+        <h3 className="text-[14px] font-semibold text-text-main">Retry Strategy</h3>
       </div>
 
       <div className="flex flex-col gap-4">
         <div className="flex items-start sm:items-center justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm sm:text-base">Auto Retry</p>
-            <p className="text-xs sm:text-sm text-text-muted">
+            <p className="text-[13px] leading-5 font-medium text-text-main">Auto Retry</p>
+            <p className="text-[12px] leading-[1.5] text-text-muted">
               Hold failing requests (429/5xx) and retry automatically so agents keep running
             </p>
           </div>
@@ -1510,8 +1512,8 @@ function RetryStrategyCard({ settings, onChange, loading }) {
             {num("Account Retries", "Retry the same account on 429 before switching (0 = off)", "accountRetries", { max: 100 })}
             <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
               <div className="min-w-0">
-                <p className="font-medium text-sm sm:text-base">Respect Retries in Sticky</p>
-                <p className="text-xs sm:text-sm text-text-muted">Wait for retries to finish before advancing sticky counter; advance only on success (off = advance immediately)</p>
+                <p className="text-[13px] leading-5 font-medium text-text-main">Respect Retries in Sticky</p>
+                <p className="text-[12px] leading-[1.5] text-text-muted">Wait for retries to finish before advancing sticky counter; advance only on success (off = advance immediately)</p>
               </div>
               <Toggle
                 checked={ar.comboStickyRespectRetries === true}
@@ -1522,8 +1524,8 @@ function RetryStrategyCard({ settings, onChange, loading }) {
             {num("Interval (s)", "Base wait between retries", "intervalSeconds", { min: 1, max: 600 })}
             <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
               <div className="min-w-0">
-                <p className="font-medium text-sm sm:text-base">Exponential Backoff</p>
-                <p className="text-xs sm:text-sm text-text-muted">Double the wait each attempt and respect upstream Retry-After (off = fixed interval)</p>
+                <p className="text-[13px] leading-5 font-medium text-text-main">Exponential Backoff</p>
+                <p className="text-[12px] leading-[1.5] text-text-muted">Double the wait each attempt and respect upstream Retry-After (off = fixed interval)</p>
               </div>
               <Toggle
                 checked={ar.backoff !== false}
@@ -1538,8 +1540,8 @@ function RetryStrategyCard({ settings, onChange, loading }) {
             {num("Total Wait Budget (s)", "Cumulative wait ceiling per request (0 = unlimited)", "totalWaitBudgetSeconds", { max: 36000 })}
             <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
               <div className="min-w-0">
-                <p className="font-medium text-sm sm:text-base">Status Codes</p>
-                <p className="text-xs sm:text-sm text-text-muted">Comma-separated codes that trigger retry (rate-limit text always matches)</p>
+                <p className="text-[13px] leading-5 font-medium text-text-main">Status Codes</p>
+                <p className="text-[12px] leading-[1.5] text-text-muted">Comma-separated codes that trigger retry (rate-limit text always matches)</p>
               </div>
               <Input
                 value={(ar.statusCodes || []).join(", ")}
@@ -1548,7 +1550,7 @@ function RetryStrategyCard({ settings, onChange, loading }) {
                   if (list.length > 0) onChange({ statusCodes: list });
                 }}
                 disabled={loading}
-                className="w-40 text-center"
+                className="w-40 text-center text-[13px]"
               />
             </div>
           </>
