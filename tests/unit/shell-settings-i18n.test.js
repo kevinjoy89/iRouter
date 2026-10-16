@@ -301,9 +301,9 @@ describe("壳层设置模态框：结构与接线", () => {
     // 复用同一页组件 + groups 过滤，避免搬三十来个 useState
     expect(security).toMatch(/groups=\{\["security"\]\}/);
     expect(security).toMatch(/showAppInfo=\{false\}/);
-    // 网关设置那一段不再渲染安全/单点登录
+    // 网关设置那一段不再渲染安全/单点登录，且定价已独立为「外部集成」
     expect(readPanel("GatewaySettingsSection.js")).toMatch(
-      /groups=\{\["routing", "retry", "redaction", "pricing"\]\}/,
+      /groups=\{\["routing", "retry", "redaction"\]\}/,
     );
     // 分段表里两项相邻，且安全在网关之前
     const table = src.slice(
@@ -313,6 +313,8 @@ describe("壳层设置模态框：结构与接线", () => {
     const keys = [...table.matchAll(/key: "([a-z]+)"/g)].map((m) => m[1]);
     expect(keys).toContain("security");
     expect(keys.indexOf("security")).toBe(keys.indexOf("gateway") - 1);
+    expect(keys).toContain("integrations");
+    expect(keys.indexOf("integrations")).toBe(keys.indexOf("gateway") + 1);
   });
 
   it("每个分段只含自己的卡片：漏包一张就会串到别的分段（真实事故）", () => {
@@ -334,7 +336,6 @@ describe("壳层设置模态框：结构与接线", () => {
       routing: ["Routing Strategy", "updateFallbackStrategy"],
       retry: ["<RetryStrategyCard"],
       redaction: ["Redaction Policy"],
-      pricing: ["Token rates behind the estimated cost"],
     };
     const keys = Object.keys(OWN);
     keys.forEach((k, i) => {

@@ -42,14 +42,14 @@ describe("面板新增文案的字典覆盖", () => {
 
   function redactionBlock() {
     const src = readFileSync(PROFILE, "utf8");
-    return src.slice(src.indexOf("{/* Redaction Policy"), src.indexOf("{/* Pricing rates"));
+    return src.slice(src.indexOf("{/* Redaction Policy"), src.indexOf("{/* App Info"));
   }
 
   // 卡片排序是刻意的产品决策（脱敏紧随重试）。源码扫描钉住它，否则后续重构
   // 悄悄挪回去没有任何信号——这两个注释锚点在 profile 页里各出现一次。
   // 注意：Network / Observability / Storage 三段已迁到壳层设置面板，
-  // 因此这里不再拿它们当锚点（见 tests/unit/shell-settings-i18n.test.js）。
-  it("脱敏策略卡片紧随重试策略、且在定价之前", () => {
+  // 定价已独立为「外部集成」，因此这里断言脱敏紧随重试且在 App Info 之前。
+  it("脱敏策略卡片紧随重试策略、且在 App Info 之前", () => {
     const src = readFileSync(PROFILE, "utf8");
     const idx = (anchor) => {
       const at = src.indexOf(anchor);
@@ -58,7 +58,7 @@ describe("面板新增文案的字典覆盖", () => {
       return at;
     };
     expect(idx("{/* Retry Strategy")).toBeLessThan(idx("{/* Redaction Policy"));
-    expect(idx("{/* Redaction Policy")).toBeLessThan(idx("{/* Pricing rates"));
+    expect(idx("{/* Redaction Policy")).toBeLessThan(idx("{/* App Info"));
   });
 
   it("Redaction Policy 卡片的所有可翻译文案都在 zh-CN / zh-TW 字典中", () => {
@@ -128,7 +128,7 @@ describe("面板新增文案的字典覆盖", () => {
   it("描述句不内联 <code>/<strong>（会被切成多个文本节点而漏翻）", () => {
     const block = redactionBlock();
     // 逐条描述句（<p> 内的文案）不得内联标记元素；标记字面量只出现在独立的 <code> 块里。
-    const prose = [...block.matchAll(/<p className="text-xs sm:text-sm text-text-muted">([\s\S]*?)<\/p>/g)]
+    const prose = [...block.matchAll(/<p className="[^"]*text-text-muted[^"]*">([\s\S]*?)<\/p>/g)]
       .map((m) => m[1]);
     expect(prose.length).toBeGreaterThanOrEqual(3);
     for (const p of prose) {
@@ -407,5 +407,13 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
         "zh-CN",
       ),
     ).toBe("可启用针对散文/智能体轨迹的 Kompress-v2 HF 模型（需额外下载约 1 GB 依赖：torch + huggingface-hub）。");
+
+    // 37. models.dev 外部集成模型收录数与更新时间
+    expect(translateDynamicPatterns("3640 models tracked", "zh-CN")).toBe("已收录 3640 个模型");
+    expect(translateDynamicPatterns("3640 models tracked", "zh-TW")).toBe("已收錄 3640 個模型");
+    expect(translateDynamicPatterns("Synchronized 3640 models from models.dev", "zh-CN")).toBe("已从 models.dev 同步 3640 个模型");
+    expect(translateDynamicPatterns("Synchronized 3640 models from models.dev", "zh-TW")).toBe("已從 models.dev 同步 3640 個模型");
+    expect(translateDynamicPatterns("Updated 2026/10/16", "zh-CN")).toBe("已更新 2026/10/16");
+    expect(translateDynamicPatterns("Updated 2026/10/16", "zh-TW")).toBe("已更新 2026/10/16");
   });
 });

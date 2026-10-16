@@ -3,7 +3,7 @@
 // 通用设置：外观主题、界面语言以及桌面窗口生命周期行为
 // 方案 A 架构：整合原外观与窗口分段，Web 端与桌面壳层统一以「通用」作为第一项
 // 桌面专属项（开机自启、关窗行为）在 shell 存在时按需渲染
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
   Group,
   Notice,
@@ -14,8 +14,12 @@ import {
   Select,
   Switch,
 } from "./parts";
-import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
-import { reloadTranslations } from "@/i18n/runtime";
+import {
+  LOCALE_COOKIE,
+  normalizeLocale,
+  readLocalePreference,
+} from "@/i18n/config";
+import { reloadTranslations, resolveSystemLocale } from "@/i18n/runtime";
 import useThemeStore from "@/store/themeStore";
 
 const THEME_OPTIONS = [
@@ -39,30 +43,6 @@ const CLOSE_ACTIONS = [
 
 const LOCALE_PREF_EVENT = "irouter:locale-pref";
 
-// 显式选择的**权威**是壳层设置文件的 `locale` 字段（有壳层时）；浏览器形态下退回 cookie。
-// **不再读 localStorage**——它是 client-only 的第二份副本，与权威并存必然漂移（ADR 0008）。
-// 空串（或不受支持的值）表示「未选择」，交给优先级链回落。
-function readLocalePreference(shell) {
-  if (shell && typeof shell.locale === "string") {
-    return normalizeLocale(shell.locale) || "system";
-  }
-  if (typeof document === "undefined") return "system";
-  const cookie = document.cookie
-    .split(";")
-    .find((c) => c.trim().startsWith(`${LOCALE_COOKIE}=`));
-  if (!cookie) return "system";
-  return normalizeLocale(decodeURIComponent(cookie.split("=")[1])) || "system";
-}
-
-function resolveSystemLocale() {
-  if (typeof navigator === "undefined") return "en";
-  const nav = (navigator.language || "en").toLowerCase();
-  if (nav.includes("tw") || nav.includes("hk") || nav.includes("hant"))
-    return "zh-TW";
-  if (nav.startsWith("zh")) return "zh-CN";
-  return "en";
-}
-
 function subscribeLocalePref(onChange) {
   window.addEventListener(LOCALE_PREF_EVENT, onChange);
   return () => window.removeEventListener(LOCALE_PREF_EVENT, onChange);
@@ -80,6 +60,7 @@ function subscribeLocalePref(onChange) {
  */
 export default function GeneralSettings({ shell, onSettingChange }) {
   const { theme, setTheme } = useThemeStore();
+  const [optimisticLocale, setOptimisticLocale] = useState(null);
   const localePref = useSyncExternalStore(
     subscribeLocalePref,
     () => readLocalePreference(shell),
@@ -87,22 +68,44 @@ export default function GeneralSettings({ shell, onSettingChange }) {
   );
 
   const applyLocale = async (value) => {
-    // 顺序要紧：先落**权威**（壳层设置文件），再写派生态（cookie）。
-    // 反过来的话壳层重启时会读到旧值——它才是原生菜单语言的来源。
-    const target = value === "system" ? resolveSystemLocale() : value;
-    if (window.irouterShell?.setSetting) {
+    // 即时乐观响应，避免跨进程通信等待期间视觉回弹
+    setOptimisticLocale(value);
+
+    const isSystem = value === "system";
+    const nextLocale = isSystem ? "" : value;
+
+    // 1. 同步壳层设置权威（优先通知父组件更新 shell 状态，若无回调则直接调用 preload API）
+    if (onSettingChange) {
       try {
-        // 空串 = 未选择，壳层据此回落到系统语言（而不是回落到英文）
-        await window.irouterShell.setSetting(
-          "locale",
-          value === "system" ? "" : value,
-        );
+        await onSettingChange("locale", nextLocale);
       } catch {
-        /* 壳层不可用则跳过，cookie 仍生效 */
+        /* 壳层不可用则跳过 */
+      }
+    } else if (window.irouterShell?.setSetting) {
+      try {
+        await window.irouterShell.setSetting("locale", nextLocale);
+      } catch {
+        /* 壳层不可用则跳过 */
       }
     }
-    document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(target)}; path=/; max-age=31536000`;
+
+    // 2. 写入 cookie 供前端 runtime 渲染
+    // 桌面端派生态写入当前生效语言；浏览器形态下，选择跟随系统即清空显式 cookie
+    const isDesktop =
+      typeof window !== "undefined" && Boolean(window.irouterShell);
+    if (isDesktop) {
+      const target = isSystem ? resolveSystemLocale() : value;
+      document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(target)}; path=/; max-age=31536000`;
+    } else {
+      if (isSystem) {
+        document.cookie = `${LOCALE_COOKIE}=; path=/; max-age=0`;
+      } else {
+        document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(value)}; path=/; max-age=31536000`;
+      }
+    }
+
     await reloadTranslations();
+    setOptimisticLocale(null);
     window.dispatchEvent(new Event(LOCALE_PREF_EVENT));
   };
 
@@ -125,7 +128,7 @@ export default function GeneralSettings({ shell, onSettingChange }) {
           <Row label="Language" hint="User interface language">
             <Segmented
               name="language"
-              value={localePref}
+              value={optimisticLocale ?? localePref}
               options={LOCALE_OPTIONS}
               onChange={applyLocale}
             />

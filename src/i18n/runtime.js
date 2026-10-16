@@ -6,14 +6,31 @@ let translationMap = {};
 let currentLocale = DEFAULT_LOCALE;
 let reloadCallbacks = [];
 
+// 获取系统/浏览器探测语言（按优先级链依次判定：繁体 -> 简体 -> 英文）
+/**
+ * 探测系统或浏览器语言标记
+ *
+ * @return {string} 归一化后的语言代码（zh-TW / zh-CN / en）
+ * @author wei
+ * @since 2026-10-16
+ */
+export function resolveSystemLocale() {
+  if (typeof navigator === "undefined") return DEFAULT_LOCALE;
+  const nav = (navigator.language || DEFAULT_LOCALE).toLowerCase();
+  if (nav.includes("tw") || nav.includes("hk") || nav.includes("hant"))
+    return "zh-TW";
+  if (nav.startsWith("zh")) return "zh-CN";
+  return DEFAULT_LOCALE;
+}
+
 // Read locale from cookie
 function getLocaleFromCookie() {
   if (typeof document === "undefined") return DEFAULT_LOCALE;
   const cookie = document.cookie
     .split(";")
     .find((c) => c.trim().startsWith(`${LOCALE_COOKIE}=`));
-  const value = cookie ? decodeURIComponent(cookie.split("=")[1]) : DEFAULT_LOCALE;
-  return normalizeLocale(value);
+  const raw = cookie ? decodeURIComponent(cookie.split("=")[1] || "").trim() : "";
+  return normalizeLocale(raw) || resolveSystemLocale();
 }
 
 // Load translation map
@@ -610,6 +627,24 @@ export function translateDynamicPatterns(text, locale) {
     return isTw
       ? "安裝僅下載相依套件；使用 on/off 啟用它（將重啟代理）。預設安裝僅包含 [proxy]（僅針對 JSON 的 SmartCrusher）。新增 [code] 可啟用 AST 程式碼壓縮 (Python/JS/TS/Go/Rust/Java/C/C++/Perl)。新增 [ml] 可啟用針對散文/代理軌跡的 Kompress-v2 HF 模型（需額外下載約 1 GB 相依套件：torch + huggingface-hub）。"
       : "安装仅下载依赖包；使用 on/off 激活它（将重启代理）。默认安装仅包含 [proxy]（仅针对 JSON 的 SmartCrusher）。添加 [code] 可启用 AST 代码压缩 (Python/JS/TS/Go/Rust/Java/C/C++/Perl)。添加 [ml] 可启用针对散文/智能体执行轨迹的 Kompress-v2 HF 模型（需额外下载约 1 GB 依赖：torch + huggingface-hub）。";
+  }
+
+  // 37. models.dev 外部集成动态模式：模型收录数、同步结果与更新时间
+  const modelsTrackedMatch = text.match(/^(\d[\d,]*)\s*models\s+tracked$/i);
+  if (modelsTrackedMatch) {
+    return isTw
+      ? `已收錄 ${modelsTrackedMatch[1]} 個模型`
+      : `已收录 ${modelsTrackedMatch[1]} 个模型`;
+  }
+  const syncModelsMatch = text.match(/^Synchronized\s+(\d[\d,]*)\s+models\s+from\s+models\.dev$/i);
+  if (syncModelsMatch) {
+    return isTw
+      ? `已從 models.dev 同步 ${syncModelsMatch[1]} 個模型`
+      : `已从 models.dev 同步 ${syncModelsMatch[1]} 个模型`;
+  }
+  const updatedDateMatch = text.match(/^Updated\s+(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}.*)$/i);
+  if (updatedDateMatch) {
+    return isTw ? `已更新 ${updatedDateMatch[1]}` : `已更新 ${updatedDateMatch[1]}`;
   }
 
   return text;

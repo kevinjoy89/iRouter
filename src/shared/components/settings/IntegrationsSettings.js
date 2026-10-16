@@ -100,7 +100,7 @@ export default function IntegrationsSettings() {
                 <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-muted">
                   {meta.modelCount > 0 ? (
                     <span className="font-medium text-text-main">
-                      {meta.modelCount} models tracked
+                      {`${meta.modelCount} models tracked`}
                     </span>
                   ) : null}
                   <span className="opacity-60">•</span>
@@ -108,7 +108,7 @@ export default function IntegrationsSettings() {
                   {meta.lastUpdated ? (
                     <>
                       <span className="opacity-60">•</span>
-                      <span>Updated {new Date(meta.lastUpdated).toLocaleDateString()}</span>
+                      <span>{`Updated ${new Date(meta.lastUpdated).toLocaleDateString()}`}</span>
                     </>
                   ) : null}
                 </div>

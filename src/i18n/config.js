@@ -40,3 +40,31 @@ export function normalizeLocale(locale) {
 export function isSupportedLocale(locale) {
   return LOCALES.includes(locale);
 }
+
+/**
+ * 读取当前语言偏好选项值
+ *
+ * 显式选择的权威是壳层设置文件的 locale 字段（有壳层时）；浏览器形态下退回 cookie
+ * 空串、null 或不受支持的值表示「未选择/跟随系统」
+ *
+ * @param {object} [shell] 壳层设置对象
+ * @return {string} 偏好标识（system / en / zh-CN / zh-TW）
+ * @author wei
+ * @since 2026-10-16
+ */
+export function readLocalePreference(shell) {
+  const isDesktop =
+    typeof window !== "undefined" && Boolean(window.irouterShell || shell);
+  if (isDesktop) {
+    if (!shell) return "system";
+    return normalizeLocale(shell.locale) || "system";
+  }
+  if (typeof document === "undefined") return "system";
+  const cookie = document.cookie
+    .split(";")
+    .find((c) => c.trim().startsWith(`${LOCALE_COOKIE}=`));
+  if (!cookie) return "system";
+  const raw = decodeURIComponent(cookie.split("=")[1] || "").trim();
+  return normalizeLocale(raw) || "system";
+}
+
