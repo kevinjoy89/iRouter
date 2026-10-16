@@ -839,3 +839,28 @@ export function parseQuotaData(provider, data) {
 
   return normalizedQuotas;
 }
+
+// 默认配额表格每页展示条数
+export const DEFAULT_QUOTA_TABLE_PAGE_SIZE = 3;
+
+/**
+ * 计算配额分页区间与总页数
+ *
+ * @param {number} totalItems 配额总数量
+ * @param {number} [pageSize=DEFAULT_QUOTA_TABLE_PAGE_SIZE] 每页条数
+ * @param {number} [currentPage=1] 当前页码
+ * @return {{ totalPages: number, pageStart: number, pageEnd: number, effectivePageSize: number }} 分页计算结果
+ */
+export function calculateQuotaPagination(totalItems, pageSize = DEFAULT_QUOTA_TABLE_PAGE_SIZE, currentPage = 1) {
+  const effectivePageSize = Math.max(1, Number(pageSize) || DEFAULT_QUOTA_TABLE_PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(totalItems / effectivePageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const pageStart = totalItems === 0 ? 0 : (safePage - 1) * effectivePageSize + 1;
+  const pageEnd = Math.min(safePage * effectivePageSize, totalItems);
+  return {
+    totalPages,
+    pageStart,
+    pageEnd,
+    effectivePageSize,
+  };
+}

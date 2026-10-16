@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { translate } from "@/i18n/runtime";
-import { formatResetTime, getRemainingPercentage } from "./utils";
-
-const PAGE_SIZE = 10;
+import {
+  formatResetTime,
+  getRemainingPercentage,
+  calculateQuotaPagination,
+  DEFAULT_QUOTA_TABLE_PAGE_SIZE as DEFAULT_PAGE_SIZE,
+} from "./utils";
 
 /**
  * Format reset time display (Today, 12:00 PM)
@@ -83,7 +86,16 @@ function sortQuotas(quotas, sortMode) {
 }
 
 /**
- * Quota Table Component - Table-based display for quota data
+ * 配额表格组件，按表格形态展示配额使用率与重置周期
+ *
+ * @param {Object} props 组件入参
+ * @param {Array} [props.quotas=[]] 配额数据项列表
+ * @param {boolean} [props.compact=false] 是否紧凑排版
+ * @param {string} [props.sortMode="default"] 排序模式
+ * @param {boolean} [props.showSortLabel=false] 是否展示排序标签
+ * @param {Function|null} [props.onHideQuota=null] 隐藏配额行回调
+ * @param {number} [props.pageSize=DEFAULT_PAGE_SIZE] 每页展示条数，默认为 3 条
+ * @return {JSX.Element|null} 配额表格渲染内容
  */
 export default function QuotaTable({
   quotas = [],
@@ -91,6 +103,7 @@ export default function QuotaTable({
   sortMode = "default",
   showSortLabel = false,
   onHideQuota = null,
+  pageSize = DEFAULT_PAGE_SIZE,
 }) {
   const [page, setPage] = useState(1);
 
@@ -108,7 +121,12 @@ export default function QuotaTable({
     [normalizedQuotas, sortMode],
   );
 
-  const totalPages = Math.max(1, Math.ceil(sortedQuotas.length / PAGE_SIZE));
+  // 计算生效的分页信息
+  const { totalPages, pageStart, pageEnd, effectivePageSize } = calculateQuotaPagination(
+    sortedQuotas.length,
+    pageSize,
+    page,
+  );
 
   useEffect(() => {
     setPage(1);
@@ -122,12 +140,11 @@ export default function QuotaTable({
     return null;
   }
 
+  // 截取当前页数据
   const currentPageRows = sortedQuotas.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE,
+    (page - 1) * effectivePageSize,
+    page * effectivePageSize,
   );
-  const pageStart = sortedQuotas.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const pageEnd = Math.min(page * PAGE_SIZE, sortedQuotas.length);
 
   const cellPad = compact ? "py-1 px-1.5" : "py-2 px-3";
   const nameText = compact ? "text-[11px]" : "text-sm";
@@ -295,32 +312,40 @@ export default function QuotaTable({
       </div>
 
       {totalPages > 1 && (
-        <div className="rounded-md border border-black/10 bg-black/[0.02] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.03]">
-          <div className="flex items-center justify-between gap-2 text-[10px] text-text-muted">
+        <div className="flex items-center justify-between gap-2 rounded-md border border-black/10 bg-black/[0.02] px-2 py-1.5 text-[10px] text-text-muted dark:border-white/10 dark:bg-white/[0.03]">
+          <span className="truncate">
+            {translate(`Showing ${pageStart}-${pageEnd} of ${sortedQuotas.length}`)}
+          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
             <span>
-              {`Showing ${pageStart}-${pageEnd} of ${sortedQuotas.length}`}
+              {translate(`Page ${page} / ${totalPages}`)}
             </span>
-            <span>
-              {`Page ${page} / ${totalPages}`}
-            </span>
-          </div>
-          <div className="mt-1.5 flex items-center justify-end gap-1">
-            <button
-              type="button"
-              onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-              disabled={page === 1}
-              className="flex h-6 items-center rounded-md border border-black/10 px-2 text-[10px] text-text-main transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
-            >
-              {translate("Prev")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
-              disabled={page === totalPages}
-              className="flex h-6 items-center rounded-md border border-black/10 px-2 text-[10px] text-text-main transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
-            >
-              {translate("Next")}
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                disabled={page === 1}
+                className="inline-flex h-5 w-5 items-center justify-center rounded border border-black/10 text-text-main transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+                title={translate("Prev")}
+                aria-label={translate("Prev")}
+              >
+                <span className="material-symbols-outlined text-[14px] leading-none">
+                  chevron_left
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
+                disabled={page === totalPages}
+                className="inline-flex h-5 w-5 items-center justify-center rounded border border-black/10 text-text-main transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+                title={translate("Next")}
+                aria-label={translate("Next")}
+              >
+                <span className="material-symbols-outlined text-[14px] leading-none">
+                  chevron_right
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}
