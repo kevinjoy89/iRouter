@@ -268,12 +268,18 @@ export function translateDynamicPatterns(text, locale) {
     return isTw ? `已選取 ${selectedCountMatch[1]} 項` : `已选择 ${selectedCountMatch[1]} 项`;
   }
 
-  // 16. 上下文与最大输出 "ctx 128k" / "max 16k"
-  const ctxMatch = text.match(/^ctx\s+(.+)$/i);
+  // 16. 上下文与最大输出 "ctx 128k" / "ctx1M" / "ctx1M · max384k"
+  const ctxMaxCombinedMatch = text.match(/^ctx\s*([0-9a-zA-Z.]+)\s*·\s*max\s*([0-9a-zA-Z.]+)$/i);
+  if (ctxMaxCombinedMatch) {
+    return isTw
+      ? `上下文 ${ctxMaxCombinedMatch[1]} · 最大 ${ctxMaxCombinedMatch[2]}`
+      : `上下文 ${ctxMaxCombinedMatch[1]} · 最大 ${ctxMaxCombinedMatch[2]}`;
+  }
+  const ctxMatch = text.match(/^ctx\s*([0-9a-zA-Z.]+)$/i);
   if (ctxMatch) {
     return isTw ? `上下文 ${ctxMatch[1]}` : `上下文 ${ctxMatch[1]}`;
   }
-  const maxOutputMatch = text.match(/^max\s+(.+)$/i);
+  const maxOutputMatch = text.match(/^max\s*([0-9a-zA-Z.]+)$/i);
   if (maxOutputMatch) {
     return isTw ? `最大 ${maxOutputMatch[1]}` : `最大 ${maxOutputMatch[1]}`;
   }
@@ -284,8 +290,8 @@ export function translateDynamicPatterns(text, locale) {
     return isTw ? `+${plusMoreMatch[1]} 更多` : `+${plusMoreMatch[1]} 更多`;
   }
 
-  // 18. 回退模型提示 "No models in pool (will fallback to <model>)"
-  const noModelsPoolMatch = text.match(/^No\s+models\s+in\s+pool\s*\(will\s+fallback\s+to\s+(.+?)\)$/i);
+  // 18. 回退模型提示 "No models in pool (will fallback to <model>)" / "No models in pool (will fallback to<model>)"
+  const noModelsPoolMatch = text.match(/^No\s+models\s+in\s+pool\s*\(will\s+fallback\s+to\s*(.+?)\)$/i);
   if (noModelsPoolMatch) {
     return isTw
       ? `池中暫無模型（將回退到 ${noModelsPoolMatch[1]}）`
@@ -299,16 +305,18 @@ export function translateDynamicPatterns(text, locale) {
   }
 
   // 20. 配额倒计时 "in 22d 5h 40m" / "expires in 20h 25m"
-  const quotaCountdownMatch = text.match(/^(in|expires\s+in)\s+(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m)?$/i);
+  const quotaCountdownMatch = text.match(/^(in|expires\s+in)\s+(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?$/i);
   if (quotaCountdownMatch) {
     const isExpires = quotaCountdownMatch[1].toLowerCase().startsWith("expires");
     const d = quotaCountdownMatch[2];
     const h = quotaCountdownMatch[3];
     const m = quotaCountdownMatch[4];
+    const s = quotaCountdownMatch[5];
     const parts = [];
     if (d) parts.push(`${d}天`);
     if (h) parts.push(isTw ? `${h}小時` : `${h}小时`);
     if (m) parts.push(isTw ? `${m}分鐘` : `${m}分钟`);
+    if (s) parts.push(isTw ? `${s}秒` : `${s}秒`);
     const timeStr = parts.join(" ");
     if (isExpires) {
       return isTw ? `${timeStr}後到期` : `${timeStr}后到期`;
@@ -341,7 +349,34 @@ export function translateDynamicPatterns(text, locale) {
   // 22. 媒体提供商头部页面描述 "Manage your <kind> providers"
   const manageProvidersMatch = text.match(/^Manage\s+your\s+(.+?)\s+providers$/i);
   if (manageProvidersMatch) {
-    return isTw ? `管理您的 ${manageProvidersMatch[1]} 供應商` : `管理您的 ${manageProvidersMatch[1]} 供应商`;
+    const rawKind = manageProvidersMatch[1].trim();
+    const kindMap = {
+      "Text To Speech": isTw ? "文字轉語音" : "文本转语音",
+      "Speech To Text": isTw ? "語音轉文字" : "语音转文本",
+      "Text to Image": isTw ? "文字轉影像" : "文本转图像",
+      "Image to Text": isTw ? "影像轉文字" : "图像转文本",
+      "Embedding": isTw ? "嵌入" : "嵌入",
+      "Web Search": isTw ? "Web 搜尋" : "Web 搜索",
+      "Web Fetch": isTw ? "Web 擷取" : "Web 抓取",
+      "Video": isTw ? "影片" : "视频",
+      "Music": isTw ? "音樂" : "音乐",
+      "System One": "System One",
+      "AI provider": isTw ? "AI 提供商" : "AI 提供商",
+    };
+    const translatedKind = kindMap[rawKind] || rawKind;
+    return isTw ? `管理您的 ${translatedKind} 供應商` : `管理您的 ${translatedKind} 供应商`;
+  }
+
+  // 23. 视觉与音频适配器选项 "Vision —images (png, jpg, webp, ...)" 与 "Audio —audio input"
+  const visionMatch = text.match(/^Vision\s*(?:—|-)\s*images\s*\(([^)]+)\)$/i);
+  if (visionMatch) {
+    return isTw
+      ? `視覺 — 影像 (${visionMatch[1]})`
+      : `视觉 — 图像 (${visionMatch[1]})`;
+  }
+  const audioMatch = text.match(/^Audio\s*(?:—|-)\s*audio\s+input$/i);
+  if (audioMatch) {
+    return isTw ? "音訊 — 音訊輸入" : "音频 — 音频输入";
   }
 
   return text;

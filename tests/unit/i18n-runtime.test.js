@@ -230,8 +230,25 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
     expect(translateDynamicPatterns("3 selected", "zh-TW")).toBe("已選取 3 項");
 
     expect(translateDynamicPatterns("ctx 1M", "zh-CN")).toBe("上下文 1M");
+    expect(translateDynamicPatterns("ctx1M · max384k", "zh-CN")).toBe("上下文 1M · 最大 384k");
+    expect(translateDynamicPatterns("ctx1M · max384k", "zh-TW")).toBe("上下文 1M · 最大 384k");
+    expect(translateDynamicPatterns("ctx1M", "zh-CN")).toBe("上下文 1M");
+    expect(translateDynamicPatterns("max384k", "zh-CN")).toBe("最大 384k");
     expect(translateDynamicPatterns("max 384k", "zh-CN")).toBe("最大 384k");
     expect(translateDynamicPatterns("+5 more", "zh-CN")).toBe("+5 更多");
+
+    expect(
+      translateDynamicPatterns("Vision —images (png, jpg, webp)", "zh-CN"),
+    ).toBe("视觉 — 图像 (png, jpg, webp)");
+    expect(
+      translateDynamicPatterns("Vision —images (png, jpg, webp)", "zh-TW"),
+    ).toBe("視覺 — 影像 (png, jpg, webp)");
+    expect(
+      translateDynamicPatterns("Audio —audio input", "zh-CN"),
+    ).toBe("音频 — 音频输入");
+    expect(
+      translateDynamicPatterns("Audio —audio input", "zh-TW"),
+    ).toBe("音訊 — 音訊輸入");
 
     expect(
       translateDynamicPatterns(
@@ -266,6 +283,12 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
     expect(translateDynamicPatterns("Manage your System One providers", "zh-TW")).toBe(
       "管理您的 System One 供應商",
     );
+    expect(
+      translateDynamicPatterns("Manage your Speech To Text providers", "zh-CN"),
+    ).toBe("管理您的 语音转文本 供应商");
+    expect(
+      translateDynamicPatterns("Manage your Speech To Text providers", "zh-TW"),
+    ).toBe("管理您的 語音轉文字 供應商");
     expect(translateDynamicPatterns("Add Model", "zh-CN")).toBe("添加模型");
     expect(translateDynamicPatterns("Add Model to Combo", "zh-CN")).toBe("添加模型到组合");
   });
