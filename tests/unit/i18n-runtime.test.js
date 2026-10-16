@@ -171,10 +171,17 @@ describe("面板新增文案的字典覆盖", () => {
 // 节点会被翻译（只有 <select> 自身的直接文本会被跳过）。design.md 里「select 子树不翻译」
 // 的说法不精确——据此把 option 文案写成无描述的中性词是没必要的。
 describe("runtime i18n 的 skipTags 边界", () => {
-  function makeNode(value, tagName) {
+  function makeNode(value, tagName, classNames = []) {
     return {
       nodeValue: value,
-      parentElement: { tagName, hasAttribute: () => false, parentElement: null },
+      parentElement: {
+        tagName,
+        hasAttribute: () => false,
+        parentElement: null,
+        classList: {
+          contains: (cls) => classNames.includes(cls),
+        },
+      },
     };
   }
 
@@ -194,6 +201,13 @@ describe("runtime i18n 的 skipTags 边界", () => {
     const code = makeNode("[[ALLOW_SENSITIVE]]", "code");
     processTextNode(code);
     expect(code._originalText).toBeUndefined();
+  });
+
+  it("包含 material-symbols 类名的字体图标元素文本被跳过（防止图标名称被翻译）", () => {
+    const iconNode = makeNode("close", "span", ["material-symbols-outlined"]);
+    processTextNode(iconNode);
+    expect(iconNode._originalText).toBeUndefined();
+    expect(iconNode.nodeValue).toBe("close");
   });
 });
 
@@ -291,5 +305,27 @@ describe("动态正则模式翻译守护（端点、组合、使用情况、配�
     ).toBe("管理您的 語音轉文字 供應商");
     expect(translateDynamicPatterns("Add Model", "zh-CN")).toBe("添加模型");
     expect(translateDynamicPatterns("Add Model to Combo", "zh-CN")).toBe("添加模型到组合");
+  });
+
+  it("批量操作反馈与动态删除确认弹窗正确翻译", () => {
+    expect(translateDynamicPatterns("All 5 tests passed", "zh-CN")).toBe("全部 5 项测试通过");
+    expect(translateDynamicPatterns("All 5 tests passed", "zh-TW")).toBe("全部 5 項測試通過");
+    expect(translateDynamicPatterns("3/5 passed, 2 failed", "zh-CN")).toBe("3/5 项通过，2 项失败");
+    expect(translateDynamicPatterns("3/5 passed, 2 failed", "zh-TW")).toBe("3/5 項通過，2 項失敗");
+    expect(translateDynamicPatterns("Cooldown cleared for gpt-4", "zh-CN")).toBe("已清除 gpt-4 的冷却");
+    expect(translateDynamicPatterns("Cooldown cleared for gpt-4", "zh-TW")).toBe("已清除 gpt-4 的冷卻");
+    expect(translateDynamicPatterns("Deleted 3 connection(s), 1 failed.", "zh-CN")).toBe("已删除 3 个连接，1 个失败。");
+    expect(translateDynamicPatterns("Deleted with 2 failures.", "zh-CN")).toBe("删除完成，其中 2 个失败。");
+    expect(translateDynamicPatterns("Successfully added 10 models", "zh-CN")).toBe("成功添加 10 个模型");
+    expect(translateDynamicPatterns("Successfully added 10 models", "zh-TW")).toBe("成功新增 10 個模型");
+    expect(translateDynamicPatterns("Cannot delete: 3 connection(s) are still using this pool.", "zh-CN")).toBe(
+      "无法删除：仍有 3 个连接正在使用此代理池。",
+    );
+    expect(translateDynamicPatterns("Health check done. Alive: 5, Dead: 2", "zh-CN")).toBe(
+      "健康检查完成。存活: 5，失效: 2",
+    );
+    expect(translateDynamicPatterns("Disabled 4 dead proxies", "zh-CN")).toBe("已禁用 4 个失效代理");
+    expect(translateDynamicPatterns('Delete combo "my-combo"?', "zh-CN")).toBe('删除组合 "my-combo"？');
+    expect(translateDynamicPatterns('Delete combo "my-combo"?', "zh-TW")).toBe('刪除組合 "my-combo"？');
   });
 });

@@ -379,6 +379,68 @@ export function translateDynamicPatterns(text, locale) {
     return isTw ? "音訊 — 音訊輸入" : "音频 — 音频输入";
   }
 
+  // 24. 动态测试与批量操作反馈
+  const allTestsPassedMatch = text.match(/^All\s+(\d+)\s+tests\s+passed$/i);
+  if (allTestsPassedMatch) {
+    return isTw ? `全部 ${allTestsPassedMatch[1]} 項測試通過` : `全部 ${allTestsPassedMatch[1]} 项测试通过`;
+  }
+  const passedFailedMatch = text.match(/^(\d+)\/(\d+)\s+passed,\s+(\d+)\s+failed$/i);
+  if (passedFailedMatch) {
+    return isTw
+      ? `${passedFailedMatch[1]}/${passedFailedMatch[2]} 項通過，${passedFailedMatch[3]} 項失敗`
+      : `${passedFailedMatch[1]}/${passedFailedMatch[2]} 项通过，${passedFailedMatch[3]} 项失败`;
+  }
+  const cooldownClearedMatch = text.match(/^Cooldown\s+cleared\s+for\s+(.+)$/i);
+  if (cooldownClearedMatch) {
+    return isTw ? `已清除 ${cooldownClearedMatch[1]} 的冷卻` : `已清除 ${cooldownClearedMatch[1]} 的冷却`;
+  }
+  const deletedConnsFailedMatch = text.match(/^Deleted\s+(\d+)\s+connection\(s\),\s*(\d+)\s+failed\.$/i);
+  if (deletedConnsFailedMatch) {
+    return isTw
+      ? `已刪除 ${deletedConnsFailedMatch[1]} 個連線，${deletedConnsFailedMatch[2]} 個失敗。`
+      : `已删除 ${deletedConnsFailedMatch[1]} 个连接，${deletedConnsFailedMatch[2]} 个失败。`;
+  }
+  const deletedFailuresMatch = text.match(/^Deleted\s+with\s+(\d+)\s+failures?\.$/i);
+  if (deletedFailuresMatch) {
+    return isTw ? `刪除完成，其中 ${deletedFailuresMatch[1]} 個失敗。` : `删除完成，其中 ${deletedFailuresMatch[1]} 个失败。`;
+  }
+  const successfullyAddedModelsMatch = text.match(/^Successfully\s+added\s+(\d+)\s+models$/i);
+  if (successfullyAddedModelsMatch) {
+    return isTw ? `成功新增 ${successfullyAddedModelsMatch[1]} 個模型` : `成功添加 ${successfullyAddedModelsMatch[1]} 个模型`;
+  }
+  const cannotDeletePoolMatch = text.match(/^Cannot\s+delete:\s*(\d+)\s+connection\(s\)\s+are\s+still\s+using\s+this\s+pool\.$/i);
+  if (cannotDeletePoolMatch) {
+    return isTw
+      ? `無法刪除：仍有 ${cannotDeletePoolMatch[1]} 個連線正在使用此代理池。`
+      : `无法删除：仍有 ${cannotDeletePoolMatch[1]} 个连接正在使用此代理池。`;
+  }
+  const healthCheckDoneMatch = text.match(/^Health\s+check\s+done\.\s+Alive:\s*(\d+),\s*Dead:\s*(\d+)$/i);
+  if (healthCheckDoneMatch) {
+    return isTw
+      ? `健康檢查完成。存活: ${healthCheckDoneMatch[1]}，失效: ${healthCheckDoneMatch[2]}`
+      : `健康检查完成。存活: ${healthCheckDoneMatch[1]}，失效: ${healthCheckDoneMatch[2]}`;
+  }
+  const deployedUrlMatch = text.match(/^Deployed:\s*(https?:\/\/.+)$/i);
+  if (deployedUrlMatch) {
+    return isTw ? `部署成功: ${deployedUrlMatch[1]}` : `部署成功: ${deployedUrlMatch[1]}`;
+  }
+  const disabledDeadProxiesMatch = text.match(/^Disabled\s+(\d+)\s+dead\s+proxies$/i);
+  if (disabledDeadProxiesMatch) {
+    return isTw ? `已停用 ${disabledDeadProxiesMatch[1]} 個無效代理` : `已禁用 ${disabledDeadProxiesMatch[1]} 个失效代理`;
+  }
+  const batchImportResultMatch = text.match(/^Batch\s+import\s+completed:\s+Created\s+(\d+),\s*Skipped\s+(\d+),\s*Failed\s+(\d+)$/i);
+  if (batchImportResultMatch) {
+    return isTw
+      ? `批次匯入完成：建立 ${batchImportResultMatch[1]}，略過 ${batchImportResultMatch[2]}，失敗 ${batchImportResultMatch[3]}`
+      : `批量导入完成：创建 ${batchImportResultMatch[1]}，跳过 ${batchImportResultMatch[2]}，失败 ${batchImportResultMatch[3]}`;
+  }
+
+  // 25. 动态删除确认弹窗 "Delete combo <name>?"
+  const deleteComboMatch = text.match(/^Delete\s+combo\s+"(.+?)"\?$/i);
+  if (deleteComboMatch) {
+    return isTw ? `刪除組合 "${deleteComboMatch[1]}"？` : `删除组合 "${deleteComboMatch[1]}"？`;
+  }
+
   return text;
 }
 
@@ -452,6 +514,18 @@ export function processTextNode(node) {
 
   if (skipTags.includes(tagName)) return;
 
+  // 跳过 Material Symbols 与 Material Icons 图标字体节点，防止图标名称被翻译
+  const classList = parent.classList;
+  if (
+    classList &&
+    (classList.contains("material-symbols-outlined") ||
+      classList.contains("material-symbols-rounded") ||
+      classList.contains("material-symbols-sharp") ||
+      classList.contains("material-icons"))
+  ) {
+    return;
+  }
+
   // React reuses text nodes and rewrites their value on re-render (a
   // characterData mutation, no childList event). When the current value is
   // neither our last translation nor the recorded original, it is fresh
@@ -500,6 +574,7 @@ function processElement(element) {
   // already-translated values miss the English key and are left untouched)
   processElementTitles(element);
   processElementPlaceholders(element);
+  processElementAriaLabels(element);
 }
 
 // Translate title attributes (tooltips). Mirrors processTextNode's contract.
@@ -548,6 +623,35 @@ function processElementPlaceholders(element) {
   element.querySelectorAll?.("input[placeholder], textarea[placeholder]").forEach(processPlaceholder);
 }
 
+/**
+ * 翻译元素上的 aria-label 属性
+ * @param {Element} element 目标 DOM 节点
+ */
+function processAriaLabel(element) {
+  if (!element?.getAttribute) return;
+  if (element.closest?.("[data-i18n-skip]")) return;
+  const current = element.getAttribute("aria-label");
+  if (!current) return;
+  if (element._i18nOrigAriaLabel === undefined) {
+    element._i18nOrigAriaLabel = current;
+  }
+  const orig = element._i18nOrigAriaLabel;
+  const translated = translate(orig);
+  if (element.getAttribute("aria-label") !== translated) {
+    element.setAttribute("aria-label", translated);
+  }
+}
+
+/**
+ * 遍历并翻译元素内的所有带 aria-label 的属性节点
+ * @param {Element} element 根容器节点
+ */
+function processElementAriaLabels(element) {
+  if (!element || element.nodeType !== Node.ELEMENT_NODE) return;
+  processAriaLabel(element);
+  element.querySelectorAll?.("[aria-label]").forEach(processAriaLabel);
+}
+
 // Initialize runtime i18n
 export async function initRuntimeI18n() {
   if (typeof window === "undefined") return;
@@ -555,6 +659,23 @@ export async function initRuntimeI18n() {
   currentLocale = getLocaleFromCookie();
   applyDocumentLang();
   await loadTranslations(currentLocale);
+
+  // 挂钩原生 alert 与 confirm，使其弹窗提示文本自动翻译
+  if (!window.__i18n_dialog_patched) {
+    window.__i18n_dialog_patched = true;
+    const origAlert = window.alert;
+    if (typeof origAlert === "function") {
+      window.alert = function (message) {
+        return origAlert.call(this, typeof message === "string" ? translate(message) : message);
+      };
+    }
+    const origConfirm = window.confirm;
+    if (typeof origConfirm === "function") {
+      window.confirm = function (message) {
+        return origConfirm.call(this, typeof message === "string" ? translate(message) : message);
+      };
+    }
+  }
   
   // Process existing DOM
   processElement(document.body);
@@ -571,6 +692,8 @@ export async function initRuntimeI18n() {
           processTitle(mutation.target);
         } else if (mutation.attributeName === "placeholder") {
           processPlaceholder(mutation.target);
+        } else if (mutation.attributeName === "aria-label") {
+          processAriaLabel(mutation.target);
         }
         return;
       }
@@ -597,7 +720,7 @@ export async function initRuntimeI18n() {
     subtree: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ["title", "placeholder"],
+    attributeFilter: ["title", "placeholder", "aria-label"],
   });
 }
 

@@ -4,6 +4,7 @@
  */
 
 import { create } from "zustand";
+import { translate } from "@/i18n/runtime.js";
 
 let idCounter = 0;
 
@@ -12,11 +13,15 @@ export const useNotificationStore = create((set, get) => ({
 
   addNotification: (notification) => {
     const id = ++idCounter;
+    const rawMsg = notification.message;
+    const rawTitle = notification.title;
+    const message = typeof rawMsg === "string" ? translate(rawMsg) : rawMsg;
+    const title = typeof rawTitle === "string" ? translate(rawTitle) : (rawTitle || null);
     const entry = {
       id,
       type: notification.type || "info",
-      message: notification.message,
-      title: notification.title || null,
+      message,
+      title,
       duration: notification.duration ?? 5000,
       dismissible: notification.dismissible ?? true,
       createdAt: Date.now(),
