@@ -24,7 +24,7 @@ CI 构建四平台安装包并创建 GitHub Release。说明正文里不放尺�
 _Avoid_: 出包、打包（那是构建动作，不含版本与说明）
 
 **产品版本号（product version）**:
-iRouter 自身对外可见的版本号（当前 `0.4.4`），真源为 `desktop-tauri/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.104`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
+iRouter 自身对外可见的版本号（当前 `0.4.5`），真源为 `desktop-tauri/package.json`，构建期经 `NEXT_PUBLIC_APP_VERSION` 注入面板。与**上游基线号**（根 `package.json`，当前 `0.5.104`）解耦：后者只用于 UA / `X-Msh-Version` / `_meta.appVersion` 等与上游对齐的标识，不外露。二者不同不是缺陷，勿统一（ADR 0004）。
 _Avoid_: 网关版本（易与上游基线号混淆）、应用版本
 
 **壳层（shell layer）**:
