@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runSpeedtest, abortSpeedtest, isTauriEnvironment } from "@/features/speedtest/client";
-import { resolveUpstreamModel, resolveFullModel } from "@/features/speedtest/components/SpeedtestConfigForm";
+import { resolveUpstreamModel, resolveFullModel } from "@/features/speedtest/modelUtils";
 
 /**
  * 前端测速客户端抽象模块单元测试
