@@ -160,6 +160,58 @@ function resolveVendorAndKeyName(
 }
 
 /**
+ * 剥离提供商路由前缀，获取上游真实模型标识
+ *
+ * @param model 选中的模型标识
+ * @param prefix 连接前缀
+ * @param providerId 提供商标识
+ * @return 纯净的上游模型标识
+ * @author iRouter
+ * @since 2026-10-19
+ */
+export function resolveUpstreamModel(
+  model: string,
+  prefix?: string,
+  providerId?: string
+): string {
+  if (!model) return "";
+  const clean = model.trim();
+  if (prefix) {
+    const p = prefix.trim().toLowerCase();
+    if (clean.toLowerCase().startsWith(`${p}/`)) {
+      return clean.slice(p.length + 1);
+    }
+  }
+  if (providerId) {
+    const pid = providerId.trim().toLowerCase();
+    if (clean.toLowerCase().startsWith(`${pid}/`)) {
+      return clean.slice(pid.length + 1);
+    }
+  }
+  return clean;
+}
+
+/**
+ * 构造带路由前缀的全局模型标识（用于界面统一展示和网关路由）
+ *
+ * @param model 选中的模型标识
+ * @param prefix 连接前缀
+ * @return 带前缀的全局模型标识
+ * @author iRouter
+ * @since 2026-10-19
+ */
+export function resolveFullModel(model: string, prefix?: string): string {
+  if (!model) return "";
+  const clean = model.trim();
+  if (!prefix) return clean;
+  const p = prefix.trim().toLowerCase();
+  if (clean.toLowerCase().startsWith(`${p}/`)) {
+    return clean;
+  }
+  return `${p}/${clean}`;
+}
+
+/**
  * 专业基准评测配置控制台组件 (TSX)
  *
  * @author iRouter
@@ -427,17 +479,15 @@ export default function SpeedtestConfigForm({
       const protocol: SpeedtestProtocol = (targetConfig?.protocol as SpeedtestProtocol) || "openai";
       const apiKey = targetConfig?.apiKey || "";
       const prefix = activeConnection.prefix || resolveProviderPrefix(activeConnection, providerNodes);
-      const rawModel = selectedModel;
-      const fullModel = rawModel.includes("/")
-        ? rawModel
-        : `${prefix}/${rawModel}`;
+      const upstreamModel = resolveUpstreamModel(selectedModel, prefix, activeConnection.provider);
+      const fullModel = resolveFullModel(selectedModel, prefix);
 
-      // 条目 1：上游直连专线
+      // 条目 1：上游直连专线（rawModel 必须剥离本地前缀，确保上游接口正常识别）
       const directItem: BatchSpeedtestItem = {
         id: crypto.randomUUID(),
         label: `${fullModel}[${t("directTag")}]`,
         model: fullModel,
-        rawModel,
+        rawModel: upstreamModel,
         provider: prefix,
         targetUrl,
         protocol,
@@ -453,7 +503,7 @@ export default function SpeedtestConfigForm({
         return [directItem];
       }
 
-      // 条目 2：经 iRouter 本地代理网关流水线
+      // 条目 2：经 iRouter 本地代理网关流水线（rawModel 保留全局带前缀标识，由网关负责路由分发与剥离）
       const origin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:20128";
       const gatewayItem: BatchSpeedtestItem = {
         id: crypto.randomUUID(),
@@ -480,6 +530,7 @@ export default function SpeedtestConfigForm({
         id: crypto.randomUUID(),
         label: `${customModel}[${t("directTag")}]`,
         model: customModel,
+        rawModel: customModel,
         provider: "Custom",
         targetUrl: customTargetUrl,
         protocol: customProtocol,

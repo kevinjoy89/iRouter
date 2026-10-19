@@ -26,16 +26,16 @@ const fmtTokens = (n) => {
 
 /**
  * 自动换行 Y 轴刻度标签组件
- * 采用左对齐并自动换行，在固定 90px 紧凑宽度下，将模型名称各行左边缘平齐展示
+ * 采用左对齐并自动换行，在固定紧凑宽度下，将模型名称各行左边缘平齐展示
  *
  * @param {Object} props Recharts 刻度参数
  * @return {JSX.Element} SVG text 与 tspan 节点
  */
 function WrappedYAxisTick({ x, y, payload }) {
   const fullName = payload?.value || "";
-  const lines = wrapModelName(fullName, 12);
-  // 左对齐起始横坐标：从坐标轴基准线向左预留 82px，距离卡片左边界留出约 8px 舒适间距
-  const startX = Math.max(8, x - 82);
+  const lines = wrapModelName(fullName, 14);
+  // 左对齐起始横坐标：从坐标轴基准线向左预留 86px，距离卡片左边界留出约 8px 舒适间距
+  const startX = Math.max(8, x - 86);
 
   if (lines.length <= 1) {
     return (
@@ -148,7 +148,7 @@ export default function TopModelsChart({ byModel }) {
               tick={renderWrappedYAxisTick}
               tickLine={false}
               axisLine={false}
-              width={90}
+              width={95}
             />
             <Tooltip
               contentStyle={{

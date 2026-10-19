@@ -173,8 +173,11 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg p-4 relative overflow-hidden">
-      {/* Faint grid background */}
-      <div className="landing-grid absolute inset-0 pointer-events-none" aria-hidden="true" />
+      {/* 柔和漫射氛围光晕 */}
+      <div
+        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_center,rgba(229,106,74,0.06)_0%,transparent_70%)] dark:bg-[radial-gradient(ellipse_at_center,rgba(229,106,74,0.12)_0%,transparent_70%)]"
+        aria-hidden="true"
+      />
       <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-primary mb-2">iRouter</h1>

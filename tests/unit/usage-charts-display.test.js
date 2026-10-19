@@ -33,25 +33,23 @@ describe("使用统计图表供应商与模型名称展示防护", () => {
     expect(getProviderDisplayName("conn-123", customProviders)).toBe("我的 DeepSeek 账户");
   });
 
-  it("模型名称在长文本下智能自动换行，取消裁切且保持 90px 紧凑美观", () => {
+  it("模型名称在长文本下贪心撑满换行，杜绝腰斩版本号小数点", () => {
     // 1. 短模型名不换行，保持单行展示
     expect(wrapModelName("gpt-4o")).toEqual(["gpt-4o"]);
     expect(wrapModelName("claude-3")).toEqual(["claude-3"]);
 
-    // 2. 长模型名如 deepseek-v4.1-flash 智能在分隔符处拆分为两行，取消左侧裁切
+    // 2. 长模型名如 deepseek-v4.1-flash 优先撑满第一行，在合法连字符处折断且保护 v4.1 版本号
     const deepseekWrapped = wrapModelName("deepseek-v4.1-flash");
-    expect(deepseekWrapped.length).toBe(2);
-    expect(deepseekWrapped[0]).toBe("deepseek-");
-    expect(deepseekWrapped[1]).toBe("v4.1-flash");
-    // 拆分后的两行字符数均在 10 字符左右，在 90px 空间内留有 30px+ 充足边距
-    expect(deepseekWrapped[0].length).toBeLessThanOrEqual(12);
-    expect(deepseekWrapped[1].length).toBeLessThanOrEqual(12);
+    expect(deepseekWrapped).toEqual(["deepseek-v4.1-", "flash"]);
+    expect(deepseekWrapped[0].length).toBeLessThanOrEqual(14);
 
-    // 3. 其它长模型名称智能切分验证
-    const claudeWrapped = wrapModelName("claude-3.5-sonnet");
-    expect(claudeWrapped.length).toBe(2);
-    expect(claudeWrapped[0].length).toBeLessThanOrEqual(12);
-    expect(claudeWrapped[1].length).toBeLessThanOrEqual(12);
+    // 3. 验证真实模型名称的换行体验：撑满之后换行，绝不从小数点破坏 3.0 或 4.1
+    expect(wrapModelName("deepseek-v4-flash")).toEqual(["deepseek-v4-", "flash"]);
+    expect(wrapModelName("agnes-3.0-flash")).toEqual(["agnes-3.0-", "flash"]);
+    expect(wrapModelName("deepseek-v4.1-flash-1017")).toEqual(["deepseek-v4.1-", "flash-1017"]);
+
+    // 4. claude-3.5-sonnet 保护 3.5 版本号并撑满第一行
+    expect(wrapModelName("claude-3.5-sonnet")).toEqual(["claude-3.5-", "sonnet"]);
   });
 
   it("提供商拓扑图使用纯净 providers 保证椭圆几何布局正确且不会因节点重复发生坐标冲突", () => {

@@ -35,6 +35,41 @@ const KNOWN_PROVIDER_PREFIXES = {
   "opencode-go": "opencode-go",
 };
 
+let statsTableReady = false;
+
+/**
+ * 确保天梯榜独立物化统计表就绪
+ *
+ * @param {Object} db 数据库适配器实例
+ */
+async function ensureStatsTable(db) {
+  if (statsTableReady) return;
+  try {
+    await db.run(`
+      CREATE TABLE IF NOT EXISTS speedtestStats (
+        key TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        provider TEXT,
+        gatewayUrl TEXT NOT NULL,
+        runCount INTEGER DEFAULT 1,
+        totalTtft REAL NOT NULL,
+        minTtft REAL NOT NULL,
+        totalSpeed REAL NOT NULL,
+        maxSteadySpeed REAL NOT NULL,
+        totalChunkP50 REAL NOT NULL,
+        avgTtft REAL NOT NULL,
+        avgSteadySpeed REAL NOT NULL,
+        avgChunkP50 REAL NOT NULL,
+        avgJitterRatio REAL,
+        updatedAt TEXT NOT NULL
+      )
+    `);
+    statsTableReady = true;
+  } catch (err) {
+    // 忽略重复创建异常
+  }
+}
+
 /**
  * 规整模型完整路径标识（如 agnes/agnes-3.0-flash）
  *
@@ -115,9 +150,15 @@ export async function saveSpeedtestResult(record) {
     ? record.curvePoints
     : JSON.stringify(record.curvePoints || []);
 
+  const rawMetricsObj = typeof record.rawMetrics === "object" && record.rawMetrics !== null
+    ? { ...record.rawMetrics }
+    : {};
+  if (record.errorMessage) {
+    rawMetricsObj.errorMessage = record.errorMessage;
+  }
   const rawJson = typeof record.rawMetrics === "string"
     ? record.rawMetrics
-    : JSON.stringify(record.rawMetrics || {});
+    : JSON.stringify(rawMetricsObj);
 
   // 规整模型完整路径（如 agnes/agnes-3.0-flash）
   const modelName = normalizeModelPrefix(record.model, record.provider);
@@ -159,6 +200,85 @@ export async function saveSpeedtestResult(record) {
   ];
 
   await db.run(sql, params);
+
+  // 同步更新天梯榜独立物化统计表（独立持久化，清空流水明细时不被删除）
+  try {
+    await ensureStatsTable(db);
+    const statKey = `${modelName}__${record.gatewayUrl || ""}`;
+    const existing = await db.get("SELECT * FROM speedtestStats WHERE key = ?", [statKey]);
+    const now = new Date().toISOString();
+    const ttft = Number(record.ttftMs) || 0;
+    const speed = steadySpeed;
+    const p50 = chunkP50;
+    const jitter = jitterRatio !== null ? Number(jitterRatio) : null;
+
+    if (!existing) {
+      await db.run(
+        `INSERT INTO speedtestStats (
+          key, model, provider, gatewayUrl, runCount, totalTtft, minTtft,
+          totalSpeed, maxSteadySpeed, totalChunkP50, avgTtft, avgSteadySpeed,
+          avgChunkP50, avgJitterRatio, updatedAt
+        ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          statKey,
+          modelName,
+          record.provider || null,
+          record.gatewayUrl || "",
+          ttft,
+          ttft,
+          speed,
+          speed,
+          p50,
+          Number(ttft.toFixed(1)),
+          Number(speed.toFixed(2)),
+          Number(p50.toFixed(1)),
+          jitter !== null ? Number(jitter.toFixed(2)) : null,
+          now,
+        ]
+      );
+    } else {
+      const newRunCount = (Number(existing.runCount) || 0) + 1;
+      const newTotalTtft = (Number(existing.totalTtft) || 0) + ttft;
+      const newMinTtft = Math.min(Number(existing.minTtft) || ttft, ttft);
+      const newTotalSpeed = (Number(existing.totalSpeed) || 0) + speed;
+      const newMaxSpeed = Math.max(Number(existing.maxSteadySpeed) || 0, speed);
+      const newTotalP50 = (Number(existing.totalChunkP50) || 0) + p50;
+      const newAvgTtft = Number((newTotalTtft / newRunCount).toFixed(1));
+      const newAvgSpeed = Number((newTotalSpeed / newRunCount).toFixed(2));
+      const newAvgP50 = Number((newTotalP50 / newRunCount).toFixed(1));
+
+      await db.run(
+        `UPDATE speedtestStats SET
+          runCount = ?,
+          totalTtft = ?,
+          minTtft = ?,
+          totalSpeed = ?,
+          maxSteadySpeed = ?,
+          totalChunkP50 = ?,
+          avgTtft = ?,
+          avgSteadySpeed = ?,
+          avgChunkP50 = ?,
+          updatedAt = ?
+        WHERE key = ?`,
+        [
+          newRunCount,
+          newTotalTtft,
+          newMinTtft,
+          newTotalSpeed,
+          newMaxSpeed,
+          newTotalP50,
+          newAvgTtft,
+          newAvgSpeed,
+          newAvgP50,
+          now,
+          statKey,
+        ]
+      );
+    }
+  } catch (statErr) {
+    console.error("[speedtestRepo] 同步更新天梯榜统计表失败:", statErr);
+  }
+
   return id;
 }
 
@@ -223,6 +343,32 @@ export async function getSpeedtestHistory({ page = 1, limit = 20, model, gateway
  */
 export async function getSpeedtestStats() {
   const db = await getAdapter();
+  await ensureStatsTable(db);
+
+  try {
+    // 优先从独立的 speedtestStats 物化统计表中查询
+    const statRows = await db.all(
+      "SELECT * FROM speedtestStats ORDER BY avgSteadySpeed DESC, runCount DESC, model ASC"
+    );
+
+    if (statRows && statRows.length > 0) {
+      return statRows.map((r) => ({
+        model: r.model,
+        gatewayUrl: r.gatewayUrl,
+        runCount: Number(r.runCount),
+        avgTtft: Number(r.avgTtft),
+        minTtft: Number(r.minTtft),
+        avgSteadySpeed: Number(r.avgSteadySpeed),
+        maxSteadySpeed: Number(r.maxSteadySpeed),
+        avgChunkP50: Number(r.avgChunkP50),
+        avgJitterRatio: r.avgJitterRatio !== null && r.avgJitterRatio !== undefined ? Number(r.avgJitterRatio) : null,
+      }));
+    }
+  } catch {
+    // 忽略物化表查询异常并平稳降级
+  }
+
+  // 若物化统计表尚无数据，自历史流水表聚合并初次填充
   const sql = `
     SELECT
       model,
@@ -256,7 +402,8 @@ export async function getSpeedtestStats() {
     if (!aggregatedMap.has(key)) {
       aggregatedMap.set(key, {
         model: fullModel,
-        gatewayUrl: r.gatewayUrl,
+        provider: r.provider || null,
+        gatewayUrl: r.gatewayUrl || "",
         runCount,
         totalTtft: avgTtft * runCount,
         minTtft: Number(r.minTtft) || avgTtft,
@@ -292,7 +439,54 @@ export async function getSpeedtestStats() {
         : null,
   }));
 
-  results.sort((a, b) => b.avgSteadySpeed - a.avgSteadySpeed);
+  // 确定性稳定排序：依次按稳定速度降序、样本数降序、模型名称升序
+  results.sort((a, b) => {
+    if (b.avgSteadySpeed !== a.avgSteadySpeed) {
+      return b.avgSteadySpeed - a.avgSteadySpeed;
+    }
+    if (b.runCount !== a.runCount) {
+      return b.runCount - a.runCount;
+    }
+    return String(a.model).localeCompare(String(b.model));
+  });
+
+  // 初次聚合结果自动沉淀写入 speedtestStats 统计表
+  try {
+    const now = new Date().toISOString();
+    for (const item of results) {
+      const statKey = `${item.model}__${item.gatewayUrl || ""}`;
+      const entry = aggregatedMap.get(statKey);
+      if (entry) {
+        await db.run(
+          `INSERT OR REPLACE INTO speedtestStats (
+            key, model, provider, gatewayUrl, runCount, totalTtft, minTtft,
+            totalSpeed, maxSteadySpeed, totalChunkP50, avgTtft, avgSteadySpeed,
+            avgChunkP50, avgJitterRatio, updatedAt
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            statKey,
+            item.model,
+            entry.provider,
+            item.gatewayUrl,
+            item.runCount,
+            entry.totalTtft,
+            item.minTtft,
+            entry.totalSpeed,
+            item.maxSteadySpeed,
+            entry.totalChunkP50,
+            item.avgTtft,
+            item.avgSteadySpeed,
+            item.avgChunkP50,
+            item.avgJitterRatio,
+            now,
+          ]
+        );
+      }
+    }
+  } catch (syncErr) {
+    // 忽略初次迁移写入异常
+  }
+
   return results;
 }
 
@@ -337,6 +531,7 @@ export async function clearSpeedtestHistory({ batchId, beforeDate } = {}) {
     const res = await db.run("DELETE FROM speedtestResults WHERE createdAt < ?", [beforeDate]);
     return res?.changes || 0;
   }
+  // 仅清理历史流水日志明细，绝不清空天梯榜物化统计表
   const res = await db.run("DELETE FROM speedtestResults");
   return res?.changes || 0;
 }

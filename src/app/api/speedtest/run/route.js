@@ -175,7 +175,11 @@ export async function POST(request) {
                     officialUsageTokens = parsed.response.usage.output_tokens;
                   }
                 } else {
-                  textDelta = parsed.choices?.[0]?.delta?.content;
+                  textDelta =
+                    parsed.choices?.[0]?.delta?.content ??
+                    parsed.choices?.[0]?.delta?.reasoning_content ??
+                    parsed.choices?.[0]?.delta?.reasoning ??
+                    null;
                   if (parsed.usage?.completion_tokens) {
                     officialUsageTokens = parsed.usage.completion_tokens;
                   }

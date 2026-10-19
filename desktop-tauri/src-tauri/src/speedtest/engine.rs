@@ -76,6 +76,40 @@ impl SessionRegistry {
 pub static REGISTRY: LazyLock<SessionRegistry> = LazyLock::new(SessionRegistry::new);
 
 /**
+ * 判定目标 URL 是否为本地回路或 RFC 1918 私网/局域网专线地址
+ *
+ * @param url 待检测的目标 URL 字符串
+ * @return 若属于私网或本地回路则返回 true，公网返回 false
+ * @author iRouter
+ * @since 2026-10-19
+ */
+pub fn is_private_or_local_target(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+
+    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".local") {
+        return true;
+    }
+
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback() || v4.is_private() || v4.is_link_local()
+            }
+            std::net::IpAddr::V6(v6) => {
+                v6.is_loopback()
+            }
+        }
+    } else {
+        false
+    }
+}
+
+/**
  * 驱动单次测速任务执行的主引擎函数
  *
  * @param config 测速请求配置
@@ -107,12 +141,28 @@ where
         error: None,
     });
 
-    let client = reqwest::Client::builder()
+    let mut client_builder = reqwest::Client::builder();
+
+    // 针对本地回路与私网/专线端点，坚决禁用系统代理，避免被本地代理软件（如 Clash/Surge）拦截产生 502
+    if is_private_or_local_target(&config.target_url) {
+        client_builder = client_builder.no_proxy();
+    }
+
+    // 设置请求超时时间（默认 60 秒）
+    let timeout_ms = config.timeout_ms.unwrap_or(60_000);
+    client_builder = client_builder.timeout(std::time::Duration::from_millis(timeout_ms));
+
+    let client = client_builder
         .build()
         .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?;
 
     let headers = handler.build_headers(&config);
     let payload = handler.build_payload(&config);
+
+    log::info!(
+        "[speedtest] 发起测速请求: sid={}, url={}, model={}",
+        session_id, config.target_url, config.model
+    );
 
     let start_instant = Instant::now();
 
@@ -125,6 +175,7 @@ where
         Ok(resp) => resp,
         Err(err) => {
             let err_msg = format!("HTTP 网络请求异常: {err}");
+            log::warn!("[speedtest] HTTP 请求异常: sid={}, err={}", session_id, err_msg);
             on_progress(SpeedtestProgress {
                 session_id: session_id.clone(),
                 step: "failed".to_string(),
@@ -143,6 +194,7 @@ where
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         let err_msg = format!("上游返回 HTTP 错误状态码 {status}: {body}");
+        log::warn!("[speedtest] 上游状态异常: sid={}, err={}", session_id, err_msg);
         on_progress(SpeedtestProgress {
             session_id: session_id.clone(),
             step: "failed".to_string(),
@@ -322,5 +374,22 @@ mod tests {
         let aborted = registry.abort(sid);
         assert_eq!(aborted, true);
         assert_eq!(flag.load(Ordering::SeqCst), true);
+    }
+
+    /**
+     * 测试本地回路与私网专线端点的识别判定
+     *
+     * @return 单元测试断言结果
+     */
+    #[test]
+    fn test_is_private_or_local_target() {
+        assert!(is_private_or_local_target("http://127.0.0.1:20128/v1/chat/completions"));
+        assert!(is_private_or_local_target("http://localhost:5500/v1"));
+        assert!(is_private_or_local_target("http://172.17.10.25:5500/v1/chat/completions"));
+        assert!(is_private_or_local_target("http://192.168.1.1:8080"));
+        assert!(is_private_or_local_target("http://10.0.0.8:9000"));
+        assert!(is_private_or_local_target("http://test.local/v1"));
+        assert!(!is_private_or_local_target("https://api.openai.com/v1/chat/completions"));
+        assert!(!is_private_or_local_target("https://api.deepseek.com/chat/completions"));
     }
 }

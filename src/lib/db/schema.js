@@ -193,6 +193,29 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_sr_created ON speedtestResults(createdAt DESC)",
     ],
   },
+  speedtestStats: {
+    columns: {
+      key: "TEXT PRIMARY KEY",
+      model: "TEXT NOT NULL",
+      provider: "TEXT",
+      gatewayUrl: "TEXT NOT NULL",
+      runCount: "INTEGER DEFAULT 1",
+      totalTtft: "REAL NOT NULL",
+      minTtft: "REAL NOT NULL",
+      totalSpeed: "REAL NOT NULL",
+      maxSteadySpeed: "REAL NOT NULL",
+      totalChunkP50: "REAL NOT NULL",
+      avgTtft: "REAL NOT NULL",
+      avgSteadySpeed: "REAL NOT NULL",
+      avgChunkP50: "REAL NOT NULL",
+      avgJitterRatio: "REAL",
+      updatedAt: "TEXT NOT NULL",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_ss_speed ON speedtestStats(avgSteadySpeed DESC)",
+      "CREATE INDEX IF NOT EXISTS idx_ss_model ON speedtestStats(model)",
+    ],
+  },
 };
 
 export function buildCreateTableSql(name, def) {

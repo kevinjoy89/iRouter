@@ -164,9 +164,11 @@ describe("speedtestRepo 测速数据持久化与脱敏测试", () => {
     expect(stats[0].avgSteadySpeed).toBe(80.2);
   });
 
-  it("执行清理测速历史记录", async () => {
+  it("执行清理测速历史记录时仅清空流水明细表且保留统计表", async () => {
     mockRows.push({ id: "item-1" });
     const count = await clearSpeedtestHistory();
     expect(count).toBe(1);
+    expect(mockDb.run).toHaveBeenCalledWith(expect.stringContaining("DELETE FROM speedtestResults"));
+    expect(mockDb.run).not.toHaveBeenCalledWith(expect.stringContaining("DELETE FROM speedtestStats"));
   });
 });

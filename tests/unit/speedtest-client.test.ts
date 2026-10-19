@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runSpeedtest, abortSpeedtest, isTauriEnvironment } from "@/features/speedtest/client";
+import { resolveUpstreamModel, resolveFullModel } from "@/features/speedtest/components/SpeedtestConfigForm";
 
 /**
  * 前端测速客户端抽象模块单元测试
@@ -82,4 +83,24 @@ describe("speedtest client (TypeScript)", () => {
     const aborted = await abortSpeedtest("non-existent-session");
     expect(aborted).toBe(false);
   });
+
+  it("正确剥离上游直连模型路由前缀，避免上游 404 拒绝服务", () => {
+    // 典型场景：用户选择了带 hd/ 前缀的模型，直连时应纯净剥离为 deepseek-v4-flash
+    expect(resolveUpstreamModel("hd/deepseek-v4-flash", "hd")).toBe("deepseek-v4-flash");
+    expect(resolveUpstreamModel("HD/deepseek-v4-flash", "hd")).toBe("deepseek-v4-flash");
+    // 未带前缀时直接保留
+    expect(resolveUpstreamModel("deepseek-v4-flash", "hd")).toBe("deepseek-v4-flash");
+    // 兼容使用 providerId 作为前缀的情况
+    expect(resolveUpstreamModel("custom-node/deepseek-v4-flash", undefined, "custom-node")).toBe("deepseek-v4-flash");
+    // 嵌套/包含斜杠的第三方模型（如 openrouter/openai/gpt-4o）
+    expect(resolveUpstreamModel("or/openai/gpt-4o", "or")).toBe("openai/gpt-4o");
+  });
+
+  it("正确构造带统一前缀的全局路由模型标识用于展示和网关转发", () => {
+    expect(resolveFullModel("deepseek-v4-flash", "hd")).toBe("hd/deepseek-v4-flash");
+    expect(resolveFullModel("hd/deepseek-v4-flash", "hd")).toBe("hd/deepseek-v4-flash");
+    expect(resolveFullModel("gpt-4o", "")).toBe("gpt-4o");
+    expect(resolveFullModel("gpt-4o", undefined)).toBe("gpt-4o");
+  });
 });
+

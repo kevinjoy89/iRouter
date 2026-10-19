@@ -126,11 +126,24 @@ impl ProtocolHandler for OpenaiHandler {
 
         let mut chunk = StreamParsedChunk::default();
         if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
-            // 提取 choices[0].delta.content
-            if let Some(content) = v.pointer("/choices/0/delta/content").and_then(|c| c.as_str()) {
-                if !content.is_empty() {
-                    chunk.text_delta = Some(content.to_string());
-                }
+            // 提取 choices[0].delta.content，若为空则兼容推理模型的 reasoning_content 与 reasoning
+            let text_val = v
+                .pointer("/choices/0/delta/content")
+                .and_then(|c| c.as_str())
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    v.pointer("/choices/0/delta/reasoning_content")
+                        .and_then(|c| c.as_str())
+                        .filter(|s| !s.is_empty())
+                })
+                .or_else(|| {
+                    v.pointer("/choices/0/delta/reasoning")
+                        .and_then(|c| c.as_str())
+                        .filter(|s| !s.is_empty())
+                });
+
+            if let Some(content) = text_val {
+                chunk.text_delta = Some(content.to_string());
             }
             // 提取 usage.completion_tokens
             if let Some(tokens) = v.pointer("/usage/completion_tokens").and_then(|u| u.as_u64()) {

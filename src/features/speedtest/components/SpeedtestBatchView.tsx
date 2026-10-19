@@ -2,8 +2,21 @@
 
 import React, { useState } from "react";
 import SpeedtestSparkline from "./SpeedtestSparkline";
+import Modal from "@/shared/components/Modal";
 import { useSpeedtestI18n } from "../i18n";
+import type { SpeedtestRunnerError } from "../runnerStore";
 import type { SpeedtestProgress, SpeedtestResult, CurvePoint } from "../types";
+
+/**
+ * 模态框通用组件类型适配器
+ */
+const ModalDialog = Modal as unknown as React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  title?: React.ReactNode;
+  size?: string;
+  children?: React.ReactNode;
+}>;
 
 /**
  * 批次视图组件属性接口
@@ -19,6 +32,10 @@ export interface SpeedtestBatchViewProps {
   livePoints?: CurvePoint[];
   results?: SpeedtestResult[];
   isRunning?: boolean;
+  /** 运行期捕获的最近一次错误信息 */
+  lastError?: SpeedtestRunnerError | null;
+  /** 清除错误提示回调函数 */
+  onClearError?: () => void;
 }
 
 /**
@@ -35,11 +52,14 @@ export default function SpeedtestBatchView({
   livePoints = [],
   results = [],
   isRunning = false,
+  lastError: _lastError = null,
+  onClearError: _onClearError,
 }: SpeedtestBatchViewProps) {
   const { t } = useSpeedtestI18n();
 
   const [sortKey, setSortKey] = useState<keyof SpeedtestResult>("steadySpeed");
   const [sortAsc, setSortAsc] = useState<boolean>(false);
+  const [modalItem, setModalItem] = useState<SpeedtestResult | null>(null);
 
   // 未运行且无评测结果时，保持工作台干净，不占用垂直空间
   if (!isRunning && results.length === 0) {
@@ -240,22 +260,22 @@ export default function SpeedtestBatchView({
                 <span className="size-1.5 rounded-full bg-primary" />
                 {t("sparklineTitle")}
               </span>
-              <span>{t("sparklineSubtitle")}</span>
+              <span className="text-[11px] text-text-muted/80">高频流式采样</span>
             </div>
-            <div className="p-2 sm:p-3 rounded-xl bg-surface-2 border border-border">
+            <div className="p-2 sm:p-3 rounded-xl bg-surface-2 border border-border w-full">
               {livePoints.length > 0 ? (
-                <SpeedtestSparkline points={livePoints} height={140} />
+                <SpeedtestSparkline points={livePoints} height={240} />
               ) : (
                 <div
-                  className="flex flex-col items-center justify-center gap-1.5 rounded-lg bg-surface/30 border border-dashed border-border/80 text-text-muted select-none"
-                  style={{ height: 140 }}
+                  className="flex flex-col items-center justify-center gap-2 rounded-lg bg-surface/30 border border-dashed border-border/80 text-text-muted select-none w-full"
+                  style={{ height: 240 }}
                 >
                   <div className="flex items-center gap-2 text-xs font-medium text-primary">
                     <span className="material-symbols-outlined text-sm animate-spin">sync</span>
                     <span className="whitespace-nowrap">正在建立高速流式管道，等待首包吐词以绘制实时波形...</span>
                   </div>
                   <span className="text-[10px] text-text-muted font-mono whitespace-nowrap">
-                    16ms 硬件级动态采样引擎待命中
+                    动态高频流式采样已就绪
                   </span>
                 </div>
               )}
@@ -309,14 +329,27 @@ export default function SpeedtestBatchView({
               </thead>
               <tbody className="divide-y divide-border font-mono">
                 {sortedResults.map((r) => {
-                  const isTopSpeed = r.steadySpeed === bestSpeed && bestSpeed > 0;
-                  const isLowestTtft = r.ttftMs === minTtft && minTtft < 999999;
+                  const isFailed = !r.success;
+                  const isTopSpeed = !isFailed && r.steadySpeed === bestSpeed && bestSpeed > 0;
+                  const isLowestTtft = !isFailed && r.ttftMs === minTtft && minTtft < 999999;
+                  // 根据模型评测特征赋予鲜明区隔度主题色：
+                  // - 失败条目：醒目玫瑰红 #f43f5e (rose-500)
+                  // - 矩阵冠军（最高速度）：亮橙色 #f97316 (orange-500)
+                  // - 网关转发模式：紫罗兰/靛蓝 #6366f1 (indigo-500)
+                  // - 专线直连模式：科技青蓝 #0ea5e9 (sky-500)
+                  const curveColor = isFailed
+                    ? "#f43f5e"
+                    : isTopSpeed
+                    ? "#f97316"
+                    : r.isGateway
+                    ? "#6366f1"
+                    : "#0ea5e9";
 
                   return (
                     <tr
                       key={r.sessionId}
                       className={`hover:bg-surface-2 transition-colors ${
-                        r.isGateway ? "bg-primary/5" : ""
+                        isFailed ? "bg-rose-500/5" : r.isGateway ? "bg-primary/5" : ""
                       }`}
                     >
                       <td className="py-2.5 px-3 whitespace-nowrap">
@@ -325,7 +358,14 @@ export default function SpeedtestBatchView({
                             <span className="font-semibold text-text-main max-w-[220px] truncate" title={r.model}>
                               {r.model}
                             </span>
-                            {r.isGateway ? (
+                            {isFailed ? (
+                              <span
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-sans shrink-0 font-medium"
+                                title={r.errorMessage || "评测异常失败"}
+                              >
+                                失败
+                              </span>
+                            ) : r.isGateway ? (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 font-sans shrink-0 font-medium">
                                 {t("gatewayTag")}
                               </span>
@@ -342,39 +382,49 @@ export default function SpeedtestBatchView({
                       </td>
 
                       <td className="py-2.5 px-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 whitespace-nowrap">
-                          <span className="text-text-main font-bold">{r.ttftMs?.toFixed(0)} ms</span>
-                          {isLowestTtft && (
-                            <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-sans shrink-0 font-medium">
-                              {t("fastestTag")}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="py-2.5 px-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 whitespace-nowrap">
-                          <span className="text-primary font-bold text-sm">
-                            {r.steadySpeed?.toFixed(1)} t/s
+                        {isFailed ? (
+                          <span className="text-text-muted/60 text-xs" title={r.errorMessage || "评测失败"}>
+                            -
                           </span>
-                          {isTopSpeed && (
-                            <span className="text-[9px] px-1 py-0.2 rounded bg-primary/10 text-primary font-sans shrink-0 font-medium">
-                              {t("topSpeedTag")}
+                        ) : (
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="text-text-main font-bold">{r.ttftMs?.toFixed(0)} ms</span>
+                            {isLowestTtft && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-sans shrink-0 font-medium">
+                                {t("fastestTag")}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-2.5 px-3 text-text-muted whitespace-nowrap">
+                        {isFailed ? (
+                          <span className="text-text-muted/60 text-xs">-</span>
+                        ) : (
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="text-primary font-bold text-sm">
+                              {r.steadySpeed?.toFixed(1)} t/s
                             </span>
-                          )}
-                        </div>
+                            {isTopSpeed && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-primary/10 text-primary font-sans shrink-0 font-medium">
+                                {t("topSpeedTag")}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-2.5 px-3 text-text-muted whitespace-nowrap">
-                        {r.avgSpeed?.toFixed(1)} t/s
+                        {isFailed ? "-" : `${r.avgSpeed?.toFixed(1)} t/s`}
                       </td>
 
                       <td className="py-2.5 px-3 text-text-muted whitespace-nowrap">
-                        {r.chunkMetrics?.p50Ms?.toFixed(0)} / {r.chunkMetrics?.p95Ms?.toFixed(0)} ms
+                        {isFailed ? "-" : `${r.chunkMetrics?.p50Ms?.toFixed(0)} / ${r.chunkMetrics?.p95Ms?.toFixed(0)} ms`}
                       </td>
 
                       <td className="py-2.5 px-3 whitespace-nowrap">
-                        {r.chunkMetrics?.jitterRatio ? (
+                        {!isFailed && r.chunkMetrics?.jitterRatio ? (
                           <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
                               r.chunkMetrics.jitterRatio > 3
@@ -390,10 +440,41 @@ export default function SpeedtestBatchView({
                       </td>
 
                       <td className="py-2.5 px-3 w-32 whitespace-nowrap">
-                        <SpeedtestSparkline
-                          points={r.curvePoints || []}
-                          height={36}
-                        />
+                        {isFailed ? (
+                          <button
+                            type="button"
+                            className="flex items-center justify-center gap-1 w-full py-1.5 px-2 rounded-md bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] font-sans font-medium transition-colors"
+                            onClick={() => setModalItem(r)}
+                            title={r.errorMessage || "查看失败详情"}
+                          >
+                            <span className="material-symbols-outlined text-xs">info</span>
+                            <span>查看报错</span>
+                          </button>
+                        ) : (
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-label="查看波形图"
+                            onClick={() => setModalItem(r)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setModalItem(r);
+                              }
+                            }}
+                            className="group relative cursor-pointer rounded-md p-1 -m-1 transition-all hover:bg-surface-2 border border-transparent hover:border-border/60"
+                            title="点击放大查看高清波形与抖动分析"
+                          >
+                            <SpeedtestSparkline
+                              points={r.curvePoints || []}
+                              height={36}
+                              color={curveColor}
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-surface/40 opacity-0 backdrop-blur-[1px] transition-opacity group-hover:opacity-100">
+                              <span className="material-symbols-outlined text-xs text-primary font-bold">zoom_in</span>
+                            </div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -404,6 +485,119 @@ export default function SpeedtestBatchView({
         </div>
       )}
 
+      {/* 矩阵单项高清波形与延迟离散度深度分析模态弹窗 */}
+      <ModalDialog
+        isOpen={Boolean(modalItem)}
+        onClose={() => setModalItem(null)}
+        title={modalItem?.success === false ? "模型评测异常详情" : "模型评测波形分析"}
+        size="lg"
+      >
+        {modalItem && (
+          <div className="flex flex-col gap-4 text-xs font-sans">
+            {/* 顶部模型基本信息与核心指标 */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-surface-2 border border-border">
+              <div className="flex flex-col gap-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-text-main font-bold text-sm truncate">
+                    {modalItem.model}
+                  </span>
+                  {modalItem.success === false ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border font-mono border-rose-500/30 text-rose-600 dark:text-rose-400 bg-rose-500/10">
+                      评测失败
+                    </span>
+                  ) : (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${
+                        modalItem.isGateway
+                          ? "border-indigo-500/30 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10"
+                          : "border-sky-500/30 text-sky-600 dark:text-sky-400 bg-sky-500/10"
+                      }`}
+                    >
+                      {modalItem.isGateway ? t("gatewayTag") : t("directTag")}
+                    </span>
+                  )}
+                </div>
+                <span className="text-text-muted text-[11px] font-sans truncate max-w-md">
+                  {modalItem.provider || "-"} {modalItem.gatewayUrl ? `· ${modalItem.gatewayUrl}` : ""}
+                </span>
+              </div>
+              {modalItem.success !== false && (
+                <div className="flex items-center gap-4 shrink-0">
+                  <div className="flex flex-col text-right">
+                    <span className="text-text-muted text-[10px]">TTFT</span>
+                    <span className="text-text-main font-semibold">{modalItem.ttftMs?.toFixed(0)} ms</span>
+                  </div>
+                  <div className="flex flex-col text-right">
+                    <span className="text-text-muted text-[10px]">净稳定速度</span>
+                    <span className="text-primary font-bold text-sm">{modalItem.steadySpeed?.toFixed(1)} t/s</span>
+                  </div>
+                  <div className="flex flex-col text-right">
+                    <span className="text-text-muted text-[10px]">输出 Tokens</span>
+                    <span className="text-text-main font-semibold">{modalItem.outputTokens}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 失败项专属报错卡片展示 */}
+            {modalItem.success === false && (
+              <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400">
+                <span className="material-symbols-outlined text-base shrink-0 mt-0.5">error</span>
+                <div className="flex flex-col gap-1 min-w-0 flex-1">
+                  <span className="font-semibold text-text-main text-xs sm:text-sm">
+                    评测执行失败原因
+                  </span>
+                  <div className="font-mono text-[11px] leading-relaxed break-all select-all p-2.5 rounded-lg bg-surface/70 border border-border/50 text-text-main">
+                    {modalItem.errorMessage || "未获取到返回数据，上游网络超时或连接失败"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 高清波形图容器（仅成功采集到波形数据时展示） */}
+            {modalItem.success !== false && (
+              <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-surface border border-border">
+                <div className="flex items-center justify-between text-text-muted text-[11px] font-sans">
+                  <span className="font-semibold text-text-main flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-primary text-sm">ssid_chart</span>
+                    {t("sparklineTitle")}
+                  </span>
+                  <span className="font-mono text-[10px]">高频流式采样</span>
+                </div>
+                <SpeedtestSparkline
+                  points={modalItem.curvePoints || []}
+                  height={180}
+                  color={
+                    modalItem.steadySpeed === bestSpeed && bestSpeed > 0
+                      ? "#f97316"
+                      : modalItem.isGateway
+                      ? "#6366f1"
+                      : "#0ea5e9"
+                  }
+                />
+              </div>
+            )}
+
+            {/* 块延迟与离散度指标（成功时展示） */}
+            {modalItem.success !== false && modalItem.chunkMetrics && (
+              <div className="grid grid-cols-3 gap-2.5 text-center">
+                <div className="p-2.5 rounded-xl bg-surface-2 border border-border">
+                  <span className="text-text-muted text-[10px] block">Chunk P50</span>
+                  <span className="text-text-main font-bold text-xs mt-0.5 block">{modalItem.chunkMetrics.p50Ms?.toFixed(1)} ms</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-surface-2 border border-border">
+                  <span className="text-text-muted text-[10px] block">Chunk P95</span>
+                  <span className="text-text-main font-bold text-xs mt-0.5 block">{modalItem.chunkMetrics.p95Ms?.toFixed(1)} ms</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-surface-2 border border-border">
+                  <span className="text-text-muted text-[10px] block">间隔离散比</span>
+                  <span className="text-text-main font-bold text-xs mt-0.5 block">{modalItem.chunkMetrics.jitterRatio?.toFixed(2) ?? "-"}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </ModalDialog>
     </div>
   );
 }

@@ -41,8 +41,8 @@
   --color-sidebar: rgba(244, 241, 236, 0.85);
 
   /* Borders */
-  --color-border: #e5e7eb;
-  --color-border-subtle: #f1f1f3;
+  --color-border: #e8e8ea;
+  --color-border-subtle: rgba(0, 0, 0, 0.06);
   /* 上游代码用的是 border-hover / text-primary 这两个名字（9Router 基线里有），
      本 fork 的调色板此前没定义 → 那两个 class 生成不出规则、静默失效。
      补齐别名比改上游文件更稳：下次同步基线不会再冲突一次。 */
@@ -66,14 +66,14 @@
   --radius-brand-lg: 14px;
 
   /* Shadows */
-  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.04);
-  --shadow-warm: 0 2px 12px -2px rgba(229, 106, 74, 0.18);
-  --shadow-elevated: 0 12px 28px -4px rgba(60, 50, 45, 0.06);
+  --shadow-soft: 0 1px 3px 0 rgba(0, 0, 0, 0.03), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+  --shadow-warm: 0 4px 16px -2px rgba(229, 106, 74, 0.14), 0 2px 6px -1px rgba(0, 0, 0, 0.03);
+  --shadow-elevated: 0 10px 25px -4px rgba(60, 50, 45, 0.05), 0 4px 10px -2px rgba(0, 0, 0, 0.02);
   --shadow-elev:
-    inset 0 1px 0 0 rgba(255,255,255,0.8),
-    0 1px 2px rgba(15,23,42,0.04),
-    0 12px 36px -8px rgba(15,23,42,0.10);
-  --shadow-focus: 0 0 0 3px rgba(229,106,74,0.18);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
+    0 1px 3px rgba(15, 23, 42, 0.03),
+    0 10px 30px -6px rgba(15, 23, 42, 0.07);
+  --shadow-focus: 0 0 0 3px rgba(229, 106, 74, 0.18);
 
   color-scheme: light;
 }
@@ -102,8 +102,8 @@
   --color-surface-3: #3a3a3a;
   --color-sidebar: rgba(30, 30, 30, 0.85);
 
-  --color-border: #333333;
-  --color-border-subtle: #2a2a2a;
+  --color-border: #2e2e2e;
+  --color-border-subtle: rgba(255, 255, 255, 0.07);
   --color-border-hover: #4a4a4a;
 
   --color-text: #ededed;
@@ -117,14 +117,14 @@
   --color-warning: #fbbf24;
   --color-info: #60a5fa;
 
-  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.3);
-  --shadow-warm: 0 2px 12px -2px rgba(229, 106, 74, 0.25);
+  --shadow-soft: 0 1px 3px 0 rgba(0, 0, 0, 0.35), 0 1px 2px -1px rgba(0, 0, 0, 0.25);
+  --shadow-warm: 0 4px 16px -2px rgba(229, 106, 74, 0.22), 0 2px 6px -1px rgba(0, 0, 0, 0.1);
   --shadow-elevated: 0 12px 28px -4px rgba(0, 0, 0, 0.45);
   --shadow-elev:
-    inset 0 1px 0 0 rgba(255,255,255,0.06),
-    0 1px 2px rgba(0,0,0,0.4),
-    0 16px 48px -8px rgba(0,0,0,0.55);
-  --shadow-focus: 0 0 0 3px rgba(229, 106, 74, 0.18);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 16px 40px -8px rgba(0, 0, 0, 0.6);
+  --shadow-focus: 0 0 0 3px rgba(229, 106, 74, 0.22);
 
   color-scheme: dark;
 }
@@ -494,16 +494,9 @@ button:disabled,
     radial-gradient(circle at 85% 80%, rgba(229, 106, 74, 0.10) 0%, transparent 40%);
 }
 
-/* Landing-style faint grid overlay (use absolute pos inside relative parent) */
+/* 现代纯净画布：停用历史高频方格线条遮罩 */
 .landing-grid {
-  background-image:
-    linear-gradient(to right, var(--color-accent) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-accent) 1px, transparent 1px);
-  background-size: 40px 40px;
-  opacity: 0.08;
-}
-.dark .landing-grid {
-  opacity: 0.04;
+  display: none;
 }
 
 /* Topology: router card pulse (no flying rings) + electric edge beam */
