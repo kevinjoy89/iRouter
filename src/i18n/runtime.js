@@ -647,6 +647,102 @@ export function translateDynamicPatterns(text, locale) {
     return isTw ? `已更新 ${updatedDateMatch[1]}` : `已更新 ${updatedDateMatch[1]}`;
   }
 
+  // 38. 用量/配额服务的动态错误消息。
+  //
+  // 这些串由 open-sse/services/usage/* 生成，带 HTTP 状态码或上游错误文本，
+  // 因此无法靠字典精确匹配——它们是「模板 + 插值」，每次都长得不一样。
+  // 缺了这些模式，中文界面就会在配额卡片里直接显示英文（见 openspec
+  // upstream-sync-v0.5.112/i18n-audit.md 的第 2 类缺口）。
+  //
+  // 匹配顺序：先长后短，避免「X error」把「X usage API error (403)」吃掉。
+  const providerUsageErrorMatch = text.match(
+    /^(.+?)\s+(?:usage|balance|credits|billing|quota|subscriptions?)\s+API\s+error\s*\(([^)]+)\)\.?(.*)$/i
+  );
+  if (providerUsageErrorMatch) {
+    const [, who, code, rest] = providerUsageErrorMatch;
+    const tail = rest?.trim();
+    return isTw
+      ? `${who} 用量 API 錯誤（${code}）${tail ? `〜${tail}` : "。"}`
+      : `${who} 用量 API 错误（${code}）${tail ? `〜${tail}` : "。"}`;
+  }
+
+  const providerCtxErrorMatch = text.match(/^(.+?)\s+error:\s*(.+)$/i);
+  if (providerCtxErrorMatch) {
+    const [, who, detail] = providerCtxErrorMatch;
+    return isTw ? `${who} 錯誤：${detail}` : `${who} 错误：${detail}`;
+  }
+
+  const unableToFetchUsageMatch = text.match(/^(.+?)\s+connected\.?\s*Unable to fetch usage:?\s*(.+)$/i);
+  if (unableToFetchUsageMatch) {
+    const [, who, detail] = unableToFetchUsageMatch;
+    return isTw
+      ? `${who} 已連線。無法取得用量：${detail}`
+      : `${who} 已连接。无法获取用量：${detail}`;
+  }
+
+  const usageTemporarilyUnavailableMatch = text.match(
+    /^(.+?)\s+connected\.?\s*Usage API temporarily unavailable\s*\(([^)]+)\)\.?$/i
+  );
+  if (usageTemporarilyUnavailableMatch) {
+    const [, who, code] = usageTemporarilyUnavailableMatch;
+    return isTw
+      ? `${who} 已連線。用量 API 暫時無法使用（${code}）。`
+      : `${who} 已连接。用量 API 暂时不可用（${code}）。`;
+  }
+
+  const credentialNotAvailableMatch = text.match(/^(.+?)\s*\(([^)]+)\)\s*credential not available\.?$/i);
+  if (credentialNotAvailableMatch) {
+    const [, who, id] = credentialNotAvailableMatch;
+    return isTw
+      ? `${who}（${id}）憑證不可用。`
+      : `${who}（${id}）凭据不可用。`;
+  }
+
+  const usageFetchReturnedMatch = text.match(/^(.+?)\s+connected\.?\s*Usage fetch returned\s*(\d+)\.?$/i);
+  if (usageFetchReturnedMatch) {
+    const [, who, code] = usageFetchReturnedMatch;
+    return isTw
+      ? `${who} 已連線。用量取得回應 ${code}。`
+      : `${who} 已连接。用量获取返回 ${code}。`;
+  }
+
+  const quotaApiErrorMatch = text.match(/^(.+?)\s+quota\s+error:\s*(.+)$/i);
+  if (quotaApiErrorMatch) {
+    const [, who, detail] = quotaApiErrorMatch;
+    return isTw ? `${who} 配額錯誤：${detail}` : `${who} 配额错误：${detail}`;
+  }
+
+  const apiErrorWithStatusMatch = text.match(/^API Error\s+([^:]+):\s*(.+)$/i);
+  if (apiErrorWithStatusMatch) {
+    const [, code, detail] = apiErrorWithStatusMatch;
+    return isTw ? `API 錯誤 ${code}：${detail}` : `API 错误 ${code}：${detail}`;
+  }
+
+  // 纯状态码措辞（无 provider 前缀）
+  const upstreamQuotaFailedMatch = text.match(/^Failed to fetch quota$/i);
+  if (upstreamQuotaFailedMatch) {
+    return isTw ? "取得配額失敗" : "获取配额失败";
+  }
+
+  // usage endpoint error (500) —— 「endpoint」与「API」措辞不同，需单独匹配
+  const usageEndpointErrorMatch = text.match(/^(.+?)\s+usage\s+endpoint\s+error\s*\(([^)]+)\)\.?$/i);
+  if (usageEndpointErrorMatch) {
+    const [, who, code] = usageEndpointErrorMatch;
+    return isTw
+      ? `${who} 用量端點錯誤（${code}）。`
+      : `${who} 用量接口错误（${code}）。`;
+  }
+
+  // 会话/限额标签：Session (5h) / Limit (10)
+  const sessionHoursMatch = text.match(/^Session\s*\((\d+)h\)$/i);
+  if (sessionHoursMatch) {
+    return isTw ? `工作階段（${sessionHoursMatch[1]} 小時）` : `会话（${sessionHoursMatch[1]} 小时）`;
+  }
+  const limitNumberMatch = text.match(/^Limit\s*\((\d+)\)$/i);
+  if (limitNumberMatch) {
+    return isTw ? `限額（${limitNumberMatch[1]}）` : `限额（${limitNumberMatch[1]}）`;
+  }
+
   return text;
 }
 
