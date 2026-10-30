@@ -25,6 +25,10 @@
  */
 function parseLine(line, opts = {}) {
   const { isCloudflareAi = false } = opts;
+  // "LLM|id|secret" is an opaque 3-part token, not name|key — treat the whole line as the key
+  if (!isCloudflareAi && /^LLM\|/i.test(line.trim())) {
+    return { baseName: "LLM", apiKey: line.trim() };
+  }
   const parts = line.split("|");
 
   if (isCloudflareAi && parts.length >= 3) {
